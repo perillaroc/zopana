@@ -1,6 +1,6 @@
 # Zopana
 
-阶段 0 用一个 Qt 窗口验证视频渲染环境。程序启动时在 `QOpenGLWidget` 的 OpenGL 上下文中创建 libmpv 渲染器，窗口显示深蓝绿色底色，终端输出运行库和显卡信息。
+Zopana 是一个 Windows 桌面视频播放器。阶段 1 支持打开本地有声视频、暂停、定位、调节音量和全屏。Qt Widgets 提供界面，libmpv 使用软件解码，将画面绘入 `QOpenGLWidget`，并输出音频。
 
 ## 开发环境
 
@@ -39,13 +39,13 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to create libmpv.lib' }
 
 ## 构建与启动
 
-进入本仓库根目录（含 `CMakeLists.txt` 和 `main.cpp`）。将 `$qt` 和 `$ninjaBin` 改为本机安装路径。`CMAKE_PREFIX_PATH` 应指向包含 `lib/cmake/Qt6/Qt6Config.cmake` 的 Qt kit。`$mpv` 用作 `MPV_ROOT`，独立克隆时将下面的相对路径替换为 SDK 实际目录。
+进入本仓库根目录（含 `CMakeLists.txt` 和 `src/`）。将 `$qt` 和 `$ninjaBin` 改为本机安装路径。`CMAKE_PREFIX_PATH` 应指向包含 `lib/cmake/Qt6/Qt6Config.cmake` 的 Qt kit。`$mpv` 用作 `MPV_ROOT`，独立克隆时将下面的相对路径替换为 SDK 实际目录。
 
 ```powershell
 $qt = 'C:\lang\qt\6.11.3\msvc2022_64'
 $ninjaBin = 'C:\lang\qt\Tools\Ninja'
 $mpv = (Resolve-Path '..\..\deps\libmpv\0.42.0-windows-x64' -ErrorAction Stop).Path
-$build = Join-Path $PWD ('build\stage0-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$build = Join-Path $PWD ('build\stage1-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $env:CMAKE_PREFIX_PATH = $qt
 $env:PATH = "$qt\bin;$ninjaBin;$env:PATH"
 $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$qt\plugins\platforms"
@@ -66,11 +66,22 @@ $exitCode = $LASTEXITCODE
 
 构建目标使用 C++20。单配置 Ninja 将 `Zopana.exe` 输出到 `$build` 顶层，构建时自动将 SDK 中的 `libmpv-2.dll` 复制到同一目录。启动时保持上述终端环境，使 Qt 可以加载 kit 中的运行库和 Windows 平台插件。
 
-## 窗口验收
+## 基础播放
 
-1. 确认标题为 **Zopana**。拖动窗口边框使其变大，再用另一窗口遮挡后移开。深蓝绿色的视频区应随尺寸变化填满客户区，恢复可见后应完整重绘。
-2. 关闭 Zopana 窗口，确认终端显示 `Zopana exit code = 0`。
-3. 在 `$build\startup.log` 核对以下关键行。GL 三项以本机显卡和驱动输出为准。
+点击**打开文件**或按 **Ctrl+O**，在文件选择器中选取一段带 AAC 音轨的本地 H.264 视频。打开后自动播放，标题栏显示文件名，控制条显示播放状态、视频尺寸和“当前时间 / 总时长”。
+
+| 操作 | 使用方法 |
+| --- | --- |
+| 暂停、继续 | 点击**暂停**或**播放**，也可按空格。 |
+| 拖动定位 | 拖动进度条的滑块，观察 `HH:MM:SS` 格式的目标时间。松手后提交一次定位。暂停时也可以定位并查看目标帧。 |
+| 键盘定位 | 用 Tab 将焦点移到进度条。左右方向键每次调整 1 秒，Page Up / Page Down 每次调整 10 秒，Home / End 跳到进度条的起点或终点。 |
+| 调节音量 | 拖动音量滑块，在 0% 到 100% 之间调整，左侧显示播放引擎反馈的音量。 |
+| 全屏 | 点击**全屏**或按 **F11** 切换，按 **Esc** 退出全屏。 |
+| 换片、重试 | 播放期间或显示“播放完毕”时，可用 **Ctrl+O** 打开下一段。损坏文件的错误原因显示在“打开失败”后，可在同一窗口重新选片。 |
+
+## 运行日志
+
+上述启动命令将本次运行的日志保存到 `$build\startup.log`。启动时可核对以下关键行。GL 三项以本机显卡和驱动输出为准。
 
 ```text
 Qt runtime: 6.11.3
@@ -81,3 +92,16 @@ GL renderer: <显卡或渲染器名称>
 GL version: <OpenGL 版本及驱动信息>
 mpv_render_context_create: 0 (success)
 ```
+
+打开文件后，`loadfile submitted` 记录请求的路径，`FILE_LOADED entry=…` 表示文件已加载。`duration` 和 `video display size` 分别给出秒数和画面尺寸，`audio output` 给出音频后端、采样率和声道数。一次将滑块拖到 5 分钟的操作应产生一行 `seek submitted: 300.000 s`。暂停和音量变化可分别从 `pause`、`volume` 行核对。
+
+自然播完、换片或文件损坏时可用 `END_FILE` 的 `entry` 对上对应文件，查看 `reason` 和 `error`。关闭窗口后，终端应显示 `Zopana exit code = 0`。
+
+## 源码布局
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/main.cpp` | 创建 Qt 应用和播放器，启动主窗口并管理退出顺序。 |
+| `src/mainwindow.{h,cpp}` | 文件选择器、播放控件、快捷键和状态显示。 |
+| `src/player.{h,cpp}` | 持有 `mpv_handle`，异步提交命令，按文件处理事件和属性反馈。 |
+| `src/videowidget.{h,cpp}` | 在 Qt 的 OpenGL 上下文中创建渲染器，绘制视频帧并在窗口变化时重绘。 |

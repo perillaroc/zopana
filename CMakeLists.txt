@@ -30,7 +30,13 @@ set_target_properties(mpv::mpv PROPERTIES
     IMPORTED_LOCATION "${MPV_ROOT}/libmpv-2.dll"
 )
 
-add_executable(Zopana main.cpp)
+add_executable(Zopana
+    src/main.cpp
+    src/mainwindow.cpp src/mainwindow.h
+    src/player.cpp src/player.h
+    src/videowidget.cpp src/videowidget.h
+)
+set_target_properties(Zopana PROPERTIES AUTOMOC ON)
 target_compile_features(Zopana PRIVATE cxx_std_20)
 target_link_libraries(Zopana PRIVATE Qt6::Widgets Qt6::OpenGLWidgets mpv::mpv)
 
