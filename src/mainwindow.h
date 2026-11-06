@@ -24,6 +24,7 @@ private:
     Player &player_;
     VideoWidget *video_;
     QPushButton *playPause_;
+    QPushButton *resetView_;
     QPushButton *fullscreen_;
     QSlider *seek_;
     QLabel *time_;

@@ -23,6 +23,7 @@ public:
     void shutdown();
 
 signals:
+    void fileOpening();
     void mediaChanged(Player::State state, const QString &path, const QString &error);
     void durationChanged(double seconds);
     void positionChanged(double seconds);

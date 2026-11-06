@@ -5,11 +5,11 @@ if(NOT MSVC OR NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
     message(FATAL_ERROR "The libmpv SDK requires an MSVC x64 build. Use the VS 2022 x64 Developer PowerShell.")
 endif()
 
-find_package(Qt6 CONFIG QUIET COMPONENTS Widgets OpenGLWidgets)
+find_package(Qt6 CONFIG QUIET COMPONENTS Widgets OpenGL OpenGLWidgets)
 if(NOT Qt6_FOUND)
     message(FATAL_ERROR
-        "Set CMAKE_PREFIX_PATH to a Qt 6 MSVC x64 kit containing Qt6Config.cmake, "
-        "Qt6WidgetsConfig.cmake and Qt6OpenGLWidgetsConfig.cmake under lib/cmake. "
+        "Set CMAKE_PREFIX_PATH to a Qt 6 MSVC x64 kit containing Qt6Config.cmake "
+        "and the Widgets, OpenGL and OpenGLWidgets packages under lib/cmake. "
         "${Qt6_NOT_FOUND_MESSAGE}")
 endif()
 
@@ -34,11 +34,12 @@ add_executable(Zopana
     src/main.cpp
     src/mainwindow.cpp src/mainwindow.h
     src/player.cpp src/player.h
+    src/viewgeometry.h
     src/videowidget.cpp src/videowidget.h
 )
 set_target_properties(Zopana PROPERTIES AUTOMOC ON)
 target_compile_features(Zopana PRIVATE cxx_std_20)
-target_link_libraries(Zopana PRIVATE Qt6::Widgets Qt6::OpenGLWidgets mpv::mpv)
+target_link_libraries(Zopana PRIVATE Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets mpv::mpv)
 
 add_custom_command(TARGET Zopana POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:mpv::mpv>" "$<TARGET_FILE_DIR:Zopana>"

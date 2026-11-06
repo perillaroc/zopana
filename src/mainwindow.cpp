@@ -162,6 +162,11 @@ MainWindow::MainWindow(Player &player, QWidget *parent)
     volume->setMaximumWidth(110);
     volumeLabel->setBuddy(volume);
     actions->addWidget(volume);
+    resetView_ = new QPushButton(QStringLiteral("恢复适应窗口"));
+    resetView_->setObjectName(QStringLiteral("resetViewButton"));
+    resetView_->setEnabled(false);
+    actions->addWidget(resetView_);
+    connect(resetView_, &QPushButton::clicked, video_, &VideoWidget::resetView);
     fullscreen_ = new QPushButton(QStringLiteral("全屏"));
     fullscreen_->setObjectName(QStringLiteral("fullscreenButton"));
     fullscreen_->setToolTip(QStringLiteral("切换全屏 (F11)"));
@@ -187,6 +192,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent)
     connect(volume, &QSlider::valueChanged, &player_, &Player::setVolume);
 
     connect(&player_, &Player::mediaChanged, this, &MainWindow::updateMedia);
+    connect(&player_, &Player::fileOpening, this, [this] { video_->setVideoSize({}); });
     connect(&player_, &Player::durationChanged, this, [this](double seconds) {
         if (!loaded_)
             return;
@@ -218,9 +224,12 @@ MainWindow::MainWindow(Player &player, QWidget *parent)
         volumeLabel->setText(QStringLiteral("音量 %1%").arg(percent));
     });
     connect(&player_, &Player::videoSizeChanged, this, [this](QSize size) {
-        if (loaded_)
+        if (loaded_) {
+            video_->setVideoSize(size);
+            resetView_->setEnabled(!size.isEmpty());
             videoSize_->setText(size.isEmpty() ? QString() :
                 QStringLiteral("%1 × %2").arg(size.width()).arg(size.height()));
+        }
     });
     connect(&player_, &Player::commandError, status_, &QLabel::setText);
 
@@ -260,6 +269,10 @@ void MainWindow::updateMedia(Player::State state, const QString &path, const QSt
     const QString fileName = QFileInfo(path).fileName();
     setWindowTitle(fileName.isEmpty() ? QStringLiteral("Zopana") : fileName + QStringLiteral(" — Zopana"));
     loaded_ = state == Player::State::Loaded;
+    if (!loaded_)
+        resetView_->setEnabled(false);
+    if (state == Player::State::Idle || state == Player::State::Error || state == Player::State::Ended)
+        video_->setVideoSize({});
     playPause_->setEnabled(loaded_);
     playPause_->setText(loaded_ && !paused_ ? QStringLiteral("暂停") : QStringLiteral("播放"));
     seek_->setEnabled(loaded_ && seek_->maximum() > 0);

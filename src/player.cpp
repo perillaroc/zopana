@@ -75,7 +75,12 @@ bool Player::initialize()
     }
     const char *options[][2] = {
         {"vo", "libmpv"}, {"hwdec", "no"}, {"osc", "no"},
-        {"input-default-bindings", "no"}, {"idle", "yes"}
+        {"input-default-bindings", "no"}, {"idle", "yes"},
+        {"keepaspect", "yes"}, {"video-unscaled", "no"}, {"panscan", "0"},
+        {"video-align-x", "0"}, {"video-align-y", "0"},
+        {"video-margin-ratio-left", "0"}, {"video-margin-ratio-right", "0"},
+        {"video-margin-ratio-top", "0"}, {"video-margin-ratio-bottom", "0"},
+        {"video-zoom", "0"}, {"video-pan-x", "0"}, {"video-pan-y", "0"}
     };
     for (const auto &option : options) {
         if (!check(option[0], mpv_set_option_string(handle_, option[0], option[1])))
@@ -85,6 +90,7 @@ bool Player::initialize()
         || !check("observe volume", mpv_observe_property(handle_, 0, "volume", MPV_FORMAT_DOUBLE)))
         return false;
 
+    std::fputs("libmpv view: video-zoom=0,video-pan-x=0,video-pan-y=0 (fixed)\n", stderr);
     mpv_set_wakeup_callback(handle_, [](void *data) {
         auto *player = static_cast<Player *>(data);
         QMetaObject::invokeMethod(player, &Player::drainEvents, Qt::QueuedConnection);
@@ -121,6 +127,7 @@ void Player::openFile(const QString &path)
 {
     if (closing_ || !handle_ || path.isEmpty())
         return;
+    emit fileOpening();
     path_ = path;
     position_ = 0;
     paused_ = false;
@@ -316,7 +323,10 @@ void Player::propertyChanged(const mpv_event &event)
         emit pausedChanged(paused_);
     } else if (name == "video-out-params") {
         const auto &node = *static_cast<mpv_node *>(property.data);
-        const QSize size(int(mapInteger(node, "dw")), int(mapInteger(node, "dh")));
+        // dw/dh include pixel aspect ratio; rotate is the remaining VO rotation.
+        QSize size(int(mapInteger(node, "dw")), int(mapInteger(node, "dh")));
+        if (mapInteger(node, "rotate") % 180 == 90)
+            size.transpose();
         std::fprintf(stderr, "video display size: %dx%d\n", size.width(), size.height());
         emit videoSizeChanged(size);
     } else if (name == "current-ao") {

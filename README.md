@@ -1,6 +1,6 @@
 # Zopana
 
-Zopana 是一个 Windows 桌面视频播放器。阶段 1 支持打开本地有声视频、暂停、定位、调节音量和全屏。Qt Widgets 提供界面，libmpv 使用软件解码，将画面绘入 `QOpenGLWidget`，并输出音频。
+Zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以在播放或暂停时用滚轮放大鼠标所指的细节，按住左键移动画面。Qt Widgets 提供界面，libmpv 负责软件解码和音频输出。视频控件保留完整的视频帧，每次绘制时一起应用缩放和平移。
 
 ## 开发环境
 
@@ -8,7 +8,7 @@ Zopana 是一个 Windows 桌面视频播放器。阶段 1 支持打开本地有�
 | --- | --- | --- |
 | 编译器和 SDK | Visual Studio 2022，MSVC v143（`cl` 19.44.35226 x64），Windows SDK 10.0.26100.0。安装“使用 C++ 的桌面开发”工作负载 | [Visual Studio 2022](https://visualstudio.microsoft.com/vs/older-downloads/) |
 | 构建工具 | CMake 4.0.2，Ninja 1.12.1 | [CMake 4.0.2](https://github.com/Kitware/CMake/releases/tag/v4.0.2) · [Ninja 1.12.1](https://github.com/ninja-build/ninja/releases/tag/v1.12.1) |
-| Qt | Qt 6.11.3 的 `msvc2022_64` kit，含 Widgets 和 OpenGLWidgets | [Qt 安装器](https://www.qt.io/development/download-qt-installer-oss) |
+| Qt | Qt 6.11.3 的 `msvc2022_64` kit，含 Widgets、OpenGL 和 OpenGLWidgets | [Qt 安装器](https://www.qt.io/development/download-qt-installer-oss) |
 | 播放引擎 | libmpv 0.42.0 Windows x64 LGPL SDK，client API 2.6 | [mpv 0.42.0 发布包](https://github.com/mpv-player/mpv/releases/tag/v0.42.0) |
 
 在已加载 VS 2022 **x64** 开发环境的 PowerShell 中执行以下命令。也可从开始菜单的 **x64 Native Tools Command Prompt for VS 2022** 运行 `powershell -NoProfile`。
@@ -45,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to create libmpv.lib' }
 $qt = 'C:\lang\qt\6.11.3\msvc2022_64'
 $ninjaBin = 'C:\lang\qt\Tools\Ninja'
 $mpv = (Resolve-Path '..\..\deps\libmpv\0.42.0-windows-x64' -ErrorAction Stop).Path
-$build = Join-Path $PWD ('build\stage1-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$build = Join-Path $PWD ('build\stage2-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $env:CMAKE_PREFIX_PATH = $qt
 $env:PATH = "$qt\bin;$ninjaBin;$env:PATH"
 $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$qt\plugins\platforms"
@@ -79,6 +79,12 @@ $exitCode = $LASTEXITCODE
 | 全屏 | 点击**全屏**或按 **F11** 切换，按 **Esc** 退出全屏。 |
 | 换片、重试 | 播放期间或显示“播放完毕”时，可用 **Ctrl+O** 打开下一段。损坏文件的错误原因显示在“打开失败”后，可在同一窗口重新选片。 |
 
+## 在视频区取景
+
+- 将指针放在想看的细节上，向上滚动放大、向下缩小。每格约放大 15%，倍率范围为 1× 到 8×。指向黑边时，以最近的画面边缘为锚点。
+- 放大后按住左键拖动，松手结束。画面到达边界时会停住。暂停时也能取景；单击视频区保持当前播放状态。
+- 点击**恢复适应窗口**回到完整画面。调整窗口大小或切换全屏会保留倍率，并尽量保留视口中心的细节。打开新视频时从居中适窗开始。
+
 ## 运行日志
 
 上述启动命令将本次运行的日志保存到 `$build\startup.log`。启动时可核对以下关键行。GL 三项以本机显卡和驱动输出为准。
@@ -104,4 +110,5 @@ mpv_render_context_create: 0 (success)
 | `src/main.cpp` | 创建 Qt 应用和播放器，启动主窗口并管理退出顺序。 |
 | `src/mainwindow.{h,cpp}` | 文件选择器、播放控件、快捷键和状态显示。 |
 | `src/player.{h,cpp}` | 持有 `mpv_handle`，异步提交命令，按文件处理事件和属性反馈。 |
-| `src/videowidget.{h,cpp}` | 在 Qt 的 OpenGL 上下文中创建渲染器，绘制视频帧并在窗口变化时重绘。 |
+| `src/videowidget.{h,cpp}` | 接收滚轮和拖动输入，在 Qt 的 OpenGL 上下文中保存完整画面，并按当前取景绘制。 |
+| `src/viewgeometry.h` | 用窗口逻辑像素计算适窗画幅、指针锚点、拖动边界及调整窗口后的构图。 |
