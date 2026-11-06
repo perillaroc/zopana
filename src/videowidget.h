@@ -17,15 +17,20 @@ class VideoWidget final : public QOpenGLWidget
     Q_OBJECT
 
 public:
+    enum class InputMode { Feature, Standard };
+
     explicit VideoWidget(mpv_handle *handle, QWidget *parent = nullptr);
     ~VideoWidget() override;
 
     bool rendererReady() const { return renderer_ != nullptr; }
+    void setInputMode(InputMode mode);
     void setVideoSize(QSize displaySize);
     void resetView();
 
 signals:
     void rendererReadyChanged(bool ready);
+    void volumeStepsRequested(double steps);
+    void playbackToggleRequested();
 
 protected:
     void initializeGL() override;
@@ -45,6 +50,7 @@ private:
     bool renderFrame(int fbo, QSize pixels);
     void skipFrame();
     void advanceZoom();
+    bool withinClickDistance(QPointF position) const;
     void dragTo(QPointF position);
 
     mpv_handle *player_;
@@ -64,7 +70,8 @@ private:
     QDeadlineTimer zoomDeadline_;
     QPointF zoomPointer_;
     double zoomTarget_ = 1;
-    bool dragging_ = false;
-    QPointF dragPointer_;
+    InputMode inputMode_ = InputMode::Feature;
+    bool leftPressActive_ = false;
+    QPointF pressPosition_;
     QPointF dragOrigin_;
 };

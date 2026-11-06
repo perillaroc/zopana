@@ -1,6 +1,6 @@
 #include "videowidget.h"
 
-#include <QCoreApplication>
+#include <QApplication>
 #include <QEvent>
 #include <QMouseEvent>
 #include <QOpenGLContext>
@@ -48,6 +48,14 @@ VideoWidget::~VideoWidget()
     releaseRenderer();
 }
 
+void VideoWidget::setInputMode(InputMode mode)
+{
+    if (inputMode_ == mode)
+        return;
+    cancelGestures();
+    inputMode_ = mode;
+}
+
 void VideoWidget::setVideoSize(QSize displaySize)
 {
     if (displaySize_ == displaySize)
@@ -71,7 +79,7 @@ void VideoWidget::resetView()
 void VideoWidget::cancelGestures()
 {
     zoomTimer_.stop();
-    dragging_ = false;
+    leftPressActive_ = false;
 }
 
 bool VideoWidget::event(QEvent *event)
@@ -107,17 +115,21 @@ void VideoWidget::resizeEvent(QResizeEvent *event)
 
 void VideoWidget::wheelEvent(QWheelEvent *event)
 {
-    if (dragging_) {
+    if (inputMode_ == InputMode::Feature && leftPressActive_) {
         event->accept();
         return;
     }
     const double steps = event->pixelDelta().isNull() ? event->angleDelta().y() / 120.0
                                                       : event->pixelDelta().y() / 60.0;
-    if (!hasFrame_ || !view_.valid() || steps == 0) {
+    if (steps == 0 || (inputMode_ == InputMode::Feature && (!hasFrame_ || !view_.valid()))) {
         event->ignore();
         return;
     }
     event->accept();
+    if (inputMode_ == InputMode::Standard) {
+        emit volumeStepsRequested(steps);
+        return;
+    }
     const bool continuing = zoomTimer_.isActive() && (zoomTarget_ - view_.scale()) * steps > 0;
     const double base = continuing ? zoomTarget_ : view_.scale();
     const double target = std::clamp(base * std::pow(1.15, steps), 1.0, 8.0);
@@ -155,42 +167,56 @@ void VideoWidget::advanceZoom()
 
 void VideoWidget::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() != Qt::LeftButton || !hasFrame_ || !view_.valid()) {
+    if (event->button() != Qt::LeftButton
+        || (inputMode_ == InputMode::Feature && (!hasFrame_ || !view_.valid()))) {
         QOpenGLWidget::mousePressEvent(event);
         return;
     }
-    zoomTimer_.stop();
-    dragging_ = true;
-    dragPointer_ = event->position();
-    dragOrigin_ = view_.topLeft();
+    leftPressActive_ = true;
+    pressPosition_ = event->position();
+    if (inputMode_ == InputMode::Feature) {
+        zoomTimer_.stop();
+        dragOrigin_ = view_.topLeft();
+    }
     event->accept();
 }
 
 void VideoWidget::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!dragging_ || !(event->buttons() & Qt::LeftButton)) {
-        dragging_ = false;
+    if (!leftPressActive_ || !(event->buttons() & Qt::LeftButton)) {
+        leftPressActive_ = false;
         QOpenGLWidget::mouseMoveEvent(event);
         return;
     }
-    dragTo(event->position());
+    if (inputMode_ == InputMode::Feature)
+        dragTo(event->position());
+    else if (!withinClickDistance(event->position()))
+        leftPressActive_ = false;
     event->accept();
+}
+
+bool VideoWidget::withinClickDistance(QPointF position) const
+{
+    return (position - pressPosition_).manhattanLength() <= QApplication::startDragDistance();
 }
 
 void VideoWidget::dragTo(QPointF position)
 {
     const auto previous = view_.topLeft();
-    view_.moveTo(dragOrigin_ + position - dragPointer_);
+    view_.moveTo(dragOrigin_ + position - pressPosition_);
     if (view_.topLeft() != previous)
         update();
 }
 
 void VideoWidget::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton && dragging_) {
-        dragTo(event->position());
-        dragging_ = false;
+    if (event->button() == Qt::LeftButton && leftPressActive_) {
+        leftPressActive_ = false;
         event->accept();
+        if (inputMode_ == InputMode::Feature)
+            dragTo(event->position());
+        else if (withinClickDistance(event->position()) && QRectF(rect()).contains(event->position()))
+            emit playbackToggleRequested();
         return;
     }
     QOpenGLWidget::mouseReleaseEvent(event);

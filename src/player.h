@@ -6,6 +6,8 @@
 
 #include <mpv/client.h>
 
+#include <optional>
+
 class Player final : public QObject
 {
     Q_OBJECT
@@ -18,8 +20,10 @@ public:
     void setRendererReady(bool ready);
     void openFile(const QString &path);
     void setPaused(bool paused);
+    void togglePaused();
     void seek(double seconds);
     void setVolume(double volume);
+    double volumeTarget() const { return volumeTarget_; }
     void shutdown();
 
 signals:
@@ -35,7 +39,7 @@ signals:
 private:
     void queueLoad();
     void submitPendingLoad();
-    void submitControl(uint64_t request, const char **args);
+    bool submitControl(uint64_t request, const char **args);
     void drainEvents();
     void handleReply(const mpv_event &event);
     void syncFileState();
@@ -48,6 +52,9 @@ private:
     bool loadPending_ = false;
     bool loadInFlight_ = false;
     unsigned controlsInFlight_ = 0;
+    double volumeTarget_ = 100;
+    double reportedVolume_ = 100;
+    std::optional<double> volumeInFlight_;
 
     QString path_;
     State state_ = State::Idle;

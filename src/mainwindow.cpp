@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -118,6 +119,18 @@ MainWindow::MainWindow(Player &player, QWidget *parent)
 
     auto *timeline = new QHBoxLayout;
     controls->addLayout(timeline);
+    auto *featureMode = new QRadioButton(QStringLiteral("特色"));
+    auto *standardMode = new QRadioButton(QStringLiteral("常规"));
+    featureMode->setObjectName(QStringLiteral("featureModeButton"));
+    standardMode->setObjectName(QStringLiteral("standardModeButton"));
+    featureMode->setToolTip(QStringLiteral("滚轮缩放，左键拖动画面"));
+    standardMode->setToolTip(QStringLiteral("滚轮调音量，单击播放或暂停"));
+    timeline->addWidget(featureMode);
+    timeline->addWidget(standardMode);
+    featureMode->setChecked(true);
+    connect(standardMode, &QRadioButton::toggled, video_, [this](bool standard) {
+        video_->setInputMode(standard ? VideoWidget::InputMode::Standard : VideoWidget::InputMode::Feature);
+    });
     seek_ = new SeekSlider;
     seek_->setObjectName(QStringLiteral("seekSlider"));
     seek_->setAccessibleName(QStringLiteral("播放进度（秒）"));
@@ -174,7 +187,8 @@ MainWindow::MainWindow(Player &player, QWidget *parent)
 
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
     connect(new QShortcut(QKeySequence::Open, this), &QShortcut::activated, open, &QPushButton::click);
-    connect(playPause_, &QPushButton::clicked, this, [this] { player_.setPaused(!paused_); });
+    connect(playPause_, &QPushButton::clicked, &player_, &Player::togglePaused);
+    connect(video_, &VideoWidget::playbackToggleRequested, playPause_, &QPushButton::click);
     connect(new QShortcut(QKeySequence(Qt::Key_Space), this), &QShortcut::activated, playPause_, &QPushButton::click);
     connect(fullscreen_, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
     connect(new QShortcut(QKeySequence(Qt::Key_F11), this), &QShortcut::activated, this, &MainWindow::toggleFullscreen);
@@ -190,6 +204,9 @@ MainWindow::MainWindow(Player &player, QWidget *parent)
             player_.seek(seconds);
     });
     connect(volume, &QSlider::valueChanged, &player_, &Player::setVolume);
+    connect(video_, &VideoWidget::volumeStepsRequested, this, [this](double steps) {
+        player_.setVolume(player_.volumeTarget() + 5.0 * steps);
+    });
 
     connect(&player_, &Player::mediaChanged, this, &MainWindow::updateMedia);
     connect(&player_, &Player::fileOpening, this, [this] { video_->setVideoSize({}); });

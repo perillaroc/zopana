@@ -172,6 +172,14 @@ void Player::setPaused(bool paused)
     submitControl(Pause, args);
 }
 
+void Player::togglePaused()
+{
+    if (state_ == State::Loaded) {
+        const char *args[] = {"cycle", "pause", nullptr};
+        submitControl(Pause, args);
+    }
+}
+
 void Player::seek(double seconds)
 {
     if (state_ != State::Loaded || !std::isfinite(seconds) || seconds < 0 || closing_)
@@ -186,21 +194,30 @@ void Player::setVolume(double volume)
 {
     if (!std::isfinite(volume))
         return;
-    const QByteArray value = QByteArray::number(std::clamp(volume, 0.0, 100.0), 'f', 1);
+    // Keep fractional wheel input between events, including while a previous
+    // slider or wheel request is still waiting for its asynchronous reply.
+    volumeTarget_ = std::clamp(volume, 0.0, 100.0);
+    if (volumeInFlight_)
+        return;
+    const QByteArray value = QByteArray::number(volumeTarget_, 'g', 15);
     const char *args[] = {"set", "volume", value.constData(), nullptr};
-    submitControl(Volume, args);
+    if (submitControl(Volume, args))
+        volumeInFlight_ = volumeTarget_;
+    else
+        volumeTarget_ = reportedVolume_;
 }
 
-void Player::submitControl(uint64_t request, const char **args)
+bool Player::submitControl(uint64_t request, const char **args)
 {
     if (!handle_ || closing_)
-        return;
+        return false;
     const int result = mpv_command_async(handle_, request, args);
     if (check(controlName(request), result)) {
         ++controlsInFlight_;
-    } else {
-        emit commandError(QStringLiteral("%1: %2").arg(controlName(request), mpv_error_string(result)));
+        return true;
     }
+    emit commandError(QStringLiteral("%1: %2").arg(controlName(request), mpv_error_string(result)));
+    return false;
 }
 
 void Player::changeState(State state, const QString &error)
@@ -274,6 +291,14 @@ void Player::handleReply(const mpv_event &event)
         --controlsInFlight_;
         if (!check(controlName(event.reply_userdata), event.error) && !loadPending_)
             emit commandError(QStringLiteral("%1: %2").arg(controlName(event.reply_userdata), mpv_error_string(event.error)));
+        if (event.reply_userdata == Volume) {
+            const bool newerTarget = volumeTarget_ != volumeInFlight_.value();
+            volumeInFlight_.reset();
+            if (newerTarget)
+                setVolume(volumeTarget_);
+            else if (event.error < 0)
+                volumeTarget_ = reportedVolume_;
+        }
     }
     submitPendingLoad();
 }
@@ -304,7 +329,10 @@ void Player::propertyChanged(const mpv_event &event)
     const QByteArrayView name(property.name);
     if (name == "volume") {
         const double volume = *static_cast<double *>(property.data);
-        std::fprintf(stderr, "volume: %.1f\n", volume);
+        reportedVolume_ = volume;
+        if (!volumeInFlight_)
+            volumeTarget_ = volume;
+        std::fprintf(stderr, "volume: %.2f\n", volume);
         emit volumeChanged(volume);
         return;
     }
