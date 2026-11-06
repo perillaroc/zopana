@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.21)
+project(Zopana LANGUAGES CXX)
+
+if(NOT MSVC OR NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+    message(FATAL_ERROR "The libmpv SDK requires an MSVC x64 build. Use the VS 2022 x64 Developer PowerShell.")
+endif()
+
+find_package(Qt6 CONFIG QUIET COMPONENTS Widgets OpenGLWidgets)
+if(NOT Qt6_FOUND)
+    message(FATAL_ERROR
+        "Set CMAKE_PREFIX_PATH to a Qt 6 MSVC x64 kit containing Qt6Config.cmake, "
+        "Qt6WidgetsConfig.cmake and Qt6OpenGLWidgetsConfig.cmake under lib/cmake. "
+        "${Qt6_NOT_FOUND_MESSAGE}")
+endif()
+
+set(MPV_ROOT "" CACHE PATH "Root of the Windows x64 libmpv SDK")
+if(NOT MPV_ROOT)
+    message(FATAL_ERROR "Set -DMPV_ROOT:PATH=<SDK directory> containing include/mpv, libmpv.lib and libmpv-2.dll.")
+endif()
+foreach(file IN ITEMS include/mpv/client.h include/mpv/render.h include/mpv/render_gl.h libmpv.lib libmpv-2.dll)
+    if(NOT EXISTS "${MPV_ROOT}/${file}" OR IS_DIRECTORY "${MPV_ROOT}/${file}")
+        message(FATAL_ERROR "Missing file: ${MPV_ROOT}/${file}. Set -DMPV_ROOT:PATH=<SDK directory>.")
+    endif()
+endforeach()
+
+add_library(mpv::mpv SHARED IMPORTED)
+set_target_properties(mpv::mpv PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${MPV_ROOT}/include"
+    IMPORTED_IMPLIB "${MPV_ROOT}/libmpv.lib"
+    IMPORTED_LOCATION "${MPV_ROOT}/libmpv-2.dll"
+)
+
+add_executable(Zopana main.cpp)
+target_compile_features(Zopana PRIVATE cxx_std_20)
+target_link_libraries(Zopana PRIVATE Qt6::Widgets Qt6::OpenGLWidgets mpv::mpv)
+
+add_custom_command(TARGET Zopana POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:mpv::mpv>" "$<TARGET_FILE_DIR:Zopana>"
+    VERBATIM
+)
