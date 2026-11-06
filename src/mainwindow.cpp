@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "videowidget.h"
 
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -284,7 +285,8 @@ void MainWindow::toggleFullscreen()
 void MainWindow::updateMedia(Player::State state, const QString &path, const QString &error)
 {
     const QString fileName = QFileInfo(path).fileName();
-    setWindowTitle(fileName.isEmpty() ? QStringLiteral("Zopana") : fileName + QStringLiteral(" — Zopana"));
+    const QString appName = QCoreApplication::applicationName();
+    setWindowTitle(fileName.isEmpty() ? appName : fileName + QStringLiteral(" — ") + appName);
     loaded_ = state == Player::State::Loaded;
     if (!loaded_)
         resetView_->setEnabled(false);

@@ -14,7 +14,7 @@
 /compile_commands.json
 /.cmake/api/
 /.qt/
-/Zopana.exe
+/zopana.exe
 /libmpv-2.dll
 /startup.log
 *.obj

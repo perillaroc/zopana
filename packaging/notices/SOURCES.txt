@@ -1,0 +1,42 @@
+Third-party sources for the zopana Windows x64 build
+
+Qt 6.11.3 (Qt Base), dynamically linked
+Copyright (C) The Qt Company Ltd. and other contributors.
+The build uses the LGPLv3 option for Qt Core, GUI, Widgets, OpenGL,
+OpenGLWidgets and the Windows platform and style plugins. The Qt 6.11.3
+SDK documentation includes the Qt Core and Qt GUI third-party notices.
+Qt source and installation/build instructions:
+https://download.qt.io/archive/qt/6.11/6.11.3/submodules/qtbase-everywhere-src-6.11.3.tar.xz
+https://doc.qt.io/qt-6.11/windows-building.html
+
+mpv 0.42.0 and FFmpeg, distributed in libmpv-2.dll
+The DLL comes from the mpv project's x86_64-w64-mingw32-lgpl release ZIP.
+The release builds mpv with -Dgpl=false. Its embedded FFmpeg reports revision
+git-2026-11-04-baa68e6 and was compiled with --enable-version3. The SDK's
+LICENSE.LGPL and the upstream Copyright file document the mpv terms.
+The Windows full-build recipe identifies the FFmpeg build environment.
+SDK ZIP SHA-256: 8e5f77430efc53ef175804ba6618527e3af0448a0dcabf04d3cc72659d1a6fce
+DLL SHA-256: 94fb87247732c59915cd59808bc582e843a71c22214b7b6c1e5563aa8149cef4
+https://github.com/mpv-player/mpv/releases/tag/v0.42.0
+https://github.com/mpv-player/mpv/blob/v0.42.0/Copyright
+https://github.com/mpv-player/mpv/archive/refs/tags/v0.42.0.tar.gz
+https://github.com/mpv-player/mpv/blob/v0.42.0/ci/build-mingw64-full.sh
+https://github.com/mpv-player/mpv/blob/v0.42.0/.github/workflows/build.yml
+https://github.com/FFmpeg/FFmpeg/commit/baa68e6
+https://github.com/BtbN/FFmpeg-Builds
+
+Mesa 11.2.2 and LLVM 3.6.2 (Qt's optional software OpenGL fallback)
+The Qt kit provides opengl32sw.dll.
+https://download.qt.io/development_releases/prebuilt/llvmpipe/windows/
+https://archive.mesa3d.org/older-versions/11.x/11.2.2/mesa-11.2.2.tar.xz
+https://releases.llvm.org/3.6.2/llvm-3.6.2.src.tar.xz
+
+Microsoft Visual C++ Runtime, Visual Studio 2022 x64 (VC143)
+Copyright (C) Microsoft Corporation. All rights reserved.
+The application-local DLLs are taken from the Visual Studio release
+redistribution directory x64/Microsoft.VC143.CRT. Microsoft's Visual Studio
+licensing terms and list of distributable code apply to these DLLs.
+https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/
+https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/
+https://learn.microsoft.com/visualstudio/releases/2022/redistribution
+https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files

@@ -1,6 +1,12 @@
-# Zopana
+# zopana
 
-Zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以在特色模式下放大和拖动画面，也可以切到常规模式，用滚轮调音量、单击播放或暂停。Qt Widgets 提供界面，libmpv 负责软件解码和音频输出。
+zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以在特色模式下放大和拖动画面，也可以切到常规模式，用滚轮调音量、单击播放或暂停。Qt Widgets 提供界面，libmpv 负责软件解码和音频输出。
+
+## 使用 Windows x64 便携包
+
+在打包输出目录运行 `Get-FileHash -Algorithm SHA256 .\zopana-windows-x64.zip`，与同目录的 `zopana-windows-x64.zip.sha256` 核对。完整解压 ZIP 后，双击 `zopana-windows-x64\zopana.exe`。Qt 插件、libmpv 和 VC++ x64 运行库随应用提供，请保留解压目录结构。
+
+点击**打开文件**选择本地视频。可先暂停，在**特色**模式滚轮放大、按住左键拖动，再切到**常规**调节音量。点击**恢复适应窗口**回到完整画面。
 
 ## 开发环境
 
@@ -45,26 +51,41 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to create libmpv.lib' }
 $qt = 'C:\lang\qt\6.11.3\msvc2022_64'
 $ninjaBin = 'C:\lang\qt\Tools\Ninja'
 $mpv = (Resolve-Path '..\..\deps\libmpv\0.42.0-windows-x64' -ErrorAction Stop).Path
-$build = Join-Path $PWD ('build\stage3-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$build = Join-Path $PWD ('build\stage4-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $env:CMAKE_PREFIX_PATH = $qt
 $env:PATH = "$qt\bin;$ninjaBin;$env:PATH"
 $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$qt\plugins\platforms"
 
 cmake -S . -B $build -G Ninja -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release "-DMPV_ROOT:PATH=$mpv"
 if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
-cmake --build $build --target Zopana
+cmake --build $build --target zopana
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
 $expected = (Get-FileHash "$mpv\libmpv-2.dll" -Algorithm SHA256).Hash
 $actual = (Get-FileHash "$build\libmpv-2.dll" -Algorithm SHA256).Hash
 if ($actual -ne $expected) { throw 'libmpv DLL hash mismatch' }
 
-& "$build\Zopana.exe" 2>&1 | Tee-Object -FilePath "$build\startup.log"
+& "$build\zopana.exe" 2>&1 | Tee-Object -FilePath "$build\startup.log"
 $exitCode = $LASTEXITCODE
-"Zopana exit code = $exitCode"
+"zopana exit code = $exitCode"
 ```
 
-构建目标使用 C++20。单配置 Ninja 将 `Zopana.exe` 输出到 `$build` 顶层，构建时自动将 SDK 中的 `libmpv-2.dll` 复制到同一目录。启动时保持上述终端环境，使 Qt 可以加载 kit 中的运行库和 Windows 平台插件。
+构建目标使用 C++20。单配置 Ninja 将 `zopana.exe` 输出到 `$build` 顶层，构建时自动将 SDK 中的 `libmpv-2.dll` 复制到同一目录。启动时保持上述终端环境，使 Qt 可以加载 kit 中的运行库和 Windows 平台插件。
+
+从旧版本升级时，使用上例的新构建目录即可生成小写文件名。若复用原 Ninja 目录，先移除该目录中的旧 exe，再构建 `zopana`，以免 Windows 保留原文件名的大小写。
+
+### 制作个人使用的便携包
+
+在上述 VS x64 开发终端完成 Release 构建后，使用相同的 Qt kit 和 libmpv SDK 运行打包脚本。为每次打包选一个新的输出目录。
+
+```powershell
+$dist = Join-Path $PWD ('build\release-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+& .\packaging\package-windows.ps1 -BuildDir $build -QtRoot $qt -MpvRoot $mpv -OutputDir $dist
+```
+
+脚本用 `windeployqt` 部署 Qt，从指定 SDK 复制 libmpv，并从 VS 的 x64 可再发行目录复制 VC++ 运行库。输出目录包含 `zopana-windows-x64.zip` 和 `zopana-windows-x64.zip.sha256`。随包的 `README.txt` 说明启动与运行库要求。[打包脚本](packaging/package-windows.ps1) · [随包说明](packaging/README.txt)
+
+当前便携包供个人使用。仓库保留第三方依赖的版本、源码和构建来源。对外发布前再选定 zopana 自身的许可证，并整理需要随包提供的第三方许可材料。[第三方依赖来源清单](packaging/notices/SOURCES.txt)
 
 ## 基础播放
 
@@ -107,7 +128,7 @@ mpv_render_context_create: 0 (success)
 
 打开文件后，`loadfile submitted` 记录请求的路径，`FILE_LOADED entry=…` 表示文件已加载。`duration` 和 `video display size` 分别给出秒数和画面尺寸，`audio output` 给出音频后端、采样率和声道数。一次将滑块拖到 5 分钟的操作应产生一行 `seek submitted: 300.000 s`。暂停和音量变化可分别从 `pause`、`volume` 行核对。
 
-自然播完、换片或文件损坏时可用 `END_FILE` 的 `entry` 对上对应文件，查看 `reason` 和 `error`。关闭窗口后，终端应显示 `Zopana exit code = 0`。
+自然播完、换片或文件损坏时可用 `END_FILE` 的 `entry` 对上对应文件，查看 `reason` 和 `error`。关闭窗口后，终端应显示 `zopana exit code = 0`。
 
 ## 源码布局
 

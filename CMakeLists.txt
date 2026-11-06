@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Zopana LANGUAGES CXX)
+project(zopana LANGUAGES CXX)
 
 if(NOT MSVC OR NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
     message(FATAL_ERROR "The libmpv SDK requires an MSVC x64 build. Use the VS 2022 x64 Developer PowerShell.")
@@ -30,18 +30,18 @@ set_target_properties(mpv::mpv PROPERTIES
     IMPORTED_LOCATION "${MPV_ROOT}/libmpv-2.dll"
 )
 
-add_executable(Zopana
+add_executable(zopana
     src/main.cpp
     src/mainwindow.cpp src/mainwindow.h
     src/player.cpp src/player.h
     src/viewgeometry.h
     src/videowidget.cpp src/videowidget.h
 )
-set_target_properties(Zopana PROPERTIES AUTOMOC ON)
-target_compile_features(Zopana PRIVATE cxx_std_20)
-target_link_libraries(Zopana PRIVATE Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets mpv::mpv)
+set_target_properties(zopana PROPERTIES AUTOMOC ON)
+target_compile_features(zopana PRIVATE cxx_std_20)
+target_link_libraries(zopana PRIVATE Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets mpv::mpv)
 
-add_custom_command(TARGET Zopana POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:mpv::mpv>" "$<TARGET_FILE_DIR:Zopana>"
+add_custom_command(TARGET zopana POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:mpv::mpv>" "$<TARGET_FILE_DIR:zopana>"
     VERBATIM
 )

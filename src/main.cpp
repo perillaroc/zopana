@@ -10,7 +10,7 @@
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("Zopana"));
+    app.setApplicationName(QStringLiteral("zopana"));
     std::setlocale(LC_NUMERIC, "C");
     std::fprintf(stderr, "Qt runtime: %s\n", qVersion());
 
