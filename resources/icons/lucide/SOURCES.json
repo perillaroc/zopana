@@ -1,0 +1,106 @@
+{
+  "project": "Lucide",
+  "repository": "https://github.com/lucide-icons/lucide",
+  "commit": "45aaec4b721c98aa86a2acd0ab7281bcf68b9c5e",
+  "license": "ISC and retained Feather MIT",
+  "files": [
+    {
+      "upstream": "icons/ellipsis.svg",
+      "local": "resources/icons/lucide/ellipsis.svg",
+      "gitBlob": "68456c39be516d1d14aee329ca3b0056ba84d3c5",
+      "sha256": "4f495cc72013ffdfec677f03b33a150f7b4dd741979283fd6853a09024bca112",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/file-text.svg",
+      "local": "resources/icons/lucide/file-text.svg",
+      "gitBlob": "67dc5b9d1a07a1b501ba87d62563b914c059096e",
+      "sha256": "52ca55846c202335fb870c8aa23e9345630ec10489303756d62e750f7109605c",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/folder-open.svg",
+      "local": "resources/icons/lucide/folder-open.svg",
+      "gitBlob": "b01f60fcb51848a9b3a7380d4566c4de7534745c",
+      "sha256": "ee57452b40e71df310214091dd9da1941a397c83197b8ff8d7ae66dd4242578b",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/info.svg",
+      "local": "resources/icons/lucide/info.svg",
+      "gitBlob": "2a46eac2b55a1ead226035d1efa8721f6f08bd17",
+      "sha256": "bc977a64eb96f3e9c1041ffd09a3fceb70e3e65c02b571f76064062ed31f3cb9",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/maximize.svg",
+      "local": "resources/icons/lucide/maximize.svg",
+      "gitBlob": "f78ca32408d3bfa431f79f9563736d38942f1316",
+      "sha256": "1f790856b0de805ab62e871609f1990b89d227d472022e57a11fde015aad4826",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/minimize.svg",
+      "local": "resources/icons/lucide/minimize.svg",
+      "gitBlob": "13eb99c9be251fb830abc6259bcddc1d1d182ae2",
+      "sha256": "7daa304bc3dccac1f100304e66a41139662cc6c0ba3eba67480d97466a9ce02b",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/mouse-pointer-2.svg",
+      "local": "resources/icons/lucide/mouse-pointer-2.svg",
+      "gitBlob": "b881f79518d2ae5012aaa81792cb4dd075548771",
+      "sha256": "a87128b1d33024c22ab598d1ce313081ce8942efd1a70274215bcc53421b7c7e",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/move.svg",
+      "local": "resources/icons/lucide/move.svg",
+      "gitBlob": "d78876f71b39c7dd1553a8bdc53c6d3f45aa616c",
+      "sha256": "915074a1292f72d59165339b8b93f8d440c8d55b7116b52fca240b9ded5af74d",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/pause.svg",
+      "local": "resources/icons/lucide/pause.svg",
+      "gitBlob": "ea5762fdbcccbf1f73bb2b46178bb1bafd1e373f",
+      "sha256": "f122ec4ea7f5693a0b1baafa9c708b53980dc87b4aacb297c6e6f71c1a4c115c",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/play.svg",
+      "local": "resources/icons/lucide/play.svg",
+      "gitBlob": "199743ed2e546fdcef48f9ebbe4030e8f75c59c1",
+      "sha256": "d7c34786135922a92b6896f6c2384ceeb0346afbf6041dc79982011411409833",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/refresh-cw.svg",
+      "local": "resources/icons/lucide/refresh-cw.svg",
+      "gitBlob": "c27b3a9677e35fb2353167b01553d3d4cc4e3091",
+      "sha256": "2e10dd403c85a24f163d59fc6151aa21147fe9402e1305dfc8979208caee8944",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/scan.svg",
+      "local": "resources/icons/lucide/scan.svg",
+      "gitBlob": "33d067b2a20cfb5c91ac60a9ed0da7a954cdd5f2",
+      "sha256": "c77f0e634b2451a14a262a59b61d75bbcea3994b16eeba1f5753e86b33282a4d",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/volume-2.svg",
+      "local": "resources/icons/lucide/volume-2.svg",
+      "gitBlob": "519e6cbd4d2693a38f7db0e396354cc07b9f4e26",
+      "sha256": "fb404f9c128a0579de67b399177631e5edb3502fdc247ceb30e8b15754b46071",
+      "modifications": null
+    },
+    {
+      "upstream": "LICENSE",
+      "local": "packaging/notices/lucide-LICENSE.txt",
+      "gitBlob": "718bb3f0e44153809972abed31839375804bf652",
+      "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+      "modifications": null
+    }
+  ]
+}

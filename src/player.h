@@ -33,6 +33,7 @@ signals:
     void positionChanged(double seconds);
     void pausedChanged(bool paused);
     void volumeChanged(double volume);
+    void seekableChanged(bool seekable);
     void videoSizeChanged(QSize size);
     void commandError(const QString &message);
 

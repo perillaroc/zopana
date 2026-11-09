@@ -3,6 +3,7 @@
 #include "videowidget.h"
 
 #include <QApplication>
+#include <QAction>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -13,7 +14,6 @@
 #include <QMenu>
 #include <QOpenGLContext>
 #include <QPushButton>
-#include <QRadioButton>
 #include <QResizeEvent>
 #include <QScreen>
 #include <QTest>
@@ -333,13 +333,12 @@ public:
         open(QString::fromUtf8("网格 multi.mkv"));
         pauseAt(1.2);
         windowShot("baseline-feature-window.png");
-        auto *standard = window->findChild<QRadioButton *>("standardModeButton");
-        standard->setChecked(true);
+        window->findChild<QAction *>("view.mode.standard")->trigger();
         windowShot("baseline-standard-window.png");
         QTest::keyClick(window.get(), Qt::Key_F11);
         QTest::qWait(300);
         windowShot("baseline-standard-fullscreen.png");
-        window->findChild<QRadioButton *>("featureModeButton")->setChecked(true);
+        window->findChild<QAction *>("view.mode.feature")->trigger();
         windowShot("baseline-feature-fullscreen.png");
         QTest::keyClick(window.get(), Qt::Key_F11);
         QTest::qWait(150);

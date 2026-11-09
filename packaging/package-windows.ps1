@@ -48,6 +48,8 @@ try {
 Copy-Item -Path (Join-Path $crt '*.dll') -Destination $stage
 @('[Paths]', 'Prefix=.', 'Plugins=.') | Set-Content -LiteralPath (Join-Path $stage 'qt.conf') -Encoding ASCII
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.txt') -Destination $stage
+New-Item -ItemType Directory -Path (Join-Path $stage 'notices') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'notices/lucide-LICENSE.txt') -Destination (Join-Path $stage 'notices/lucide-LICENSE.txt')
 
 # Include the application folder so extraction never mixes its DLLs into other applications.
 Add-Type -AssemblyName System.IO.Compression.FileSystem

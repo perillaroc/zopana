@@ -1,12 +1,20 @@
 # zopana
 
-zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以在特色模式下放大和拖动画面，也可以切到常规模式，用滚轮调音量、单击播放或暂停。Qt Widgets 提供界面，libmpv 负责软件解码和音频输出。
+zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以在缩放拖动模式下放大和拖动画面，也可以切到常规播放模式，用滚轮调音量、单击播放或暂停。Qt Widgets 提供界面，libmpv 负责软件解码和音频输出。
 
 ## 使用 Windows x64 便携包
 
 在打包输出目录运行 `Get-FileHash -Algorithm SHA256 .\zopana-windows-x64.zip`，与同目录的 `zopana-windows-x64.zip.sha256` 核对。完整解压 ZIP 后，双击 `zopana-windows-x64\zopana.exe`。Qt 插件、libmpv 和 VC++ x64 运行库随应用提供，请保留解压目录结构。
 
-点击**打开文件**选择本地视频。可先暂停，在**特色**模式滚轮放大、按住左键拖动，再切到**常规**调节音量。点击**恢复适应窗口**回到完整画面。
+点击**打开文件**选择本地视频。可先暂停，在**缩放拖动**模式滚轮放大、按住左键拖动，再切到**常规播放**调节音量。点击**恢复适窗**回到完整画面。
+
+## 界面与键盘
+
+界面提供深色菜单、独立进度行和控制行。1120 DIP 窗口显示完整控件，较窄窗口折叠音量滑块，640 DIP 时打开文件入口收进“更多”。首次空态可点击中央的“打开文件”，也可始终用 Ctrl+O。
+
+Space、Enter、R 的播放快捷键仅在视频观看区域生效；Tab / Shift+Tab 导航控件。滑块上的方向键保持原生调节，按钮上的 Space 只激活该按钮。菜单、按钮和视频右键菜单共用 QAction。停止、静音、列表等后续功能尚未接入。
+
+功能图标使用固定提交的 Lucide SVG，来源和校验见 [图标清单](resources/icons/lucide/SOURCES.json)。完整 ISC 与 Feather MIT 许可见 [图标许可证](packaging/notices/lucide-LICENSE.txt)，也可通过“帮助 → 第三方许可”查看。
 
 ## 开发环境
 
@@ -14,7 +22,7 @@ zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以�
 | --- | --- | --- |
 | 编译器和 SDK | Visual Studio 2022，MSVC v143（`cl` 19.44.35226 x64），Windows SDK 10.0.26100.0。安装“使用 C++ 的桌面开发”工作负载 | [Visual Studio 2022](https://visualstudio.microsoft.com/vs/older-downloads/) |
 | 构建工具 | CMake 4.0.2，Ninja 1.12.1 | [CMake 4.0.2](https://github.com/Kitware/CMake/releases/tag/v4.0.2) · [Ninja 1.12.1](https://github.com/ninja-build/ninja/releases/tag/v1.12.1) |
-| Qt | Qt 6.11.3 的 `msvc2022_64` kit，含 Widgets、OpenGL 和 OpenGLWidgets | [Qt 安装器](https://www.qt.io/development/download-qt-installer-oss) |
+| Qt | Qt 6.11.3 的 `msvc2022_64` kit，含 Widgets、OpenGL、OpenGLWidgets 和 SVG | [Qt 安装器](https://www.qt.io/development/download-qt-installer-oss) |
 | 播放引擎 | libmpv 0.42.0 Windows x64 LGPL SDK，client API 2.6 | [mpv 0.42.0 发布包](https://github.com/mpv-player/mpv/releases/tag/v0.42.0) |
 
 在已加载 VS 2022 **x64** 开发环境的 PowerShell 中执行以下命令。也可从开始菜单的 **x64 Native Tools Command Prompt for VS 2022** 运行 `powershell -NoProfile`。
@@ -97,20 +105,21 @@ $dist = Join-Path $PWD ('build\release-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 | 拖动定位 | 拖动进度条的滑块，观察 `HH:MM:SS` 格式的目标时间。松手后提交一次定位。暂停时也可以定位并查看目标帧。 |
 | 键盘定位 | 用 Tab 将焦点移到进度条。左右方向键每次调整 1 秒，Page Up / Page Down 每次调整 10 秒，Home / End 跳到进度条的起点或终点。 |
 | 调节音量 | 拖动音量滑块，在 0% 到 100% 之间调整，左侧显示播放引擎反馈的音量。 |
-| 全屏 | 点击**全屏**或按 **F11** 切换，按 **Esc** 退出全屏。 |
+| 全屏 | 点击全屏图标或按 **F11** 切换；视频区聚焦时也可按 **Enter**。按 **Esc** 退出全屏。 |
+| 恢复画面 | 点击恢复适窗图标；视频区聚焦时也可按 **R**。 |
 | 换片、重试 | 播放期间或显示“播放完毕”时，可用 **Ctrl+O** 打开下一段。损坏文件的错误原因显示在“打开失败”后，可在同一窗口重新选片。 |
 
 ## 视频区鼠标模式
 
-首次启动时选中**特色**。用进度条左侧的**特色 / 常规**切换，窗口和全屏下都能看到当前选择。
+首次启动时选中**缩放拖动**。用底部控制行的**缩放拖动 / 常规播放**切换，窗口和全屏下都能看到当前选择。
 
-| 视频区操作 | 特色 | 常规 |
+| 视频区操作 | 缩放拖动 | 常规播放 |
 | --- | --- | --- |
 | 垂直滚轮 | 指向细节上滚放大、下滚缩小，每格约 15%，范围 1×–8×。指向黑边时取最近的画面边缘。 | 上滚增大音量、下滚减小音量，每格 5 个百分点，范围 0–100%。细刻度按比例累计。 |
 | 左键单击 | 保持当前播放状态。 | 在视频区松开时切换一次播放或暂停。 |
 | 按住左键拖动 | 移动画面，到边界停住。松开或失焦即结束拖动。 | 超过系统拖动距离后取消这次单击，画面保持原位。 |
 
-切换模式时，当前手势结束，保留当时可见的构图、音量和播放状态。两种模式都可以用空格播放或暂停、拖动进度条与音量滑块，以及点击**恢复适应窗口**回到 1× 居中。调整窗口大小或切换全屏会保留倍率并尽量保留中心细节，打开新视频时从居中适窗开始。
+切换模式时，当前手势结束，保留当时可见的构图、音量和播放状态。两种模式都可以用空格播放或暂停、拖动进度条与音量滑块，以及点击**恢复适窗**回到 1× 居中。调整窗口大小或切换全屏会保留倍率并尽量保留中心细节，打开新视频时从居中适窗开始。
 
 ## 运行日志
 
@@ -135,7 +144,11 @@ mpv_render_context_create: 0 (success)
 | 文件 | 职责 |
 | --- | --- |
 | `src/main.cpp` | 创建 Qt 应用和播放器，启动主窗口并管理退出顺序。 |
-| `src/mainwindow.{h,cpp}` | 文件选择器、播放控件、快捷键和状态显示。 |
+| `src/mainwindow.{h,cpp}` | 组装界面、文件选择和播放状态呈现。 |
+| `src/playeractions.{h,cpp}` | 共享 QAction、快捷键作用域、可用状态与图标。 |
+| `src/controlbar.{h,cpp}` | 自适应控制栏、进度预览和音量入口。 |
+| `src/videosurface.{h,cpp}` | 视频容器与空态、加载、错误、结束等状态页。 |
+| `src/theme.{h,cpp}` | 深色调色板、系统高对比度及 SVG 图标绘制。 |
 | `src/player.{h,cpp}` | 持有 `mpv_handle`，异步提交命令，按文件处理事件和属性反馈。 |
 | `src/videowidget.{h,cpp}` | 接收滚轮和拖动输入，在 Qt 的 OpenGL 上下文中保存完整画面，并按当前取景绘制。 |
 | `src/viewgeometry.h` | 用窗口逻辑像素计算适窗画幅、指针锚点、拖动边界及调整窗口后的构图。 |

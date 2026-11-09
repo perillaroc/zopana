@@ -37,7 +37,7 @@ void *getGlProcAddress(void *context, const char *name)
 VideoWidget::VideoWidget(mpv_handle *handle, QWidget *parent)
     : QOpenGLWidget(parent), player_(handle)
 {
-    setFocusPolicy(Qt::ClickFocus);
+    setFocusPolicy(Qt::StrongFocus);
     zoomTimer_.setTimerType(Qt::PreciseTimer);
     zoomTimer_.setInterval(12);
     connect(&zoomTimer_, &QTimer::timeout, this, &VideoWidget::advanceZoom);
@@ -344,7 +344,7 @@ void VideoWidget::paintGL()
     if (!hasFrame_ || !view_.valid()) {
         if (newFrame)
             skipFrame();
-        gl->glClearColor(32.0f / 255, 64.0f / 255, 80.0f / 255, 1.0f);
+        gl->glClearColor(0, 0, 0, 1);
         gl->glClear(GL_COLOR_BUFFER_BIT);
         return;
     }

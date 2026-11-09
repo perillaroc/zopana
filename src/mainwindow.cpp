@@ -1,329 +1,203 @@
 #include "mainwindow.h"
+#include "controlbar.h"
+#include "playeractions.h"
+#include "theme.h"
+#include "videosurface.h"
 #include "videowidget.h"
 
-#include <QCoreApplication>
+#include <QAction>
+#include <QApplication>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QMouseEvent>
-#include <QPushButton>
-#include <QRadioButton>
-#include <QShortcut>
-#include <QSignalBlocker>
-#include <QSlider>
-#include <QStyleOptionSlider>
+#include <QGuiApplication>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QScreen>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace {
-
-class SeekSlider final : public QSlider
+int wholeSeconds(double value)
 {
-public:
-    SeekSlider() : QSlider(Qt::Horizontal) { setTracking(false); }
-
-protected:
-    void mousePressEvent(QMouseEvent *event) override
-    {
-        if (event->button() != Qt::LeftButton) {
-            event->ignore();
-            return;
-        }
-
-        QStyleOptionSlider option;
-        initStyleOption(&option);
-        const QRect handle = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, this);
-        const QPoint point = event->position().toPoint();
-        const bool onHandle = handle.contains(point);
-        offset_ = onHandle ? point.x() - handle.left() : handle.width() / 2;
-        lastX_ = point.x();
-        setSliderDown(true);
-        if (!onHandle)
-            previewAt(lastX_);
-        event->accept();
-    }
-
-    void mouseMoveEvent(QMouseEvent *event) override
-    {
-        if (isSliderDown())
-            moveTo(event->position().toPoint().x());
-    }
-
-    void mouseReleaseEvent(QMouseEvent *event) override
-    {
-        if (event->button() == Qt::LeftButton && isSliderDown()) {
-            moveTo(event->position().toPoint().x());
-            setSliderDown(false); // Commit the previewed position exactly once.
-            event->accept();
-        }
-    }
-
-private:
-    void moveTo(int x)
-    {
-        if (x != lastX_) {
-            lastX_ = x;
-            previewAt(x);
-        }
-    }
-
-    void previewAt(int x)
-    {
-        QStyleOptionSlider option;
-        initStyleOption(&option);
-        const QRect groove = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderGroove, this);
-        const QRect handle = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, this);
-        setSliderPosition(QStyle::sliderValueFromPosition(minimum(), maximum(), x - groove.x() - offset_,
-                                                        groove.width() - handle.width(), option.upsideDown));
-    }
-
-    int offset_ = 0;
-    int lastX_ = 0;
-};
-
-int wholeSeconds(double seconds)
-{
-    return static_cast<int>(std::clamp(seconds, 0.0, double(std::numeric_limits<int>::max())));
+    return std::isfinite(value) ? int(std::clamp(value, 0.0, double(std::numeric_limits<int>::max()))) : 0;
+}
 }
 
-QString timestamp(int seconds)
+MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), player_(player)
 {
-    return QStringLiteral("%1:%2:%3")
-        .arg(seconds / 3600, 2, 10, QLatin1Char('0'))
-        .arg((seconds / 60) % 60, 2, 10, QLatin1Char('0'))
-        .arg(seconds % 60, 2, 10, QLatin1Char('0'));
-}
-
-} // namespace
-
-MainWindow::MainWindow(Player &player, QWidget *parent)
-    : QMainWindow(parent), player_(player)
-{
-    auto *central = new QWidget(this);
-    setCentralWidget(central);
-    auto *layout = new QVBoxLayout(central);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-
-    video_ = new VideoWidget(player.handle(), this);
-    video_->setObjectName(QStringLiteral("videoWidget"));
+    auto uiFont = font();
+    if (uiFont.pointSizeF() < 10) { uiFont.setPointSizeF(10); setFont(uiFont); }
+    auto *theme = new Theme::Controller(*qApp, this);
+    auto *central = new QWidget; setCentralWidget(central);
+    auto *layout = new QVBoxLayout(central); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
+    video_ = new VideoWidget(player.handle()); video_->setObjectName("videoWidget");
     video_->setAccessibleName(QStringLiteral("视频画面"));
-    layout->addWidget(video_, 1);
+    surface_ = new VideoSurface(video_, central); layout->addWidget(surface_, 1);
+    actions_ = new PlayerActions(*this, *video_, *surface_);
+    controls_ = new ControlBar(*actions_, central); layout->addWidget(controls_);
+    connect(theme, &Theme::Controller::applied, this, [this] { actions_->refreshIcons(); controls_->refreshIcons(); });
+
+    const auto action = [this](PlayerActions::Id id) { return actions_->get(id); };
+    connect(action(PlayerActions::Open), &QAction::triggered, this, &MainWindow::openFile);
+    connect(action(PlayerActions::Retry), &QAction::triggered, this, [this] { if (!path_.isEmpty()) player_.openFile(path_); });
+    connect(action(PlayerActions::PlayPause), &QAction::triggered, this, [this] {
+        if (state_ == Player::State::Loaded) player_.togglePaused();
+        else if (!path_.isEmpty()) player_.openFile(path_);
+    });
+    connect(action(PlayerActions::ResetView), &QAction::triggered, video_, &VideoWidget::resetView);
+    connect(action(PlayerActions::Fullscreen), &QAction::triggered, this, &MainWindow::toggleFullscreen);
+    connect(action(PlayerActions::Escape), &QAction::triggered, this, [this] { if (isFullScreen()) toggleFullscreen(); });
+    connect(action(PlayerActions::FeatureMode), &QAction::triggered, video_, [this] { video_->setInputMode(VideoWidget::InputMode::Feature); });
+    connect(action(PlayerActions::StandardMode), &QAction::triggered, video_, [this] { video_->setInputMode(VideoWidget::InputMode::Standard); });
+    connect(action(PlayerActions::Quit), &QAction::triggered, this, &QWidget::close);
+    connect(action(PlayerActions::About), &QAction::triggered, this, [this] {
+        QMessageBox::about(this, QStringLiteral("关于 zopana"), QStringLiteral("zopana\n本地视频播放与画面细节观察\nQt Widgets · libmpv\n图标：Lucide（ISC / Feather MIT）\n完整图标许可见“帮助 → 第三方许可”。"));
+    });
+    connect(action(PlayerActions::Licenses), &QAction::triggered, this, &MainWindow::showLicenses);
+
+    auto *file = menuBar()->addMenu(QStringLiteral("文件(&F)"));
+    file->addAction(action(PlayerActions::Open)); file->addSeparator(); file->addAction(action(PlayerActions::Quit));
+    menuBar()->addMenu(QStringLiteral("播放(&P)"))->addAction(action(PlayerActions::PlayPause));
+    auto *picture = menuBar()->addMenu(QStringLiteral("画面(&V)"));
+    picture->addAction(action(PlayerActions::FeatureMode)); picture->addAction(action(PlayerActions::StandardMode));
+    picture->addSeparator(); picture->addAction(action(PlayerActions::ResetView));
+    auto *audio = menuBar()->addMenu(QStringLiteral("音频(&A)"));
+    audio->addMenu(controls_->volumeMenu())->setText(QStringLiteral("音量"));
+    menuBar()->addMenu(QStringLiteral("视图(&W)"))->addAction(action(PlayerActions::Fullscreen));
+    auto *help = menuBar()->addMenu(QStringLiteral("帮助(&H)"));
+    help->addAction(action(PlayerActions::About)); help->addAction(action(PlayerActions::Licenses));
+    auto *context = new QMenu(video_);
+    for (auto id : {PlayerActions::PlayPause, PlayerActions::Open, PlayerActions::FeatureMode,
+                   PlayerActions::StandardMode, PlayerActions::ResetView, PlayerActions::Fullscreen}) context->addAction(action(id));
+    video_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(video_, &QWidget::customContextMenuRequested, this, [this, context](QPoint point) {
+        context->popup(video_->mapToGlobal(point.x() < 0 ? video_->rect().center() : point));
+    });
     connect(video_, &VideoWidget::rendererReadyChanged, &player_, &Player::setRendererReady);
-
-    auto *controls = new QVBoxLayout;
-    controls->setContentsMargins(12, 8, 12, 8);
-    layout->addLayout(controls);
-
-    auto *timeline = new QHBoxLayout;
-    controls->addLayout(timeline);
-    auto *featureMode = new QRadioButton(QStringLiteral("特色"));
-    auto *standardMode = new QRadioButton(QStringLiteral("常规"));
-    featureMode->setObjectName(QStringLiteral("featureModeButton"));
-    standardMode->setObjectName(QStringLiteral("standardModeButton"));
-    featureMode->setToolTip(QStringLiteral("滚轮缩放，左键拖动画面"));
-    standardMode->setToolTip(QStringLiteral("滚轮调音量，单击播放或暂停"));
-    timeline->addWidget(featureMode);
-    timeline->addWidget(standardMode);
-    featureMode->setChecked(true);
-    connect(standardMode, &QRadioButton::toggled, video_, [this](bool standard) {
-        video_->setInputMode(standard ? VideoWidget::InputMode::Standard : VideoWidget::InputMode::Feature);
+    connect(video_, &VideoWidget::playbackToggleRequested, this, [this] {
+        if (actions_->get(PlayerActions::PlayPause)->isEnabled()) actions_->get(PlayerActions::PlayPause)->trigger();
     });
-    seek_ = new SeekSlider;
-    seek_->setObjectName(QStringLiteral("seekSlider"));
-    seek_->setAccessibleName(QStringLiteral("播放进度（秒）"));
-    seek_->setRange(0, 0);
-    seek_->setSingleStep(1);
-    seek_->setPageStep(10);
-    timeline->addWidget(seek_, 1);
-    time_ = new QLabel;
-    time_->setObjectName(QStringLiteral("timeLabel"));
-    time_->setAccessibleDescription(QStringLiteral("当前时间与总时长"));
-    timeline->addWidget(time_);
-
-    auto *actions = new QHBoxLayout;
-    controls->addLayout(actions);
-    auto *open = new QPushButton(QStringLiteral("打开文件"));
-    open->setObjectName(QStringLiteral("openButton"));
-    open->setAccessibleName(open->text());
-    open->setToolTip(QStringLiteral("打开本地视频 (Ctrl+O)"));
-    actions->addWidget(open);
-    playPause_ = new QPushButton(QStringLiteral("播放"));
-    playPause_->setObjectName(QStringLiteral("playPauseButton"));
-    playPause_->setToolTip(QStringLiteral("播放或暂停 (空格)"));
-    actions->addWidget(playPause_);
-    status_ = new QLabel;
-    status_->setObjectName(QStringLiteral("statusLabel"));
-    status_->setAccessibleDescription(QStringLiteral("播放状态"));
-    status_->setTextFormat(Qt::PlainText);
-    status_->setWordWrap(true);
-    actions->addWidget(status_, 1);
-    videoSize_ = new QLabel;
-    videoSize_->setObjectName(QStringLiteral("videoSizeLabel"));
-    videoSize_->setAccessibleDescription(QStringLiteral("视频尺寸"));
-    actions->addWidget(videoSize_);
-    auto *volumeLabel = new QLabel(QStringLiteral("音量 100%"));
-    volumeLabel->setObjectName(QStringLiteral("volumeLabel"));
-    actions->addWidget(volumeLabel);
-    auto *volume = new QSlider(Qt::Horizontal);
-    volume->setObjectName(QStringLiteral("volumeSlider"));
-    volume->setAccessibleName(QStringLiteral("音量"));
-    volume->setRange(0, 100);
-    volume->setValue(100);
-    volume->setMaximumWidth(110);
-    volumeLabel->setBuddy(volume);
-    actions->addWidget(volume);
-    resetView_ = new QPushButton(QStringLiteral("恢复适应窗口"));
-    resetView_->setObjectName(QStringLiteral("resetViewButton"));
-    resetView_->setEnabled(false);
-    actions->addWidget(resetView_);
-    connect(resetView_, &QPushButton::clicked, video_, &VideoWidget::resetView);
-    fullscreen_ = new QPushButton(QStringLiteral("全屏"));
-    fullscreen_->setObjectName(QStringLiteral("fullscreenButton"));
-    fullscreen_->setToolTip(QStringLiteral("切换全屏 (F11)"));
-    actions->addWidget(fullscreen_);
-
-    connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
-    connect(new QShortcut(QKeySequence::Open, this), &QShortcut::activated, open, &QPushButton::click);
-    connect(playPause_, &QPushButton::clicked, &player_, &Player::togglePaused);
-    connect(video_, &VideoWidget::playbackToggleRequested, playPause_, &QPushButton::click);
-    connect(new QShortcut(QKeySequence(Qt::Key_Space), this), &QShortcut::activated, playPause_, &QPushButton::click);
-    connect(fullscreen_, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
-    connect(new QShortcut(QKeySequence(Qt::Key_F11), this), &QShortcut::activated, this, &MainWindow::toggleFullscreen);
-    connect(new QShortcut(QKeySequence(Qt::Key_Escape), this), &QShortcut::activated, this, [this] {
-        if (isFullScreen())
-            toggleFullscreen();
-    });
-
-    // Tracking is off: a drag previews sliderMoved, then commits one valueChanged on release.
-    connect(seek_, &QSlider::sliderMoved, this, &MainWindow::showTime);
-    connect(seek_, &QSlider::valueChanged, this, [this](int seconds) {
-        if (loaded_)
-            player_.seek(seconds);
-    });
-    connect(volume, &QSlider::valueChanged, &player_, &Player::setVolume);
-    connect(video_, &VideoWidget::volumeStepsRequested, this, [this](double steps) {
-        player_.setVolume(player_.volumeTarget() + 5.0 * steps);
-    });
-
+    connect(video_, &VideoWidget::volumeStepsRequested, this, [this](double steps) { player_.setVolume(player_.volumeTarget() + 5 * steps); });
+    connect(controls_, &ControlBar::seekRequested, this, [this](int seconds) { if (state_ == Player::State::Loaded && seekable_) player_.seek(seconds); });
+    connect(controls_, &ControlBar::volumeRequested, &player_, &Player::setVolume);
     connect(&player_, &Player::mediaChanged, this, &MainWindow::updateMedia);
     connect(&player_, &Player::fileOpening, this, [this] { video_->setVideoSize({}); });
     connect(&player_, &Player::durationChanged, this, [this](double seconds) {
-        if (!loaded_)
-            return;
-        const QSignalBlocker block(seek_);
-        seek_->setMaximum(wholeSeconds(seconds));
-        seek_->setEnabled(seek_->maximum() > 0);
-        showTime(seek_->sliderPosition());
+        if (state_ == Player::State::Loaded) { duration_ = wholeSeconds(seconds); controls_->setTimeline(position_, duration_, seekable_); }
     });
     connect(&player_, &Player::positionChanged, this, [this](double seconds) {
-        if (!loaded_ || seek_->isSliderDown())
-            return;
-        const QSignalBlocker block(seek_);
-        seek_->setValue(wholeSeconds(seconds));
-        showTime(seek_->value());
+        if (state_ == Player::State::Loaded) { position_ = wholeSeconds(seconds); controls_->setTimeline(position_, duration_, seekable_); }
     });
-    connect(&player_, &Player::pausedChanged, this, [this](bool paused) {
-        paused_ = paused;
-        if (loaded_) {
-            playPause_->setText(paused ? QStringLiteral("播放") : QStringLiteral("暂停"));
-            status_->setText(paused ? QStringLiteral("已暂停") : QStringLiteral("正在播放"));
-        }
+    connect(&player_, &Player::seekableChanged, this, [this](bool seekable) {
+        seekable_ = seekable; controls_->setTimeline(position_, duration_, state_ == Player::State::Loaded && seekable_);
     });
-    connect(&player_, &Player::volumeChanged, this, [volume, volumeLabel](double level) {
-        const int percent = qBound(0, qRound(level), 100);
-        if (!volume->isSliderDown()) {
-            const QSignalBlocker block(volume);
-            volume->setValue(percent);
-        }
-        volumeLabel->setText(QStringLiteral("音量 %1%").arg(percent));
-    });
+    connect(&player_, &Player::pausedChanged, this, [this](bool paused) { paused_ = paused; updatePresentation(); });
+    connect(&player_, &Player::volumeChanged, controls_, &ControlBar::setVolume);
     connect(&player_, &Player::videoSizeChanged, this, [this](QSize size) {
-        if (loaded_) {
-            video_->setVideoSize(size);
-            resetView_->setEnabled(!size.isEmpty());
-            videoSize_->setText(size.isEmpty() ? QString() :
-                QStringLiteral("%1 × %2").arg(size.width()).arg(size.height()));
-        }
+        if (state_ == Player::State::Loaded) { videoSize_ = size; video_->setVideoSize(size); updatePresentation(); }
     });
-    connect(&player_, &Player::commandError, status_, &QLabel::setText);
-
+    connect(&player_, &Player::commandError, this, [this](const QString &message) {
+        controls_->setStatus(QStringLiteral("操作失败"), {}); controls_->setToolTip(message);
+    });
+    setMinimumSize(640, 400);
+    const QSize available = QGuiApplication::primaryScreen()->availableGeometry().size();
+    resize(QSize(1120, 720).boundedTo(available * .9).expandedTo(minimumSize()));
     updateMedia(Player::State::Idle, {}, {});
-    resize(960, 640);
+    video_->setFocus();
 }
 
-bool MainWindow::videoContextValid() const
-{
-    return video_->isValid();
-}
+bool MainWindow::videoContextValid() const { return video_->isValid(); }
 
 void MainWindow::openFile()
 {
     const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("打开本地视频"), {},
-        QStringLiteral("视频文件 (*.mkv *.mp4 *.mov *.avi *.webm *.m4v *.ts);;所有文件 (*)"));
-    if (!path.isEmpty())
-        player_.openFile(path);
+        QStringLiteral("媒体文件 (*.mkv *.mp4 *.mov *.avi *.webm *.m4v *.ts *.m4a *.mp3 *.flac *.wav);;所有文件 (*)"));
+    if (!path.isEmpty()) { player_.openFile(path); video_->setFocus(); }
 }
 
 void MainWindow::toggleFullscreen()
 {
-    if (isFullScreen()) {
-        if (wasMaximized_)
-            showMaximized();
-        else
-            showNormal();
-    } else {
-        wasMaximized_ = isMaximized();
-        showFullScreen();
+    if (isFullScreen()) { if (wasMaximized_) showMaximized(); else showNormal(); }
+    else { wasMaximized_ = isMaximized(); showFullScreen(); }
+    video_->setFocus();
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    if (!actions_) return;
+    if (event->type() == QEvent::WindowStateChange) {
+        actions_->setFullscreen(isFullScreen()); menuBar()->setVisible(!isFullScreen());
     }
-    fullscreen_->setText(isFullScreen() ? QStringLiteral("退出全屏") : QStringLiteral("全屏"));
+    if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange) {
+        actions_->refreshIcons(); if (controls_) controls_->refreshIcons();
+    }
 }
 
 void MainWindow::updateMedia(Player::State state, const QString &path, const QString &error)
 {
-    const QString fileName = QFileInfo(path).fileName();
-    const QString appName = QCoreApplication::applicationName();
-    setWindowTitle(fileName.isEmpty() ? appName : fileName + QStringLiteral(" — ") + appName);
-    loaded_ = state == Player::State::Loaded;
-    if (!loaded_)
-        resetView_->setEnabled(false);
-    if (state == Player::State::Idle || state == Player::State::Error || state == Player::State::Ended)
-        video_->setVideoSize({});
-    playPause_->setEnabled(loaded_);
-    playPause_->setText(loaded_ && !paused_ ? QStringLiteral("暂停") : QStringLiteral("播放"));
-    seek_->setEnabled(loaded_ && seek_->maximum() > 0);
-    const QSignalBlocker block(seek_);
-    switch (state) {
-    case Player::State::Idle:
-    case Player::State::Loading:
-    case Player::State::Error:
-        seek_->setSliderDown(false);
-        seek_->setValue(0);
-        seek_->setMaximum(0);
-        showTime(0);
-        videoSize_->clear();
-        if (state == Player::State::Idle)
-            status_->clear();
-        else if (state == Player::State::Loading)
-            status_->setText(QStringLiteral("正在打开…"));
-        else
-            status_->setText(QStringLiteral("打开失败：%1").arg(error));
-        break;
-    case Player::State::Loaded:
-        status_->setText(paused_ ? QStringLiteral("已暂停") : QStringLiteral("正在播放"));
-        break;
-    case Player::State::Ended:
-        seek_->setValue(seek_->maximum());
-        showTime(seek_->value());
-        status_->setText(QStringLiteral("播放完毕"));
-        break;
+    state_ = state; path_ = path; error_ = error;
+    const QString file = QFileInfo(path).fileName();
+    setWindowTitle(file.isEmpty() ? QCoreApplication::applicationName() : file + QStringLiteral(" — ") + QCoreApplication::applicationName());
+    if (state != Player::State::Loaded) {
+        seekable_ = false; videoSize_ = {};
+        if (state != Player::State::Loading) video_->setVideoSize({});
     }
+    if (state == Player::State::Loading || state == Player::State::Idle || state == Player::State::Error) {
+        position_ = 0; duration_ = 0; paused_ = false;
+    } else if (state == Player::State::Ended) position_ = duration_;
+    controls_->setTimeline(position_, duration_, state == Player::State::Loaded && seekable_);
+    updatePresentation();
 }
 
-void MainWindow::showTime(int position)
+void MainWindow::updatePresentation()
 {
-    time_->setText(timestamp(position) + QStringLiteral(" / ") + timestamp(seek_->maximum()));
+    const bool loaded = state_ == Player::State::Loaded;
+    const bool replayable = !path_.isEmpty() && (state_ == Player::State::Ended || state_ == Player::State::Idle);
+    actions_->setMediaState(loaded, paused_, replayable, loaded && !videoSize_.isEmpty(), state_ == Player::State::Error);
+    const QString file = QFileInfo(path_).fileName();
+    QString status;
+    switch (state_) {
+    case Player::State::Idle:
+        status = path_.isEmpty() ? QStringLiteral("就绪") : QStringLiteral("已停止");
+        surface_->present(path_.isEmpty() ? QStringLiteral("打开视频，开始观看") : QStringLiteral("已停止"),
+            path_.isEmpty() ? QStringLiteral("支持常见本地媒体格式\n按 Ctrl+O 选择文件") : file,
+            actions_->get(replayable ? PlayerActions::PlayPause : PlayerActions::Open));
+        break;
+    case Player::State::Loading:
+        status = QStringLiteral("正在打开…"); surface_->present(status, file, nullptr); break;
+    case Player::State::Error:
+        status = QStringLiteral("打开失败"); surface_->present(QStringLiteral("无法打开此文件"), file + '\n' + error_,
+            actions_->get(PlayerActions::Retry), actions_->get(PlayerActions::Open)); break;
+    case Player::State::Ended:
+        status = QStringLiteral("播放完毕"); surface_->present(status, file, actions_->get(PlayerActions::PlayPause), actions_->get(PlayerActions::Open)); break;
+    case Player::State::Loaded:
+        status = paused_ ? QStringLiteral("已暂停") : QStringLiteral("正在播放");
+        if (videoSize_.isEmpty()) surface_->present(QStringLiteral("音频播放"), file, nullptr);
+        else surface_->showVideo();
+        break;
+    }
+    controls_->setStatus(status, videoSize_.isEmpty() ? QString() : QStringLiteral("%1 × %2").arg(videoSize_.width()).arg(videoSize_.height()));
+}
+
+void MainWindow::showLicenses()
+{
+    QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("第三方许可 · Lucide"));
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *text = new QPlainTextEdit; text->setReadOnly(true); text->setAccessibleName(QStringLiteral("Lucide 完整许可"));
+    QFile license(":/licenses/lucide.txt");
+    if (license.open(QIODevice::ReadOnly)) text->setPlainText(QString::fromUtf8(license.readAll()));
+    layout->addWidget(text);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close); layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialog.resize(720, 500); dialog.exec();
 }

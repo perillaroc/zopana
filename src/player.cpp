@@ -49,7 +49,8 @@ struct Property {
 constexpr Property fileProperties[] = {
     {"duration", MPV_FORMAT_DOUBLE}, {"time-pos", MPV_FORMAT_DOUBLE},
     {"pause", MPV_FORMAT_FLAG}, {"video-out-params", MPV_FORMAT_NODE},
-    {"current-ao", MPV_FORMAT_STRING}, {"audio-out-params", MPV_FORMAT_NODE}
+    {"current-ao", MPV_FORMAT_STRING}, {"audio-out-params", MPV_FORMAT_NODE},
+    {"seekable", MPV_FORMAT_FLAG}
 };
 } // namespace
 
@@ -338,7 +339,9 @@ void Player::propertyChanged(const mpv_event &event)
     }
     if (state_ != State::Loaded || event.reply_userdata != static_cast<uint64_t>(selectedEntry_))
         return;
-    if (name == "duration") {
+    if (name == "seekable") {
+        emit seekableChanged(*static_cast<int *>(property.data) != 0);
+    } else if (name == "duration") {
         const double seconds = *static_cast<double *>(property.data);
         std::fprintf(stderr, "duration: %.3f s\n", seconds);
         emit durationChanged(seconds);

@@ -1,0 +1,16 @@
+<RCC><qresource prefix="/">
+<file>icons/lucide/ellipsis.svg</file>
+<file>icons/lucide/file-text.svg</file>
+<file>icons/lucide/folder-open.svg</file>
+<file>icons/lucide/info.svg</file>
+<file>icons/lucide/maximize.svg</file>
+<file>icons/lucide/minimize.svg</file>
+<file>icons/lucide/mouse-pointer-2.svg</file>
+<file>icons/lucide/move.svg</file>
+<file>icons/lucide/pause.svg</file>
+<file>icons/lucide/play.svg</file>
+<file>icons/lucide/refresh-cw.svg</file>
+<file>icons/lucide/scan.svg</file>
+<file>icons/lucide/volume-2.svg</file>
+<file alias="licenses/lucide.txt">../packaging/notices/lucide-LICENSE.txt</file>
+</qresource></RCC>

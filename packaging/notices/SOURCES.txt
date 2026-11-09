@@ -40,3 +40,15 @@ https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/
 https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/
 https://learn.microsoft.com/visualstudio/releases/2022/redistribution
 https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files
+
+Qt SVG 6.11.3, dynamically linked (QSvgRenderer)
+The Qt SVG module is used under LGPLv3 alongside the Qt Base modules above.
+https://download.qt.io/archive/qt/6.11/6.11.3/submodules/qtsvg-everywhere-src-6.11.3.tar.xz
+
+Lucide SVG icons, pinned to commit 45aaec4b721c98aa86a2acd0ab7281bcf68b9c5e
+ISC License with retained Feather-derived MIT notices.
+The exact upstream SVG bytes are recorded in resources/icons/lucide/SOURCES.json.
+Only runtime palette recoloring is applied; vendored SVG files are unmodified.
+The complete upstream LICENSE is distributed as notices/lucide-LICENSE.txt.
+https://github.com/lucide-icons/lucide/tree/45aaec4b721c98aa86a2acd0ab7281bcf68b9c5e
+https://lucide.dev/license

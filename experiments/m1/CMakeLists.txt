@@ -1,0 +1,10 @@
+add_executable(zopana_m1 probe.cpp)
+target_link_libraries(zopana_m1 PRIVATE zopana_core Qt6::Test)
+target_compile_options(zopana_m1 PRIVATE /utf-8)
+set_target_properties(zopana_m1 PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+add_executable(zopana_m0_regression ../m0/probe.cpp)
+target_link_libraries(zopana_m0_regression PRIVATE zopana_core Qt6::Test Psapi)
+target_compile_options(zopana_m0_regression PRIVATE /utf-8)
+target_compile_definitions(zopana_m0_regression PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+set_target_properties(zopana_m0_regression PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
