@@ -157,6 +157,7 @@ public:
         pump.start();
         if (baseline) {
             window = std::make_unique<MainWindow>(player);
+            window->resize(960, 640); // Keep the B04 comparison size across UI milestones.
             video = window->findChild<VideoWidget *>("videoWidget");
         } else {
             window = std::make_unique<QMainWindow>();
@@ -403,6 +404,7 @@ public:
         require("M0.1 OSD pointer passes to video", hit == video,
                 {{"hitClass", hit ? hit->metaObject()->className() : "null"}});
         QTest::mouseClick(hit, Qt::LeftButton, Qt::NoModifier, hit->mapFrom(surface, surface->osd->geometry().center()));
+        waitFor([&] { return toggles == 1; }, QApplication::doubleClickInterval() + 200);
         check("M0.1 exactly one video toggle", toggles == 1);
         hit = surface->childAt(surface->notice->geometry().center());
         QTest::mouseClick(hit, Qt::LeftButton);

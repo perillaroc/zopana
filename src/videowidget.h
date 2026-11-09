@@ -26,11 +26,17 @@ public:
     void setInputMode(InputMode mode);
     void setVideoSize(QSize displaySize);
     void resetView();
+    void zoomSteps(double steps);
+    double zoomScale() const { return view_.scale(); }
+    bool cancelInput();
+    bool gestureActive() const { return leftPressActive_; }
 
 signals:
     void rendererReadyChanged(bool ready);
     void volumeStepsRequested(double steps);
     void playbackToggleRequested();
+    void fullscreenRequested();
+    void zoomChanged(double scale);
 
 protected:
     void initializeGL() override;
@@ -42,6 +48,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
 
 private:
     void releaseRenderer();
@@ -50,6 +57,7 @@ private:
     bool renderFrame(int fbo, QSize pixels);
     void skipFrame();
     void advanceZoom();
+    void zoomAt(QPointF pointer, double steps);
     bool withinClickDistance(QPointF position) const;
     void dragTo(QPointF position);
 
@@ -66,12 +74,14 @@ private:
     ViewGeometry view_;
     ViewGeometry zoomStart_;
     QTimer zoomTimer_;
+    QTimer clickTimer_;
     QElapsedTimer sinceZoomFrame_;
     QDeadlineTimer zoomDeadline_;
     QPointF zoomPointer_;
     double zoomTarget_ = 1;
     InputMode inputMode_ = InputMode::Feature;
     bool leftPressActive_ = false;
+    bool suppressRelease_ = false;
     QPointF pressPosition_;
     QPointF dragOrigin_;
 };

@@ -219,7 +219,8 @@ public:
             QTest::keyClick(focus ? focus : video, Qt::Key_Tab);
         }
         bool reachable = true;
-        for (auto name : {"videoWidget", "seekSlider", "openButton", "playPauseButton", "featureModeButton", "standardModeButton", "resetViewButton", "volumeButton", "fullscreenButton", "moreButton"}) reachable &= visited.contains(name);
+        for (auto name : {"videoWidget", "seekSlider", "openButton", "playPauseButton", "featureModeButton", "standardModeButton", "resetViewButton", "volumeButton", "fullscreenButton", "moreButton"})
+            if (widget<QWidget>(name)->isEnabled()) reachable &= visited.contains(name);
         check("Tab reaches existing playback controls", reachable, {{"visited", QJsonArray::fromStringList(visited.values())}});
         video->setFocus(); const auto fit = video->grabFramebuffer(); wheel(5);
         check("feature zoom changes view", video->grabFramebuffer() != fit);
@@ -227,9 +228,9 @@ public:
         check("R restores fit view", video->grabFramebuffer() == fit);
         player.setVolume(50); until([this] { return std::abs(number("volume") - 50) < .1; });
         action("view.mode.standard")->trigger(); wheel(1);
-        check("standard wheel changes only volume", std::abs(number("volume") - 55) < .1 && video->grabFramebuffer() == fit);
+        check("standard wheel on silent video leaves volume and view unchanged", std::abs(number("volume") - 50) < .1 && video->grabFramebuffer() == fit);
         action("view.mode.feature")->trigger(); wheel(1);
-        check("feature wheel preserves volume", std::abs(number("volume") - 55) < .1 && video->grabFramebuffer() != fit);
+        check("feature wheel preserves volume", std::abs(number("volume") - 50) < .1 && video->grabFramebuffer() != fit);
         action("view.reset")->trigger();
 
         auto *context = video->context();

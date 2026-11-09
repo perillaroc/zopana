@@ -8,18 +8,6 @@
 #include <cstring>
 
 namespace {
-enum Request : uint64_t { Load = 1, Seek, Pause, Volume };
-
-const char *controlName(uint64_t request)
-{
-    switch (request) {
-    case Seek: return "seek";
-    case Pause: return "pause";
-    case Volume: return "volume";
-    default: return "command";
-    }
-}
-
 bool check(const char *operation, int result)
 {
     if (result >= 0)
@@ -50,9 +38,16 @@ constexpr Property fileProperties[] = {
     {"duration", MPV_FORMAT_DOUBLE}, {"time-pos", MPV_FORMAT_DOUBLE},
     {"pause", MPV_FORMAT_FLAG}, {"video-out-params", MPV_FORMAT_NODE},
     {"current-ao", MPV_FORMAT_STRING}, {"audio-out-params", MPV_FORMAT_NODE},
-    {"seekable", MPV_FORMAT_FLAG}
+    {"seekable", MPV_FORMAT_FLAG}, {"estimated-vf-fps", MPV_FORMAT_DOUBLE}
 };
 } // namespace
+
+Player::Player(QObject *parent) : QObject(parent)
+{
+    seekTimer_.setSingleShot(true);
+    seekTimer_.setInterval(35);
+    connect(&seekTimer_, &QTimer::timeout, this, &Player::flushSeek);
+}
 
 Player::~Player()
 {
@@ -88,10 +83,12 @@ bool Player::initialize()
             return false;
     }
     if (!check("mpv_initialize", mpv_initialize(handle_))
-        || !check("observe volume", mpv_observe_property(handle_, 0, "volume", MPV_FORMAT_DOUBLE)))
+        || !check("observe volume", mpv_observe_property(handle_, 0, "volume", MPV_FORMAT_DOUBLE))
+        || !check("observe mute", mpv_observe_property(handle_, 0, "mute", MPV_FORMAT_FLAG)))
         return false;
 
     std::fputs("libmpv view: video-zoom=0,video-pan-x=0,video-pan-y=0 (fixed)\n", stderr);
+    mpv_get_property(handle_, "audio-buffer", MPV_FORMAT_DOUBLE, &audioBuffer_);
     mpv_set_wakeup_callback(handle_, [](void *data) {
         auto *player = static_cast<Player *>(data);
         QMetaObject::invokeMethod(player, &Player::drainEvents, Qt::QueuedConnection);
@@ -104,6 +101,7 @@ void Player::shutdown()
     if (closing_)
         return;
     closing_ = true;
+    clearSeek();
     // libmpv serializes callback replacement with calls to the old callback.
     // Posted Qt invocations may still arrive, but drainEvents now exits immediately.
     if (handle_)
@@ -137,10 +135,15 @@ void Player::openFile(const QString &path)
 
 void Player::queueLoad()
 {
+    ++generation_;
+    clearSeek();
+    seekable_ = false; duration_ = fps_ = sampleRate_ = 0;
+    emit audioAvailableChanged(false);
     if (selectedEntry_)
         mpv_unobserve_property(handle_, selectedEntry_);
     selectedEntry_ = 0;
     loadPending_ = true;
+    stopPending_ = false;
     changeState(State::Loading);
     submitPendingLoad();
 }
@@ -149,19 +152,25 @@ void Player::submitPendingLoad()
 {
     // Complete earlier commands before replacing the entry. In particular, a
     // previous file's outstanding seek must never execute on the new file.
-    if (!rendererReady_ || !loadPending_ || loadInFlight_ || controlsInFlight_ || closing_)
+    if (closing_ || !requests_.isEmpty())
+        return;
+    if (stopPending_) {
+        stopPending_ = false;
+        const char *args[] = {"stop", "keep-playlist", nullptr};
+        submitControl(Command::Stop, args);
+        return;
+    }
+    if (!rendererReady_ || !loadPending_)
         return;
     loadPending_ = false;
     const QByteArray path = path_.toUtf8();
     const QByteArray options = QByteArray("pause=") + (paused_ ? "yes" : "no")
                              + ",start=" + QByteArray::number(position_, 'f', 3);
     const char *args[] = {"loadfile", path.constData(), "replace", "-1", options.constData(), nullptr};
-    const int result = mpv_command_async(handle_, Load, args);
-    if (!check("loadfile", result)) {
-        changeState(State::Error, QString::fromUtf8(mpv_error_string(result)));
+    if (!submitControl(Command::Load, args)) {
+        changeState(State::Error, QStringLiteral("无法提交打开请求"));
         return;
     }
-    loadInFlight_ = true;
     std::fprintf(stderr, "loadfile submitted: %s (%s)\n", path.constData(), options.constData());
 }
 
@@ -170,31 +179,88 @@ void Player::setPaused(bool paused)
     if (state_ != State::Loaded)
         return;
     const char *args[] = {"set", "pause", paused ? "yes" : "no", nullptr};
-    submitControl(Pause, args);
+    submitControl(Command::Pause, args);
 }
 
 void Player::togglePaused()
 {
     if (state_ == State::Loaded) {
         const char *args[] = {"cycle", "pause", nullptr};
-        submitControl(Pause, args);
+        submitControl(Command::Pause, args);
     }
+}
+
+void Player::stop()
+{
+    if (!handle_ || closing_ || path_.isEmpty())
+        return;
+    ++generation_;
+    clearSeek();
+    if (selectedEntry_) mpv_unobserve_property(handle_, selectedEntry_);
+    selectedEntry_ = 0;
+    loadPending_ = false; stopPending_ = true;
+    position_ = 0; paused_ = false; seekable_ = false;
+    emit audioAvailableChanged(false);
+    changeState(State::Idle);
+    submitPendingLoad();
+}
+
+double Player::lastPosition() const
+{
+    // Video: reserve a decoded frame interval. Audio: reserve two configured
+    // output buffers: the decoder can reach EOF during paused output priming.
+    const double interval = fps_ > 0 ? 1.0 / fps_
+        : sampleRate_ > 0 && audioBuffer_ > 0 ? std::max(2 * audioBuffer_, 1.0 / sampleRate_) : 0;
+    return duration_ > 0 && interval > 0 ? std::max(0.0, duration_ - interval) : 0;
+}
+
+void Player::clearSeek()
+{
+    seekTimer_.stop(); pendingSeek_.reset(); seekTarget_.reset();
+    seekBusy_ = seekReplied_ = seekRestarted_ = false;
 }
 
 void Player::seek(double seconds)
 {
-    if (state_ != State::Loaded || !std::isfinite(seconds) || seconds < 0 || closing_)
+    if (state_ != State::Loaded || !seekable_ || duration_ <= 0 || !std::isfinite(seconds) || closing_)
         return;
-    const QByteArray target = QByteArray::number(seconds, 'f', 3);
+    const double maximum = lastPosition();
+    if (maximum <= 0 && seconds > 0) return;
+    seekTarget_ = pendingSeek_ = std::clamp(seconds, 0.0, maximum);
+    emit seekRequested(*seekTarget_);
+    if (!seekTimer_.isActive()) seekTimer_.start();
+}
+
+void Player::seekRelative(double seconds)
+{
+    if (std::isfinite(seconds)) seek(positionTarget() + seconds);
+}
+
+void Player::flushSeek()
+{
+    if (!pendingSeek_ || seekBusy_ || state_ != State::Loaded) return;
+    const double seconds = *pendingSeek_; pendingSeek_.reset();
+    const QByteArray target = QByteArray::number(seconds, 'f', 6);
     const char *args[] = {"seek", target.constData(), "absolute+exact", nullptr};
     std::fprintf(stderr, "seek submitted: %s s\n", target.constData());
-    submitControl(Seek, args);
+    seekReplied_ = seekRestarted_ = false;
+    seekBusy_ = submitControl(Command::Seek, args);
+    if (!seekBusy_) clearSeek();
+}
+
+void Player::finishSeek()
+{
+    if (!seekBusy_ || !seekReplied_ || !seekRestarted_) return;
+    seekBusy_ = false;
+    if (pendingSeek_) seekTimer_.start();
+    else seekTarget_.reset();
 }
 
 void Player::setVolume(double volume)
 {
     if (!std::isfinite(volume))
         return;
+    if (muteTarget_) setMuted(false);
     // Keep fractional wheel input between events, including while a previous
     // slider or wheel request is still waiting for its asynchronous reply.
     volumeTarget_ = std::clamp(volume, 0.0, 100.0);
@@ -202,27 +268,48 @@ void Player::setVolume(double volume)
         return;
     const QByteArray value = QByteArray::number(volumeTarget_, 'g', 15);
     const char *args[] = {"set", "volume", value.constData(), nullptr};
-    if (submitControl(Volume, args))
+    if (submitControl(Command::Volume, args))
         volumeInFlight_ = volumeTarget_;
-    else
+    else {
         volumeTarget_ = reportedVolume_;
+        emit volumeChanged(reportedVolume_);
+    }
 }
 
-bool Player::submitControl(uint64_t request, const char **args)
+void Player::setMuted(bool muted)
+{
+    muteTarget_ = muted;
+    if (muteInFlight_) return;
+    const char *args[] = {"set", "mute", muted ? "yes" : "no", nullptr};
+    if (submitControl(Command::Mute, args)) muteInFlight_ = muted;
+    else { muteTarget_ = reportedMute_; emit mutedChanged(reportedMute_); }
+}
+
+void Player::addSubtitle(const QString &path)
+{
+    if (state_ != State::Loaded) return;
+    const QByteArray filename = path.toUtf8();
+    const char *args[] = {"sub-add", filename.constData(), "select", nullptr};
+    submitControl(Command::Subtitle, args);
+}
+
+bool Player::submitControl(Command command, const char **args)
 {
     if (!handle_ || closing_)
         return false;
+    const uint64_t request = nextRequest_++;
     const int result = mpv_command_async(handle_, request, args);
-    if (check(controlName(request), result)) {
-        ++controlsInFlight_;
+    if (check(args[0], result)) {
+        requests_.insert(request, {command, generation_, command == Command::Subtitle ? QString::fromUtf8(args[1]) : QString()});
         return true;
     }
-    emit commandError(QStringLiteral("%1: %2").arg(controlName(request), mpv_error_string(result)));
+    emit commandError(QStringLiteral("%1: %2").arg(args[0], mpv_error_string(result)));
     return false;
 }
 
 void Player::changeState(State state, const QString &error)
 {
+    if (state != State::Loaded) clearSeek();
     state_ = state;
     emit mediaChanged(state, path_, error);
 }
@@ -236,6 +323,11 @@ void Player::drainEvents()
             return;
         case MPV_EVENT_COMMAND_REPLY:
             handleReply(event);
+            break;
+        case MPV_EVENT_PLAYBACK_RESTART:
+            if (state_ == State::Loaded && eventEntry_ == selectedEntry_) {
+                seekRestarted_ = true; finishSeek();
+            }
             break;
         case MPV_EVENT_START_FILE:
             eventEntry_ = static_cast<mpv_event_start_file *>(event.data)->playlist_entry_id;
@@ -274,9 +366,12 @@ void Player::drainEvents()
 
 void Player::handleReply(const mpv_event &event)
 {
-    if (event.reply_userdata == Load) {
-        loadInFlight_ = false;
-        if (!loadPending_) {
+    auto found = requests_.find(event.reply_userdata);
+    if (found == requests_.end()) return;
+    const Request request = found.value(); requests_.erase(found);
+    const bool current = request.generation == generation_;
+    if (request.command == Command::Load) {
+        if (current && !loadPending_) {
             if (!check("loadfile reply", event.error)) {
                 changeState(State::Error, QString::fromUtf8(mpv_error_string(event.error)));
             } else {
@@ -289,16 +384,28 @@ void Player::handleReply(const mpv_event &event)
             }
         }
     } else {
-        --controlsInFlight_;
-        if (!check(controlName(event.reply_userdata), event.error) && !loadPending_)
-            emit commandError(QStringLiteral("%1: %2").arg(controlName(event.reply_userdata), mpv_error_string(event.error)));
-        if (event.reply_userdata == Volume) {
+        if (!check("command reply", event.error) && current)
+            emit commandError(QString::fromUtf8(mpv_error_string(event.error)));
+        if (request.command == Command::Seek && current) {
+            seekReplied_ = true;
+            if (event.error < 0) { clearSeek(); emit positionChanged(position_); } else finishSeek();
+        }
+        if (request.command == Command::Subtitle && current && event.error >= 0) emit subtitleLoaded(request.subject);
+        if (request.command == Command::Volume) {
             const bool newerTarget = volumeTarget_ != volumeInFlight_.value();
             volumeInFlight_.reset();
             if (newerTarget)
                 setVolume(volumeTarget_);
-            else if (event.error < 0)
+            else if (event.error < 0) {
                 volumeTarget_ = reportedVolume_;
+                emit volumeChanged(reportedVolume_);
+            }
+        }
+        if (request.command == Command::Mute) {
+            const bool newerTarget = muteTarget_ != muteInFlight_.value();
+            muteInFlight_.reset();
+            if (newerTarget) setMuted(muteTarget_);
+            else if (event.error < 0) { muteTarget_ = reportedMute_; emit mutedChanged(reportedMute_); }
         }
     }
     submitPendingLoad();
@@ -337,12 +444,22 @@ void Player::propertyChanged(const mpv_event &event)
         emit volumeChanged(volume);
         return;
     }
+    if (name == "mute") {
+        reportedMute_ = *static_cast<int *>(property.data) != 0;
+        if (!muteInFlight_) muteTarget_ = reportedMute_;
+        emit mutedChanged(reportedMute_);
+        return;
+    }
     if (state_ != State::Loaded || event.reply_userdata != static_cast<uint64_t>(selectedEntry_))
         return;
     if (name == "seekable") {
-        emit seekableChanged(*static_cast<int *>(property.data) != 0);
+        seekable_ = *static_cast<int *>(property.data) != 0;
+        emit seekableChanged(seekable_);
+    } else if (name == "estimated-vf-fps") {
+        fps_ = *static_cast<double *>(property.data);
     } else if (name == "duration") {
         const double seconds = *static_cast<double *>(property.data);
+        duration_ = seconds;
         std::fprintf(stderr, "duration: %.3f s\n", seconds);
         emit durationChanged(seconds);
     } else if (name == "time-pos") {
@@ -364,6 +481,8 @@ void Player::propertyChanged(const mpv_event &event)
         std::fprintf(stderr, "audio output: %s\n", *static_cast<char **>(property.data));
     } else if (name == "audio-out-params") {
         const auto &node = *static_cast<mpv_node *>(property.data);
+        sampleRate_ = double(mapInteger(node, "samplerate"));
+        emit audioAvailableChanged(sampleRate_ > 0);
         std::fprintf(stderr, "audio output: %lld Hz, %lld channels\n",
                      static_cast<long long>(mapInteger(node, "samplerate")),
                      static_cast<long long>(mapInteger(node, "channel-count")));

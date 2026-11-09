@@ -16,7 +16,17 @@ constexpr Definition definitions[] = {
     {"window.fullscreen", "全屏", "maximize"}, {"window.escape", "返回", ""},
     {"view.mode.feature", "缩放拖动", "move"}, {"view.mode.standard", "常规播放", "mouse-pointer-2"},
     {"app.quit", "退出", ""}, {"window.about", "关于 zopana", "info"},
-    {"window.licenses", "第三方许可", "file-text"}
+    {"window.licenses", "第三方许可", "file-text"},
+    {"play.stop", "停止", "square"},
+    {"seek.backSmall", "后退 5 秒", ""}, {"seek.forwardSmall", "前进 5 秒", ""},
+    {"seek.backMedium", "后退 30 秒", ""}, {"seek.forwardMedium", "前进 30 秒", ""},
+    {"seek.backLarge", "后退 60 秒", ""}, {"seek.forwardLarge", "前进 60 秒", ""},
+    {"seek.start", "跳到开头", ""}, {"seek.end", "跳到最后画面", ""},
+    {"seek.goto", "跳转时间…", ""},
+    {"audio.volumeUp", "增大音量", ""}, {"audio.volumeDown", "减小音量", ""},
+    {"audio.mute", "静音", "volume-2"}, {"view.inputMode", "切换鼠标模式", ""},
+    {"view.zoomIn", "放大画面", "zoom-in"}, {"view.zoomOut", "缩小画面", "zoom-out"},
+    {"window.shortcuts", "快捷键帮助", "keyboard"}
 };
 }
 
@@ -34,12 +44,34 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
         action->setShortcutVisibleInContextMenu(true);
         window.addAction(action);
         actions_[i] = action;
+        action->setProperty("scope", QStringLiteral("窗口"));
+        connect(action, &QAction::triggered, this, &PlayerActions::invoked);
     }
     get(Open)->setShortcuts(QKeySequence::Open);
     get(PlayPause)->setShortcut(QKeySequence(Qt::Key_Space));
     get(ResetView)->setShortcut(QKeySequence(Qt::Key_R));
     get(Fullscreen)->setShortcuts({QKeySequence(Qt::Key_F11), QKeySequence(Qt::Key_Return), QKeySequence(Qt::Key_Enter)});
     get(Escape)->setShortcut(QKeySequence(Qt::Key_Escape));
+    get(Escape)->setProperty("scope", QStringLiteral("当前层"));
+    const auto view = [this](Id id, QList<QKeySequence> keys, bool repeat = false) {
+        get(id)->setShortcuts(keys); get(id)->setAutoRepeat(repeat);
+        get(id)->setProperty("scope", QStringLiteral("观看"));
+    };
+    view(PlayPause, {QKeySequence(Qt::Key_Space)});
+    view(ResetView, {QKeySequence(Qt::Key_R)});
+    view(Stop, {QKeySequence(Qt::Key_S)});
+    view(BackSmall, {QKeySequence(Qt::Key_Left)}, true); view(ForwardSmall, {QKeySequence(Qt::Key_Right)}, true);
+    view(BackMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Left)}, true); view(ForwardMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Right)}, true);
+    view(BackLarge, {QKeySequence(Qt::CTRL | Qt::Key_Left)}, true); view(ForwardLarge, {QKeySequence(Qt::CTRL | Qt::Key_Right)}, true);
+    view(SeekStart, {QKeySequence(Qt::Key_Home)}); view(SeekEnd, {QKeySequence(Qt::Key_End)});
+    get(SeekGoto)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
+    view(VolumeUp, {QKeySequence(Qt::Key_Up)}, true); view(VolumeDown, {QKeySequence(Qt::Key_Down)}, true);
+    view(Mute, {QKeySequence(Qt::Key_M)}); get(Mute)->setCheckable(true);
+    view(InputMode, {QKeySequence(Qt::Key_V)});
+    view(ZoomIn, {QKeySequence(Qt::Key_Equal), QKeySequence(Qt::Key_Plus), QKeySequence(Qt::SHIFT | Qt::Key_Plus)}, true);
+    view(ZoomOut, {QKeySequence(Qt::Key_Minus)}, true);
+    get(Shortcuts)->setShortcut(QKeySequence(Qt::Key_F1));
+    get(Fullscreen)->setProperty("scope", QStringLiteral("窗口：F11；观看：Enter"));
     auto *mode = new QActionGroup(this);
     for (auto id : {FeatureMode, StandardMode}) { get(id)->setCheckable(true); mode->addAction(get(id)); }
     get(FeatureMode)->setChecked(true);
@@ -68,8 +100,12 @@ bool PlayerActions::eventFilter(QObject *object, QEvent *event)
     if (event->type() == QEvent::ShortcutOverride) {
         auto *key = static_cast<QKeyEvent *>(event);
         const auto modifiers = key->modifiers() & ~Qt::KeypadModifier;
-        const bool viewKey = modifiers == Qt::NoModifier
-            && (key->key() == Qt::Key_Space || key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter || key->key() == Qt::Key_R);
+        const QKeySequence pressed(QKeyCombination(modifiers, Qt::Key(key->key())));
+        bool viewKey = modifiers == Qt::NoModifier && (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter);
+        for (auto *action : actions_) {
+            if (action->property("scope").toString() != QStringLiteral("观看")) continue;
+            for (const auto &sequence : action->shortcuts()) viewKey |= sequence.matches(pressed) == QKeySequence::ExactMatch;
+        }
         if (viewKey && !watching()) { key->accept(); return true; }
         if (key->key() == Qt::Key_Escape && (QApplication::activePopupWidget() || QApplication::activeModalWidget())) {
             key->accept(); return true;
@@ -84,8 +120,33 @@ void PlayerActions::setMediaState(bool loaded, bool paused, bool replayable, boo
     get(PlayPause)->setText(loaded && !paused ? QStringLiteral("暂停") : replayable ? QStringLiteral("重新播放") : QStringLiteral("播放"));
     get(PlayPause)->setProperty("iconName", loaded && !paused ? "pause" : "play");
     get(ResetView)->setEnabled(hasVideo);
+    get(Stop)->setEnabled(loaded);
+    for (auto id : {ZoomIn, ZoomOut}) get(id)->setEnabled(hasVideo);
     get(ResetView)->setStatusTip(hasVideo ? QStringLiteral("恢复完整画面并居中") : QStringLiteral("当前没有可复位的视频画面"));
     get(Retry)->setEnabled(retryable);
+    refreshIcons();
+}
+
+void PlayerActions::setSeekable(bool seekable)
+{
+    for (auto id : {BackSmall, ForwardSmall, BackMedium, ForwardMedium, BackLarge, ForwardLarge, SeekStart, SeekEnd, SeekGoto})
+    { get(id)->setEnabled(seekable); get(id)->setStatusTip(seekable ? get(id)->text() : QStringLiteral("当前媒体尚不可定位")); }
+    refreshIcons();
+}
+
+void PlayerActions::setAudioAvailable(bool available)
+{
+    for (auto id : {VolumeUp, VolumeDown, Mute}) {
+        get(id)->setEnabled(available); get(id)->setStatusTip(available ? QString() : QStringLiteral("当前媒体没有可用音轨"));
+    }
+    refreshIcons();
+}
+
+void PlayerActions::setMuted(bool muted)
+{
+    get(Mute)->setChecked(muted);
+    get(Mute)->setProperty("iconName", muted ? "volume-x" : "volume-2");
+    get(Mute)->setText(muted ? QStringLiteral("取消静音") : QStringLiteral("静音"));
     refreshIcons();
 }
 

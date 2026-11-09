@@ -39,6 +39,7 @@ add_library(zopana_core STATIC
     src/controlbar.cpp src/controlbar.h
     src/videosurface.cpp src/videosurface.h
     src/theme.cpp src/theme.h
+    src/playbackdialogs.cpp src/playbackdialogs.h
     resources/player.qrc
 )
 set_target_properties(zopana_core PROPERTIES AUTOMOC ON AUTORCC ON)
@@ -60,4 +61,10 @@ option(ZOPANA_BUILD_M1_PROBE "Build the M1 UI validation tools" OFF)
 if(ZOPANA_BUILD_M1_PROBE)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     add_subdirectory(experiments/m1)
+endif()
+
+option(ZOPANA_BUILD_M2_PROBE "Build the M2 playback and input validation tools" OFF)
+if(ZOPANA_BUILD_M2_PROBE)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    add_subdirectory(experiments/m2)
 endif()

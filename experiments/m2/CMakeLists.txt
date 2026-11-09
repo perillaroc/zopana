@@ -1,0 +1,10 @@
+add_executable(zopana_m2 probe.cpp)
+target_link_libraries(zopana_m2 PRIVATE zopana_core Qt6::Test)
+target_compile_options(zopana_m2 PRIVATE /utf-8)
+set_target_properties(zopana_m2 PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+add_executable(zopana_m2_smoke portable-smoke.cpp)
+target_link_libraries(zopana_m2_smoke PRIVATE zopana_core)
+target_compile_options(zopana_m2_smoke PRIVATE /utf-8)
+target_compile_definitions(zopana_m2_smoke PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+set_target_properties(zopana_m2_smoke PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

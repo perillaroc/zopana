@@ -12,12 +12,20 @@ class PlayerActions final : public QObject
     Q_OBJECT
 public:
     enum Id { Open, Retry, PlayPause, ResetView, Fullscreen, Escape,
-              FeatureMode, StandardMode, Quit, About, Licenses, Count };
+              FeatureMode, StandardMode, Quit, About, Licenses,
+              Stop, BackSmall, ForwardSmall, BackMedium, ForwardMedium, BackLarge, ForwardLarge,
+              SeekStart, SeekEnd, SeekGoto, VolumeUp, VolumeDown, Mute, InputMode, ZoomIn, ZoomOut, Shortcuts, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     void setMediaState(bool loaded, bool paused, bool replayable, bool hasVideo, bool retryable);
     void setFullscreen(bool fullscreen);
     void refreshIcons();
+    void setSeekable(bool seekable);
+    void setAudioAvailable(bool available);
+    void setMuted(bool muted);
+
+signals:
+    void invoked();
 
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;

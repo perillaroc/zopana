@@ -7,6 +7,7 @@ class QLabel;
 class QMenu;
 class QSlider;
 class QToolButton;
+class SeekSlider;
 class PlayerActions;
 
 class ControlBar final : public QWidget
@@ -17,6 +18,10 @@ public:
     void setTimeline(int position, int duration, bool seekable);
     void setStatus(const QString &status, const QString &videoSize);
     void setVolume(double volume);
+    void setMuted(bool muted);
+    void setAudioAvailable(bool available);
+    void setZoom(double scale);
+    bool cancelSeekPreview();
     void refreshIcons();
     QMenu *volumeMenu() const { return volumeMenu_; }
 
@@ -31,9 +36,14 @@ private:
     void showTime(int seconds);
     QToolButton *button(QAction *action, const QString &name, QWidget *parent = nullptr);
     PlayerActions &actions_;
-    QSlider *seek_, *volume_, *popupVolume_;
+    SeekSlider *seek_;
+    QSlider *volume_, *popupVolume_;
     QLabel *current_, *duration_, *status_, *videoSize_, *volumeLabel_;
+    QLabel *zoom_;
     QWidget *info_;
     QToolButton *open_, *play_, *reset_, *volumeButton_, *more_;
     QMenu *volumeMenu_;
+    bool muted_ = false;
+    bool audioAvailable_ = false;
+    double volumeValue_ = 100;
 };

@@ -85,6 +85,7 @@ QToolButton#playPauseButton:focus, QToolButton#cardPrimary:focus { border:2px so
 QWidget#modeGroup { background:palette(window); border-radius:5px; }
 QLabel#statusLabel, QLabel#videoSizeLabel, QLabel#cardBody { color:palette(placeholder-text); }
 QWidget#stateCard { background:palette(window); border:1px solid palette(mid); border-radius:8px; }
+QLabel#playerOsd { background:palette(button); color:palette(text); border:1px solid palette(mid); border-radius:6px; }
 QLabel#cardTitle { font-size:20px; font-weight:600; }
 QSlider { border:2px solid transparent; }
 QSlider::groove:horizontal { height:4px; background:palette(mid); border-radius:2px; }

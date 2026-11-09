@@ -2,6 +2,7 @@
 
 #include "player.h"
 #include <QMainWindow>
+#include <QTimer>
 
 class ControlBar;
 class PlayerActions;
@@ -16,6 +17,9 @@ public:
 
 protected:
     void changeEvent(QEvent *event) override;
+    bool eventFilter(QObject *object, QEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     void openFile();
@@ -23,6 +27,11 @@ private:
     void updateMedia(Player::State state, const QString &path, const QString &error);
     void updatePresentation();
     void showLicenses();
+    void showShortcuts();
+    void gotoTime();
+    void revealControls();
+    void hideControls();
+    void updateSeekActions();
 
     Player &player_;
     VideoWidget *video_ = nullptr;
@@ -33,5 +42,8 @@ private:
     QString path_, error_;
     QSize videoSize_;
     int duration_ = 0, position_ = 0;
+    double durationSeconds_ = 0;
     bool paused_ = false, seekable_ = false, wasMaximized_ = false;
+    bool audioAvailable_ = false;
+    QTimer hideTimer_;
 };

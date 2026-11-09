@@ -101,6 +101,41 @@
       "gitBlob": "718bb3f0e44153809972abed31839375804bf652",
       "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
       "modifications": null
+    },
+    {
+      "upstream": "icons/square.svg",
+      "local": "resources/icons/lucide/square.svg",
+      "gitBlob": "7862733557b3a069a22721196e0bd6c5c92b9339",
+      "sha256": "bd979354f0ab184b95cecf03eedefe40c2dc65830ac6d7e60017b2b25a354acb",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/volume-x.svg",
+      "local": "resources/icons/lucide/volume-x.svg",
+      "gitBlob": "3e2600946f38313e8cfb617e35bbc3c95159d172",
+      "sha256": "f382e421b7aae01172989f2b749ee87e44c0c82c16970b13a9ad5a323b613be0",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/zoom-in.svg",
+      "local": "resources/icons/lucide/zoom-in.svg",
+      "gitBlob": "11173c0e1cefd42bd41d37536a7296245855c437",
+      "sha256": "91206ae20013e2c84f2f5d09db5a7200f11698a84fc4e857b06fab2ce7c933f1",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/zoom-out.svg",
+      "local": "resources/icons/lucide/zoom-out.svg",
+      "gitBlob": "70abec44b4647eb59c065455841e6baeeb57503b",
+      "sha256": "28e7849b55bb9b34cb24be83b4e8ef58f2ae164fc451fbd60e026bfb507d2921",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/keyboard.svg",
+      "local": "resources/icons/lucide/keyboard.svg",
+      "gitBlob": "254582887503f763af4e284f05bc858464ff664d",
+      "sha256": "f509925ca81964ed06251ad4702e989bb81a566ffc74d15c2226b4f07ded67be",
+      "modifications": null
     }
   ]
 }

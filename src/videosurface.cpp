@@ -27,6 +27,26 @@ VideoSurface::VideoSurface(VideoWidget *video, QWidget *parent) : QWidget(parent
         button->setFocusPolicy(Qt::StrongFocus); row->addWidget(button);
     }
     row->addStretch(); layout->addLayout(row);
+    osd_ = new QLabel(this); osd_->setObjectName("playerOsd"); osd_->setTextFormat(Qt::PlainText);
+    osd_->setAttribute(Qt::WA_TransparentForMouseEvents); osd_->setWordWrap(true);
+    osd_->setAutoFillBackground(true); osd_->setMargin(10); osd_->hide();
+    osd_->setAccessibleName(QStringLiteral("播放操作提示"));
+    osdTimer_.setSingleShot(true);
+    connect(&osdTimer_, &QTimer::timeout, osd_, &QWidget::hide);
+}
+
+void VideoSurface::setControls(QWidget *controls) { controls_ = controls; arrange(); }
+void VideoSurface::setFullscreen(bool fullscreen) { fullscreen_ = fullscreen; arrange(); }
+void VideoSurface::showOsd(const QString &kind, const QString &text, int milliseconds)
+{
+    osd_->setProperty("kind", kind); osd_->setText(text); osd_->setAccessibleDescription(text);
+    osd_->setFixedWidth(qMin(480, qMax(180, width() - 48))); osd_->adjustSize();
+    osd_->move(24, 24); osd_->show(); osd_->raise(); osdTimer_.start(milliseconds);
+}
+bool VideoSurface::dismissOsd()
+{
+    if (!osd_->isVisible()) return false;
+    osdTimer_.stop(); osd_->hide(); return true;
 }
 
 void VideoSurface::present(const QString &title, const QString &body, QAction *primary, QAction *secondary)
@@ -43,11 +63,18 @@ void VideoSurface::showVideo() { card_->hide(); }
 
 void VideoSurface::arrange()
 {
-    video_->setGeometry(rect());
+    QRect viewport = rect();
+    if (controls_) {
+        const int height = qMax(92, controls_->sizeHint().height());
+        controls_->setGeometry(0, this->height() - height, width(), height);
+        if (!fullscreen_) viewport.setBottom(controls_->y() - 1);
+        controls_->raise();
+    }
+    video_->setGeometry(viewport);
     const int width = qMin(520, qMax(200, this->width() - 48));
     card_->setFixedWidth(width);
     card_->adjustSize();
-    card_->move((this->width() - card_->width()) / 2, (height() - card_->height()) / 2);
+    card_->move((this->width() - card_->width()) / 2, (viewport.height() - card_->height()) / 2);
 }
 
 void VideoSurface::resizeEvent(QResizeEvent *event) { QWidget::resizeEvent(event); arrange(); }

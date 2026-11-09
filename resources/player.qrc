@@ -13,4 +13,9 @@
 <file>icons/lucide/scan.svg</file>
 <file>icons/lucide/volume-2.svg</file>
 <file alias="licenses/lucide.txt">../packaging/notices/lucide-LICENSE.txt</file>
+<file>icons/lucide/square.svg</file>
+<file>icons/lucide/volume-x.svg</file>
+<file>icons/lucide/zoom-in.svg</file>
+<file>icons/lucide/zoom-out.svg</file>
+<file>icons/lucide/keyboard.svg</file>
 </qresource></RCC>
