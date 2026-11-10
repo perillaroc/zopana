@@ -20,6 +20,7 @@ class MainWindow final : public QMainWindow
 public:
     explicit MainWindow(Player &player, QWidget *parent = nullptr);
     bool videoContextValid() const;
+    bool restoreMaximized() const { return isFullScreen()?wasMaximized_:isMaximized(); }
 
 protected:
     void changeEvent(QEvent *event) override;

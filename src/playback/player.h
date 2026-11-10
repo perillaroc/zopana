@@ -24,7 +24,7 @@ public:
     bool initialize();
     mpv_handle *handle() const { return handle_; }
     void setRendererReady(bool ready);
-    void openFile(const QString &path, quint64 itemId = 0, const QStringList &subtitles = {});
+    void openFile(const QString &path, quint64 itemId = 0, const QStringList &subtitles = {}, bool automatic = false);
     quint64 itemId() const { return itemId_; }
     uint64_t generation() const { return generation_; }
     quint64 renderEpoch() const { return renderEpoch_; }
@@ -53,10 +53,18 @@ public:
     double lastPosition() const;
     bool seekable() const { return seekable_; }
     double positionTarget() const { return seekTarget_.value_or(position_); }
+    double position() const { return position_; }
+    double duration() const { return duration_; }
+    bool paused() const { return paused_; }
+    void setInitialPaused(bool paused) { if (state_ == State::Loading && !recovering_) pauseTarget_ = paused; }
+    void setTrackLanguages(const QString &audio,const QString &subtitles);
+    void skipNextResume() { skipResumeNext_ = true; }
+    bool resumeAllowed() const { return resumeAllowed_; }
+    bool automaticOpen() const { return automaticOpen_; }
     void setVolume(double volume);
     void setMuted(bool muted);
     void toggleMuted() { setMuted(!muteTarget_); }
-    void addSubtitle(const QString &path);
+    void addSubtitle(const QString &path, bool select = true);
     bool muted() const { return reportedMute_; }
     double volumeTarget() const { return volumeTarget_; }
     void shutdown();
@@ -70,6 +78,7 @@ signals:
     void restored(quint64 generation, quint64 renderEpoch);
     void sessionChanged(quint64 generation, quint64 itemId, Player::State state, const QString &error);
     void fileOpening();
+    void stopping();
     void mediaChanged(Player::State state, const QString &path, const QString &error);
     void durationChanged(double seconds);
     void positionChanged(double seconds);
@@ -144,6 +153,8 @@ private:
     QSet<QString> propertyInFlight_;
     QVector<MediaTrack> tracks_;
     QStringList initialSubtitles_;
+    QString audioLanguages_,subtitleLanguages_;
+    bool trackPreferencesPending_=false,skipResumeNext_=false,resumeAllowed_=true,automaticOpen_=false;
     QSize videoSize_;
     int64_t selectedEntry_ = 0; // ID returned by the latest loadfile command.
     int64_t eventEntry_ = 0;    // ID from START_FILE, also identifies FILE_LOADED.

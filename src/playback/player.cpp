@@ -160,11 +160,12 @@ void Player::setRendererReady(bool ready)
     queueLoad(true);
 }
 
-void Player::openFile(const QString &path, quint64 itemId, const QStringList &subtitles)
+void Player::openFile(const QString &path, quint64 itemId, const QStringList &subtitles, bool automatic)
 {
     if (closing_ || !handle_ || path.isEmpty())
         return;
     recovering_ = lastLoadWasRecovery_ = false;
+    resumeAllowed_=!skipResumeNext_; skipResumeNext_=false; trackPreferencesPending_=true; automaticOpen_=automatic;
     initialSubtitles_.clear();
     const QFileInfo file(path);
     const auto stem = file.completeBaseName();
@@ -210,6 +211,11 @@ void Player::submitPendingLoad()
     if (closing_ || !requests_.isEmpty())
         return;
     if (recovering_ && engineLoaded_) { restoreStep(); return; }
+    if(loadPending_ && !recovering_ && trackPreferencesPending_) {
+        trackPreferencesPending_=false;
+        issueProperty("alang",audioLanguages_,Command::ResetLoop); issueProperty("slang",subtitleLanguages_,Command::ResetLoop);
+        issueProperty("aid","auto",Command::ResetLoop); issueProperty("sid","auto",Command::ResetLoop); return;
+    }
     if (resetDelaysPending_) {
         resetDelaysPending_ = false;
         issueProperty("sub-delay", 0.0, Command::ResetLoop); issueProperty("audio-delay", 0.0, Command::ResetLoop);
@@ -257,6 +263,7 @@ void Player::stop(bool clearFile)
 {
     if (!handle_ || closing_ || path_.isEmpty())
         return;
+    emit stopping();
     ++generation_;
     recovering_ = false; engineLoaded_ = false; lastLoadWasRecovery_ = false;
     resetFileDetails();
@@ -355,14 +362,14 @@ void Player::setMuted(bool muted)
     else { muteTarget_ = reportedMute_; emit mutedChanged(reportedMute_); }
 }
 
-void Player::addSubtitle(const QString &path)
+void Player::addSubtitle(const QString &path, bool select)
 {
     if (state_ != State::Loaded) return;
     const auto key = mediaPathKey(path);
-    for (const auto &track : tracks_) if (track.external && mediaPathKey(track.externalPath) == key) { selectTrack("sub", track.id, generation_); return; }
+    for (const auto &track : tracks_) if (track.external && mediaPathKey(track.externalPath) == key) { if(select) selectTrack("sub", track.id, generation_); return; }
     for (const auto &request : requests_) if (request.command == Command::Subtitle && mediaPathKey(request.subject) == key) return;
     const QByteArray filename = QFileInfo(path).absoluteFilePath().toUtf8();
-    const char *args[] = {"sub-add", filename.constData(), "select", nullptr};
+    const char *args[] = {"sub-add", filename.constData(), select?"select":"auto", nullptr};
     submitControl(Command::Subtitle, args, QString::fromUtf8(filename));
 }
 
@@ -541,7 +548,7 @@ void Player::syncFileState()
         for (const auto &property : fileProperties) mpv_observe_property(handle_, observationId_, property.name, property.format);
         if (recovering_) { restoreStep(); return; }
         changeState(State::Loaded);
-        for (const auto &path : initialSubtitles_) addSubtitle(path);
+        for (const auto &path : initialSubtitles_) addSubtitle(path,false);
         return;
     }
     if (eventState_ != state_) { engineLoaded_ = false; recovering_ = false; changeState(eventState_, eventError_); }
@@ -579,7 +586,9 @@ void Player::propertyChanged(const mpv_event &event)
         seekable_ = *static_cast<int *>(property.data) != 0;
         emit seekableChanged(seekable_);
     } else if (name == "estimated-vf-fps") {
+        const bool wasUnavailable=fps_<=0;
         fps_ = *static_cast<double *>(property.data);
+        if(wasUnavailable && fps_>0) emit detailsChanged();
     } else if (name == "duration") {
         const double seconds = *static_cast<double *>(property.data);
         duration_ = seconds;
@@ -648,6 +657,7 @@ void Player::setMediaProperty(const QString &name, const QVariant &value)
     else { targets_.remove(name); emit detailsChanged(); }
 }
 void Player::adjustMediaProperty(const QString &name, double delta) { setMediaProperty(name,propertyTarget(name).toDouble()+delta); }
+void Player::setTrackLanguages(const QString &audio,const QString &subtitles) { audioLanguages_=audio; subtitleLanguages_=subtitles; }
 void Player::selectTrack(const QString &type, qlonglong id, quint64 generation)
 {
     if (state_ != State::Loaded || generation != generation_) return;

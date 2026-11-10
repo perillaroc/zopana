@@ -6,6 +6,7 @@
 class QAction;
 class QLabel;
 class QToolButton;
+class QScrollArea;
 class VideoWidget;
 
 class VideoSurface final : public QWidget
@@ -20,6 +21,7 @@ public:
     void showOsd(const QString &kind, const QString &text, int milliseconds = 1200);
     bool dismissOsd();
     void showCaptureSaved(const QString &path, QAction *openFolder);
+    void setRecentActions(const QList<QAction *> &actions);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -30,6 +32,8 @@ private:
     QWidget *card_;
     QLabel *title_, *body_;
     QToolButton *primary_, *secondary_;
+    QWidget *recent_;
+    QScrollArea *recentScroll_;
     QWidget *controls_ = nullptr;
     QLabel *osd_;
     QToolButton *captureFolder_;

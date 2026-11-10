@@ -43,7 +43,8 @@ constexpr Definition definitions[] = {
     {"rate.preset.150","1.5×",""}, {"rate.preset.200","2.0×",""}, {"rate.preset.300","3.0×",""}, {"audio.pitchCorrection","保持音调",""},
     {"frame.forward","暂停并前进一帧","step-forward"}, {"loop.setA","设置 A 点",""}, {"loop.setB","设置 B 点",""}, {"loop.clear","清除 A–B",""},
     {"capture.source","原始画面截图","camera"}, {"capture.viewport","当前取景截图","camera"}, {"capture.openFolder","打开截图文件夹","folder-open"},
-    {"window.mediaInfo","媒体信息","info"}, {"file.location","打开文件位置","folder-open"}, {"window.alwaysOnTop","窗口置顶","pin"}
+    {"window.mediaInfo","媒体信息","info"}, {"file.location","打开文件位置","folder-open"}, {"window.alwaysOnTop","窗口置顶","pin"},
+    {"window.settings","设置",""}, {"file.clearHistory","清除最近文件和进度",""}
 };
 }
 
@@ -114,15 +115,82 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     view(FrameForward,{QKeySequence(Qt::Key_D)}); view(LoopA,{QKeySequence(Qt::Key_A)}); view(LoopB,{QKeySequence(Qt::Key_B)}); view(LoopClear,{QKeySequence(Qt::CTRL|Qt::Key_B)});
     get(CaptureSource)->setShortcut(QKeySequence(Qt::CTRL|Qt::Key_S)); get(CaptureViewport)->setShortcut(QKeySequence(Qt::CTRL|Qt::SHIFT|Qt::Key_S));
     view(MediaInfo,{QKeySequence(Qt::Key_I)}); view(AlwaysOnTop,{QKeySequence(Qt::Key_T)}); get(AlwaysOnTop)->setCheckable(true);
+    get(Settings)->setShortcut(QKeySequence(Qt::Key_F5));
+    get(Settings)->setEnabled(false); get(ClearHistory)->setEnabled(false);
     get(Fullscreen)->setProperty("scope", QStringLiteral("窗口：F11；观看：Enter"));
     auto *mode = new QActionGroup(this);
     for (auto id : {FeatureMode, StandardMode}) { get(id)->setCheckable(true); mode->addAction(get(id)); }
     get(FeatureMode)->setChecked(true);
     get(FeatureMode)->setStatusTip(QStringLiteral("视频区滚轮缩放，按住左键拖动画面"));
     get(StandardMode)->setStatusTip(QStringLiteral("视频区滚轮调音量，单击播放或暂停"));
+    for(auto *action:actions_) { QStringList keys; for(const auto &key:action->shortcuts()) keys.append(key.toString(QKeySequence::PortableText)); defaults_[action->objectName()]=keys; }
     qApp->installEventFilter(this);
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) { if (now != composing_) composing_.clear(); });
     refreshIcons();
+}
+
+namespace {
+QKeyCombination normalized(const QKeySequence &sequence)
+{
+    auto key=sequence[0].key(); auto modifiers=sequence[0].keyboardModifiers() & ~Qt::KeypadModifier;
+    if(key==Qt::Key_Plus) { key=Qt::Key_Equal; modifiers|=Qt::ShiftModifier; }
+    if(key==Qt::Key_Less) { key=Qt::Key_Comma; modifiers|=Qt::ShiftModifier; }
+    if(key==Qt::Key_Greater) { key=Qt::Key_Period; modifiers|=Qt::ShiftModifier; }
+    if(key==Qt::Key_Enter) key=Qt::Key_Return;
+    return QKeyCombination(modifiers,key);
+}
+}
+QString PlayerActions::normalizedKey(const QString &key) { return QKeySequence(normalized(QKeySequence::fromString(key,QKeySequence::PortableText))).toString(QKeySequence::PortableText); }
+QString PlayerActions::bindingError(const QString &id,const QStringList &keys) const
+{
+    QAction *action=nullptr; for(auto *a:actions_) if(a->objectName()==id) action=a;
+    if(!action) return QStringLiteral("未知命令");
+    if(action==get(Fullscreen) || action==get(Escape)) return QStringLiteral("F11、Enter 和 Esc 保留为全屏及退出兜底");
+    if(keys.size()>2) return QStringLiteral("每个命令最多两个组合键");
+    for(const auto &text:keys) {
+        const auto sequence=QKeySequence::fromString(text,QKeySequence::PortableText);
+        if(sequence.count()!=1 || sequence.isEmpty()) return QStringLiteral("只支持单个有效组合键");
+        const auto combination=normalized(sequence); const auto key=combination.key(); const auto modifiers=combination.keyboardModifiers();
+        if(key==Qt::Key_unknown || key==Qt::Key_Control || key==Qt::Key_Shift || key==Qt::Key_Alt || key==Qt::Key_Meta || key==Qt::Key_AltGr || key==Qt::Key_Escape || key==Qt::Key_Tab || key==Qt::Key_Backtab || key==Qt::Key_F11
+            || modifiers.testFlag(Qt::MetaModifier) || (modifiers.testFlag(Qt::AltModifier) && (key==Qt::Key_F4 || key==Qt::Key_Space)) || (modifiers.testFlag(Qt::ControlModifier) && modifiers.testFlag(Qt::AltModifier) && key==Qt::Key_Delete)) return QStringLiteral("此按键由系统或焦点导航保留");
+        if(action->property("scope").toString()==QStringLiteral("窗口")) {
+            const bool platformAlias=defaults_.value(id).toStringList().contains(text);
+            if(modifiers==Qt::NoModifier && !(key>=Qt::Key_F1 && key<=Qt::Key_F35) && !platformAlias) return QStringLiteral("窗口命令请使用功能键或带修饰键的组合");
+            if(modifiers.testFlag(Qt::ControlModifier) && !modifiers.testFlag(Qt::AltModifier) && (key==Qt::Key_A || key==Qt::Key_C || key==Qt::Key_V || key==Qt::Key_X || key==Qt::Key_Y || key==Qt::Key_Z || key==Qt::Key_Left || key==Qt::Key_Right || key==Qt::Key_Home || key==Qt::Key_End)) return QStringLiteral("此组合保留给原生编辑操作");
+        }
+    }
+    return {};
+}
+QStringList PlayerActions::conflicts(const QString &id,const QStringList &keys,const QVariantMap &overrides) const
+{
+    QAction *selected=nullptr; for(auto *a:actions_) if(a->objectName()==id) selected=a;
+    if(!selected) return {};
+    QStringList result; const auto scope=selected->property("scope").toString();
+    for(auto *action:actions_) {
+        if(action==selected) continue; const auto other=action->property("scope").toString();
+        if((scope==QStringLiteral("观看") && other==QStringLiteral("队列")) || (scope==QStringLiteral("队列") && other==QStringLiteral("观看"))) continue;
+        const auto bindings=overrides.value(action->objectName(),defaults_.value(action->objectName())).toStringList(); bool matches=false;
+        for(const auto &key:keys) for(const auto &binding:bindings) matches|=normalized(QKeySequence::fromString(key,QKeySequence::PortableText))==normalized(QKeySequence::fromString(binding,QKeySequence::PortableText));
+        if(matches) result.append(action->objectName());
+    }
+    return result;
+}
+QStringList PlayerActions::applyBindings(const QVariantMap &overrides)
+{
+    QVariantMap accepted; QStringList ignored;
+    for(auto it=overrides.begin();it!=overrides.end();++it) {
+        if(!defaults_.contains(it.key())) continue;
+        const auto keys=it.value().toStringList();
+        if(!bindingError(it.key(),keys).isEmpty() || !conflicts(it.key(),keys,overrides).isEmpty()) { ignored.append(it.key()); continue; }
+        accepted[it.key()]=keys;
+    }
+    // Reject a binding if another rejected row would fall back onto the same key.
+    bool changed=true; while(changed) { changed=false; for(auto it=accepted.begin();it!=accepted.end();) { if(!conflicts(it.key(),it.value().toStringList(),accepted).isEmpty()) { ignored.append(it.key()); it=accepted.erase(it); changed=true; } else ++it; } }
+    for(auto *action:actions_) {
+        QList<QKeySequence> keys; for(const auto &text:accepted.value(action->objectName(),defaults_.value(action->objectName())).toStringList()) { const auto sequence=QKeySequence::fromString(text,QKeySequence::PortableText); if(!keys.contains(sequence)) keys.append(sequence); }
+        action->setShortcuts(keys);
+    }
+    refreshIcons(); emit bindingsChanged(); return ignored;
 }
 
 void PlayerActions::attachPlaylist(QWidget &window, QWidget &view)

@@ -2,6 +2,8 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QVariantMap>
+#include <QKeySequence>
 #include <array>
 
 class QAction;
@@ -21,7 +23,7 @@ public:
               AudioNext, AudioDelayLess, AudioDelayMore, AudioDelayReset,
               SubLoad, SubToggle, SubNext, SubDelayLess, SubDelayMore, SubDelayReset, SubScaleUp, SubScaleDown, SubScaleReset,
               RateLess, RateMore, RateReset, RateHalf, RateThreeQuarter, Rate125, Rate150, Rate200, Rate300, Pitch,
-              FrameForward, LoopA, LoopB, LoopClear, CaptureSource, CaptureViewport, CaptureFolder, MediaInfo, FileLocation, AlwaysOnTop, Count };
+              FrameForward, LoopA, LoopB, LoopClear, CaptureSource, CaptureViewport, CaptureFolder, MediaInfo, FileLocation, AlwaysOnTop, Settings, ClearHistory, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     void setMediaState(bool loaded, bool paused, bool replayable, bool hasVideo, bool retryable);
@@ -31,9 +33,15 @@ public:
     void setAudioAvailable(bool available);
     void setMuted(bool muted);
     void attachPlaylist(QWidget &window, QWidget &view);
+    QVariantMap defaultBindings() const { return defaults_; }
+    static QString normalizedKey(const QString &key);
+    QString bindingError(const QString &id,const QStringList &keys) const;
+    QStringList conflicts(const QString &id,const QStringList &keys,const QVariantMap &overrides) const;
+    QStringList applyBindings(const QVariantMap &overrides);
 
 signals:
     void invoked();
+    void bindingsChanged();
 
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;
@@ -44,4 +52,5 @@ private:
     std::array<QAction *, Count> actions_{};
     QPointer<QObject> composing_;
     QPointer<QWidget> queue_, playlistWindow_;
+    QVariantMap defaults_;
 };

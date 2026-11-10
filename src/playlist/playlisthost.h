@@ -17,6 +17,9 @@ public:
     bool visible() const { return fullscreen_ && !detached_ ? fullscreenVisible_ : visible_; }
     bool overlayVisible() const;
     QWidget *window() const;
+    int dockWidth() const { return dockWidth_; }
+    bool preferredVisible() const { return visible_; }
+    void restore(bool detached,bool visible,int width);
     void setDetached(bool detached);
     void setVisible(bool visible, bool activate = true);
     void toggle();

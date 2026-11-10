@@ -74,6 +74,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     connect(action(PlayerActions::Open), &QAction::triggered, this, &MainWindow::openFile);
     connect(action(PlayerActions::Retry), &QAction::triggered, this, [this] { if (playlist_->model().currentId()) playlist_->replay(); else if (!path_.isEmpty()) player_.openFile(path_); });
     connect(action(PlayerActions::PlayPause), &QAction::triggered, this, [this] {
+        if (state_ == Player::State::Idle && !path_.isEmpty()) player_.skipNextResume();
         if (state_ == Player::State::Loaded) player_.togglePaused();
         else if (playlist_->model().rowCount()) playlist_->play(playlist_->model().currentId() ? playlist_->model().currentId() : panel_->selectedId() ? panel_->selectedId() : playlist_->model().idAt(0));
         else if (!path_.isEmpty()) player_.openFile(path_);
@@ -342,7 +343,7 @@ void MainWindow::hideControls()
     const bool pointerInControls = controls_->rect().contains(controls_->mapFromGlobal(QCursor::pos()));
     auto *seek = controls_->findChild<QSlider *>("seekSlider");
     if (!isActiveWindow() || QApplication::activePopupWidget() || QApplication::activeModalWidget()
-        || controlFocus || pointerInControls || seek->isSliderDown() || video_->gestureActive() || playlistHost_->overlayVisible() || state_ == Player::State::Error) {
+        || controlFocus || pointerInControls || seek->isSliderDown() || video_->gestureActive() || playlistHost_->overlayVisible() || surface_->property("resumePending").toBool() || state_ == Player::State::Error) {
         hideTimer_.start(); return;
     }
     controls_->hide(); setCursor(Qt::BlankCursor);

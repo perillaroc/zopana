@@ -84,7 +84,7 @@ void PlaylistController::start(quint64 id, bool automatic, bool record)
     const auto before = model_.currentId();
     if (before != id) model_.setStatus(before, {});
     model_.setCurrent(id); emit selectItem(id);
-    player_.openFile(path, id, subtitles); emit changed();
+    player_.openFile(path, id, subtitles, automatic); emit changed();
 }
 void PlaylistController::play(quint64 id) { start(id, false); }
 void PlaylistController::replay() { start(model_.currentId() ? model_.currentId() : model_.idAt(0), false); }

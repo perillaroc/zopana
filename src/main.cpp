@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 #include "player.h"
+#include "settingsstore.h"
+#include "historystore.h"
+#include "sessioncontroller.h"
 
 #include <QApplication>
 
@@ -10,15 +13,18 @@
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("zopana"));
+    SettingsStore::setApplicationIdentity();
     std::setlocale(LC_NUMERIC, "C");
     std::fprintf(stderr, "Qt runtime: %s\n", qVersion());
 
+    SettingsStore settings;
+    HistoryStore history;
     Player player;
     if (!player.initialize())
         return EXIT_FAILURE;
 
     MainWindow window(player);
+    SessionController session(player,window,settings,history);
     window.show();
     if (!window.videoContextValid()) {
         std::fputs("QOpenGLWidget failed to create its OpenGL context\n", stderr);

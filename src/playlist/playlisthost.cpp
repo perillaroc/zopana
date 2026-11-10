@@ -47,11 +47,13 @@ PlaylistHost::PlaylistHost(QWidget &main, QWidget &central, QSplitter &splitter,
         if (!dock_->isVisible()) return;
         dockWidth_ = qBound(260, dock_->width(), qMax(260, central_.width() - 520));
         if (dockWidth_ != dock_->width()) splitter_.setSizes({central_.width() - dockWidth_, dockWidth_});
+        emit changed();
     });
     arrange();
 }
 PlaylistHost::~PlaylistHost() = default;
 QWidget *PlaylistHost::window() const { return window_.get(); }
+void PlaylistHost::restore(bool detached,bool visible,int width) { detached_=detached; visible_=visible; dockWidth_=qBound(260,width,2000); arrange(); emit changed(); }
 bool PlaylistHost::overlayVisible() const { return overlay_->isVisible(); }
 void PlaylistHost::shutdown() { window_->hide(); if (panel_) panel_->hide(); }
 void PlaylistHost::setDetached(bool detached)

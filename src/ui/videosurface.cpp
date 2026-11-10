@@ -5,6 +5,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QResizeEvent>
+#include <QScrollArea>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -27,6 +28,8 @@ VideoSurface::VideoSurface(VideoWidget *video, QWidget *parent) : QWidget(parent
         button->setFocusPolicy(Qt::StrongFocus); row->addWidget(button);
     }
     row->addStretch(); layout->addLayout(row);
+    recent_=new QWidget; recent_->setObjectName("recentFilesCard"); auto *recentLayout=new QVBoxLayout(recent_); recentLayout->setContentsMargins(0,0,0,0);
+    recentScroll_=new QScrollArea; recentScroll_->setWidgetResizable(true); recentScroll_->setFrameShape(QFrame::NoFrame); recentScroll_->setWidget(recent_); layout->addWidget(recentScroll_); recentScroll_->hide();
     osd_ = new QLabel(this); osd_->setObjectName("playerOsd"); osd_->setTextFormat(Qt::PlainText);
     osd_->setAttribute(Qt::WA_TransparentForMouseEvents); osd_->setWordWrap(true);
     osd_->setAutoFillBackground(true); osd_->setMargin(10); osd_->hide();
@@ -70,6 +73,12 @@ void VideoSurface::present(const QString &title, const QString &body, QAction *p
 }
 
 void VideoSurface::showVideo() { card_->hide(); }
+void VideoSurface::setRecentActions(const QList<QAction *> &actions)
+{
+    while(auto *item=recent_->layout()->takeAt(0)) { delete item->widget(); delete item; }
+    for(auto *action:actions) { auto *button=new QToolButton; button->setDefaultAction(action); button->setToolButtonStyle(Qt::ToolButtonTextOnly); button->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred); button->setMinimumHeight(28); recent_->layout()->addWidget(button); }
+    recentScroll_->setVisible(!actions.isEmpty()); arrange();
+}
 
 void VideoSurface::arrange()
 {
@@ -83,6 +92,9 @@ void VideoSurface::arrange()
     video_->setGeometry(viewport);
     const int width = qMin(520, qMax(200, this->width() - 48));
     card_->setFixedWidth(width);
+    recentScroll_->setFixedHeight(0);
+    card_->adjustSize();
+    if(!recentScroll_->isHidden()) recentScroll_->setFixedHeight(qMin(recent_->sizeHint().height(),qMax(0,viewport.height()-card_->height()-16)));
     card_->adjustSize();
     card_->move((this->width() - card_->width()) / 2, (viewport.height() - card_->height()) / 2);
 }
