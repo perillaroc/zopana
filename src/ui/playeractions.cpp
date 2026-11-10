@@ -33,7 +33,17 @@ constexpr Definition definitions[] = {
     {"queue.playSelected", "播放所选", "play"}, {"queue.removeSelected", "移除所选", ""},
     {"queue.moveUp", "上移", ""}, {"queue.moveDown", "下移", ""}, {"queue.clear", "清空列表", ""},
     {"queue.order.sequential", "顺序播放", ""}, {"queue.order.single", "单曲循环", ""},
-    {"queue.order.list", "列表循环", ""}, {"queue.order.random", "随机播放", ""}
+    {"queue.order.list", "列表循环", ""}, {"queue.order.random", "随机播放", ""},
+    {"audio.nextTrack","下一音轨",""}, {"audio.delayLess","音频提前 0.1 秒",""}, {"audio.delayMore","音频推迟 0.1 秒",""}, {"audio.delayReset","音频延迟归零",""},
+    {"sub.load","加载外挂字幕…","captions"}, {"sub.toggle","显示字幕",""}, {"sub.nextTrack","下一字幕轨",""},
+    {"sub.delayLess","字幕提前 0.1 秒",""}, {"sub.delayMore","字幕推迟 0.1 秒",""}, {"sub.delayReset","字幕延迟归零",""},
+    {"sub.scaleUp","字幕放大 0.1",""}, {"sub.scaleDown","字幕缩小 0.1",""}, {"sub.scaleReset","字幕缩放恢复 1.0",""},
+    {"rate.decrease","减速 0.25×",""}, {"rate.increase","加速 0.25×",""}, {"rate.reset","1.0×",""},
+    {"rate.preset.050","0.5×",""}, {"rate.preset.075","0.75×",""}, {"rate.preset.125","1.25×",""},
+    {"rate.preset.150","1.5×",""}, {"rate.preset.200","2.0×",""}, {"rate.preset.300","3.0×",""}, {"audio.pitchCorrection","保持音调",""},
+    {"frame.forward","暂停并前进一帧","step-forward"}, {"loop.setA","设置 A 点",""}, {"loop.setB","设置 B 点",""}, {"loop.clear","清除 A–B",""},
+    {"capture.source","原始画面截图","camera"}, {"capture.viewport","当前取景截图","camera"}, {"capture.openFolder","打开截图文件夹","folder-open"},
+    {"window.mediaInfo","媒体信息","info"}, {"file.location","打开文件位置","folder-open"}, {"window.alwaysOnTop","窗口置顶","pin"}
 };
 }
 
@@ -89,6 +99,21 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     auto *orders = new QActionGroup(this);
     for (auto id : {OrderSequential, OrderSingle, OrderList, OrderRandom}) { get(id)->setCheckable(true); orders->addAction(get(id)); }
     get(OrderSequential)->setChecked(true);
+    view(AudioNext,{QKeySequence(Qt::Key_J)});
+    view(AudioDelayLess,{QKeySequence(Qt::SHIFT|Qt::Key_Comma),QKeySequence(Qt::SHIFT|Qt::Key_Less)},true);
+    view(AudioDelayMore,{QKeySequence(Qt::SHIFT|Qt::Key_Period),QKeySequence(Qt::SHIFT|Qt::Key_Greater)},true);
+    get(SubLoad)->setShortcut(QKeySequence(Qt::CTRL|Qt::Key_L));
+    view(SubToggle,{QKeySequence(Qt::Key_H)}); get(SubToggle)->setCheckable(true);
+    view(SubNext,{QKeySequence(Qt::Key_K)});
+    view(SubDelayLess,{QKeySequence(Qt::Key_Comma)},true); view(SubDelayMore,{QKeySequence(Qt::Key_Period)},true);
+    view(SubScaleUp,{QKeySequence(Qt::CTRL|Qt::Key_Equal),QKeySequence(Qt::CTRL|Qt::Key_Plus),QKeySequence(Qt::CTRL|Qt::SHIFT|Qt::Key_Plus)},true);
+    view(SubScaleDown,{QKeySequence(Qt::CTRL|Qt::Key_Minus)},true); view(SubScaleReset,{QKeySequence(Qt::CTRL|Qt::Key_0)});
+    view(RateLess,{QKeySequence(Qt::Key_BracketLeft)},true); view(RateMore,{QKeySequence(Qt::Key_BracketRight)},true);
+    view(RateReset,{QKeySequence(Qt::Key_Backspace)});
+    for (auto id : {RateReset,RateHalf,RateThreeQuarter,Rate125,Rate150,Rate200,Rate300,Pitch}) get(id)->setCheckable(true);
+    view(FrameForward,{QKeySequence(Qt::Key_D)}); view(LoopA,{QKeySequence(Qt::Key_A)}); view(LoopB,{QKeySequence(Qt::Key_B)}); view(LoopClear,{QKeySequence(Qt::CTRL|Qt::Key_B)});
+    get(CaptureSource)->setShortcut(QKeySequence(Qt::CTRL|Qt::Key_S)); get(CaptureViewport)->setShortcut(QKeySequence(Qt::CTRL|Qt::SHIFT|Qt::Key_S));
+    view(MediaInfo,{QKeySequence(Qt::Key_I)}); view(AlwaysOnTop,{QKeySequence(Qt::Key_T)}); get(AlwaysOnTop)->setCheckable(true);
     get(Fullscreen)->setProperty("scope", QStringLiteral("窗口：F11；观看：Enter"));
     auto *mode = new QActionGroup(this);
     for (auto id : {FeatureMode, StandardMode}) { get(id)->setCheckable(true); mode->addAction(get(id)); }

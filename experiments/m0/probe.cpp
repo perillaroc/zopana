@@ -544,17 +544,7 @@ public:
         QTest::qWait(250);
         details["afterContextRebuildRaw"] = snapshot();
         check("M0.6 current Player restores pause and position", property("pause").toBool() && std::abs(property("time-pos").toDouble() - before["time-pos"].toDouble()) < .1);
-        // Proof of the documented restore sequence, kept out of production Player.
-        command({"set", "pause", "yes"});
-        command({"set", "ab-loop-a", "no"}); command({"set", "ab-loop-b", "no"});
-        command({"set", "speed", "1.5"});
-        command({"sub-add", fixtures + "/external.ass", "select"});
-        command({"set", "aid", "2"}); command({"set", "sub-scale", "1.2"});
-        command({"set", "sub-delay", "0.2"}); command({"set", "audio-delay", "0.1"});
-        command({"set", "sub-visibility", "yes"});
-        command({"seek", QString::number(before["time-pos"].toDouble(), 'f', 3), "absolute+exact"});
-        command({"set", "ab-loop-a", "2"}); command({"set", "ab-loop-b", "4"});
-        QTest::qWait(200);
+        // M4 production Player now performs the full documented restore sequence.
         const auto restored = snapshot(); details["afterContextRebuildRestored"] = restored;
         bool same = true;
         for (const auto *key : {"pause", "speed", "aid", "sub-scale", "sub-delay", "audio-delay", "ab-loop-a", "ab-loop-b", "sub-visibility"}) same &= before[key] == restored[key];
@@ -564,7 +554,7 @@ public:
             selectedExternal |= track["type"] == "sub" && track["selected"].toBool()
                 && QDir::fromNativeSeparators(track["external-filename"].toString()) == fixtures + "/external.ass";
         }
-        check("M0.6 explicit restore snapshot", same && selectedExternal && std::abs(before["time-pos"].toDouble() - restored["time-pos"].toDouble()) < .1);
+        check("M0.6 production restores full snapshot", same && selectedExternal && std::abs(before["time-pos"].toDouble() - restored["time-pos"].toDouble()) < .1);
         shot("context-restored.png");
         command({"set", "ab-loop-a", "no"}); command({"set", "ab-loop-b", "no"});
         const auto old = submit({"screenshot-to-file", output + "/old-generation.png", "video"});

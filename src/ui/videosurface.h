@@ -19,6 +19,7 @@ public:
     void setFullscreen(bool fullscreen);
     void showOsd(const QString &kind, const QString &text, int milliseconds = 1200);
     bool dismissOsd();
+    void showCaptureSaved(const QString &path, QAction *openFolder);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -31,6 +32,7 @@ private:
     QToolButton *primary_, *secondary_;
     QWidget *controls_ = nullptr;
     QLabel *osd_;
+    QToolButton *captureFolder_;
     QTimer osdTimer_;
     bool fullscreen_ = false;
 };

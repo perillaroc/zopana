@@ -10,6 +10,7 @@
 #include <QKeyEvent>
 #include <QApplication>
 #include <QPointer>
+#include <QPainter>
 #include <QResizeEvent>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -25,6 +26,7 @@ public:
     SeekSlider() : QSlider(Qt::Horizontal) { setTracking(false); setMouseTracking(true); }
     int reported = 0;
     QPointer<QLabel> hover;
+    QVariant loopA, loopB;
     bool cancel()
     {
         if (!isSliderDown()) return false;
@@ -35,6 +37,21 @@ public:
         return true;
     }
 protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        QSlider::paintEvent(event); if (maximum() <= minimum()) return;
+        const bool hasA = loopA.isValid() && loopA.toString() != "no", hasB = loopB.isValid() && loopB.toString() != "no";
+        if (!hasA) return;
+        QStyleOptionSlider option; initStyleOption(&option);
+        const auto groove = style()->subControlRect(QStyle::CC_Slider,&option,QStyle::SC_SliderGroove,this);
+        const auto handle = style()->subControlRect(QStyle::CC_Slider,&option,QStyle::SC_SliderHandle,this);
+        const auto x = [&](double value) { return groove.x()+handle.width()/2+qRound((groove.width()-handle.width())*(value-minimum())/(maximum()-minimum())); };
+        QPainter painter(this); auto color = palette().color(QPalette::Highlight);
+        const int a = x(loopA.toDouble()), b = x(loopB.toDouble());
+        if (hasB) { color.setAlpha(65); painter.fillRect(QRect(a,height()/2-6,qMax(1,b-a),12),color); }
+        painter.setPen(palette().color(QPalette::Text)); painter.drawLine(a,2,a,height()-2); painter.drawText(a+3,11,"A");
+        if (hasB) { painter.drawLine(b,2,b,height()-2); painter.drawText(b+3,11,"B"); }
+    }
     bool event(QEvent *event) override
     {
         if (event->type() == QEvent::UngrabMouse || event->type() == QEvent::WindowDeactivate || event->type() == QEvent::Hide) cancel();
@@ -145,6 +162,7 @@ ControlBar::ControlBar(PlayerActions &actions, QWidget *parent) : QWidget(parent
     row->addWidget(mode);
     zoom_ = new QLabel("1.00×"); zoom_->setObjectName("zoomLabel"); zoom_->setAccessibleName(QStringLiteral("画面倍率"));
     zoom_->setMinimumWidth(48); row->addWidget(zoom_);
+    rate_ = new QLabel("1.00×"); rate_->setObjectName("rateLabel"); rate_->setAccessibleName(QStringLiteral("播放倍速")); row->addWidget(rate_);
     reset_ = button(actions.get(PlayerActions::ResetView), "resetViewButton"); row->addWidget(reset_);
 
     volumeButton_ = new QToolButton; volumeButton_->setObjectName("volumeButton");
@@ -233,6 +251,9 @@ void ControlBar::setAudioAvailable(bool available)
     setVolume(volumeValue_);
 }
 void ControlBar::setZoom(double scale) { zoom_->setText(QStringLiteral("%1×").arg(scale, 0, 'f', 2)); }
+void ControlBar::setRate(double rate) { rate_->setText(QStringLiteral("%1×").arg(rate,0,'f',2)); rate_->setToolTip(QStringLiteral("播放倍速：%1×").arg(rate,0,'f',2)); }
+void ControlBar::setLoop(const QVariant &a, const QVariant &b) { seek_->loopA = a; seek_->loopB = b; seek_->update(); }
+QMenu *ControlBar::moreMenu() const { return more_->menu(); }
 bool ControlBar::cancelSeekPreview()
 {
     if (!seek_->cancel()) return false;
@@ -255,5 +276,6 @@ void ControlBar::resizeEvent(QResizeEvent *event)
     open_->setVisible(width() >= 800);
     for (auto name : {"previousButton", "nextButton", "stopButton"}) findChild<QToolButton *>(name)->setVisible(width() >= 800);
     zoom_->setVisible(width() >= 800);
+    rate_->setVisible(width() >= 1000);
     reset_->setToolButtonStyle(width() >= 1000 ? Qt::ToolButtonTextBesideIcon : Qt::ToolButtonIconOnly);
 }

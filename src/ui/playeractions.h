@@ -17,7 +17,11 @@ public:
               SeekStart, SeekEnd, SeekGoto, VolumeUp, VolumeDown, Mute, InputMode, ZoomIn, ZoomOut, Shortcuts,
               Add, AddFolder, CancelScan, Previous, Next, Playlist, PlaylistMode, ClosePlaylist,
               QueuePlay, QueueRemove, QueueUp, QueueDown, QueueClear,
-              OrderSequential, OrderSingle, OrderList, OrderRandom, Count };
+              OrderSequential, OrderSingle, OrderList, OrderRandom,
+              AudioNext, AudioDelayLess, AudioDelayMore, AudioDelayReset,
+              SubLoad, SubToggle, SubNext, SubDelayLess, SubDelayMore, SubDelayReset, SubScaleUp, SubScaleDown, SubScaleReset,
+              RateLess, RateMore, RateReset, RateHalf, RateThreeQuarter, Rate125, Rate150, Rate200, Rate300, Pitch,
+              FrameForward, LoopA, LoopB, LoopClear, CaptureSource, CaptureViewport, CaptureFolder, MediaInfo, FileLocation, AlwaysOnTop, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     void setMediaState(bool loaded, bool paused, bool replayable, bool hasVideo, bool retryable);

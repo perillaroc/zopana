@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QVariant>
 
 class QAction;
 class QLabel;
@@ -21,6 +22,9 @@ public:
     void setMuted(bool muted);
     void setAudioAvailable(bool available);
     void setZoom(double scale);
+    void setRate(double rate);
+    void setLoop(const QVariant &a, const QVariant &b);
+    QMenu *moreMenu() const;
     bool cancelSeekPreview();
     void refreshIcons();
     QMenu *volumeMenu() const { return volumeMenu_; }
@@ -40,6 +44,7 @@ private:
     QSlider *volume_, *popupVolume_;
     QLabel *current_, *duration_, *status_, *videoSize_, *volumeLabel_;
     QLabel *zoom_;
+    QLabel *rate_;
     QWidget *info_;
     QToolButton *open_, *play_, *reset_, *volumeButton_, *more_;
     QMenu *volumeMenu_;

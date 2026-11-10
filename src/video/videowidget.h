@@ -30,6 +30,7 @@ public:
     double zoomScale() const { return view_.scale(); }
     bool cancelInput();
     bool gestureActive() const { return leftPressActive_; }
+    bool canCapture() const { return renderer_ && hasFrame_ && view_.valid(); }
 
 signals:
     void rendererReadyChanged(bool ready);

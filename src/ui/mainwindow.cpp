@@ -9,6 +9,7 @@
 #include "playlistpanel.h"
 #include "playlisthost.h"
 #include "folderscanner.h"
+#include "mediacontrols.h"
 
 #include <QAction>
 #include <QApplication>
@@ -117,26 +118,32 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     connect(action(PlayerActions::Licenses), &QAction::triggered, this, &MainWindow::showLicenses);
 
     auto *file = menuBar()->addMenu(QStringLiteral("文件(&F)"));
+    file->setObjectName("fileMenu");
     file->addAction(action(PlayerActions::Open)); file->addAction(action(PlayerActions::Add)); file->addAction(action(PlayerActions::AddFolder));
     file->addSeparator(); file->addAction(action(PlayerActions::Quit));
     auto *play = menuBar()->addMenu(QStringLiteral("播放(&P)"));
+    play->setObjectName("playMenu");
     for (auto id : {PlayerActions::PlayPause, PlayerActions::Stop, PlayerActions::Previous, PlayerActions::Next, PlayerActions::BackSmall, PlayerActions::ForwardSmall,
             PlayerActions::BackMedium, PlayerActions::ForwardMedium, PlayerActions::BackLarge, PlayerActions::ForwardLarge,
             PlayerActions::SeekStart, PlayerActions::SeekEnd, PlayerActions::SeekGoto}) play->addAction(action(id));
     auto *order = play->addMenu(QStringLiteral("播放顺序"));
     for (auto id : {PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList, PlayerActions::OrderRandom}) order->addAction(action(id));
     auto *picture = menuBar()->addMenu(QStringLiteral("画面(&V)"));
+    picture->setObjectName("pictureMenu");
     picture->addAction(action(PlayerActions::FeatureMode)); picture->addAction(action(PlayerActions::StandardMode));
     picture->addAction(action(PlayerActions::InputMode));
     picture->addSeparator(); picture->addAction(action(PlayerActions::ZoomIn)); picture->addAction(action(PlayerActions::ZoomOut)); picture->addAction(action(PlayerActions::ResetView));
     auto *audio = menuBar()->addMenu(QStringLiteral("音频(&A)"));
+    audio->setObjectName("audioMenu");
     audio->addMenu(controls_->volumeMenu())->setText(QStringLiteral("音量"));
     for (auto id : {PlayerActions::Mute, PlayerActions::VolumeUp, PlayerActions::VolumeDown}) audio->addAction(action(id));
     auto *view = menuBar()->addMenu(QStringLiteral("视图(&W)"));
+    view->setObjectName("viewMenu");
     for (auto id : {PlayerActions::Playlist, PlayerActions::PlaylistMode, PlayerActions::Fullscreen}) view->addAction(action(id));
     auto *help = menuBar()->addMenu(QStringLiteral("帮助(&H)"));
     help->addAction(action(PlayerActions::Shortcuts)); help->addAction(action(PlayerActions::About)); help->addAction(action(PlayerActions::Licenses));
     auto *context = new QMenu(video_);
+    context->setObjectName("videoContextMenu");
     for (auto id : {PlayerActions::PlayPause, PlayerActions::Stop, PlayerActions::SeekGoto, PlayerActions::Open, PlayerActions::FeatureMode,
                    PlayerActions::StandardMode, PlayerActions::ResetView, PlayerActions::Mute, PlayerActions::Playlist, PlayerActions::Fullscreen}) context->addAction(action(id));
     video_->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -189,6 +196,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
         surface_->showOsd("error", QStringLiteral("操作失败：%1").arg(message), 3000);
     });
     setMinimumSize(640, 400);
+    new MediaControls(player_,*actions_,*video_,*surface_,*controls_,*this);
     const QSize available = QGuiApplication::primaryScreen()->availableGeometry().size();
     resize(QSize(1120, 720).boundedTo(available * .9).expandedTo(minimumSize()));
     actions_->setAudioAvailable(false); controls_->setAudioAvailable(false);

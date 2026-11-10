@@ -71,6 +71,7 @@ void PlaylistController::start(quint64 id, bool automatic, bool record)
 {
     const auto *item = model_.item(id); if (!item) return;
     const QString path = item->path;
+    const auto subtitles = item->subtitles;
     automatic_ = automatic;
     if (!automatic) failed_.clear();
     if (order_ == Order::Random && record) {
@@ -83,7 +84,7 @@ void PlaylistController::start(quint64 id, bool automatic, bool record)
     const auto before = model_.currentId();
     if (before != id) model_.setStatus(before, {});
     model_.setCurrent(id); emit selectItem(id);
-    player_.openFile(path, id); emit changed();
+    player_.openFile(path, id, subtitles); emit changed();
 }
 void PlaylistController::play(quint64 id) { start(id, false); }
 void PlaylistController::replay() { start(model_.currentId() ? model_.currentId() : model_.idAt(0), false); }
@@ -103,10 +104,9 @@ void PlaylistController::session(quint64 generation, quint64 id, Player::State s
     case Player::State::Loading: status = QStringLiteral("正在打开"); break;
     case Player::State::Loaded:
         status = QStringLiteral("正在播放"); failed_.clear();
-        if (const auto *item = model_.item(id)) for (const auto &subtitle : item->subtitles) player_.addSubtitle(subtitle);
         automatic_ = false; break;
     case Player::State::Idle: status = QStringLiteral("已停止"); automatic_ = false; break;
-    case Player::State::Ended: status = QStringLiteral("播放完毕"); automatic_ = true; failed_.clear(); break;
+    case Player::State::Ended: status = QStringLiteral("播放完毕"); automatic_ = !player_.loopActive(); failed_.clear(); break;
     case Player::State::Error: status = QStringLiteral("打开失败"); break;
     }
     model_.setStatus(id, status, error); emit changed();

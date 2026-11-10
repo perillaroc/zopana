@@ -171,6 +171,34 @@
       "gitBlob": "4a5fa8e5dd54ae16941dc3f734362354f3dcf69f",
       "sha256": "f6d062a395d0e39d7639a76815f4f1a92017774c55c76b88e4d0dbd933ef47a3",
       "modifications": null
+    },
+    {
+      "upstream": "icons/captions.svg",
+      "local": "resources/icons/lucide/captions.svg",
+      "gitBlob": "ae7335a42ec60845be70c22d63b8a4bc3d91d2f8",
+      "sha256": "37c4e3ed84224b7d07ee6f5b0f51cc2c5d17e8bf80f86c48059cdcc747607a55",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/step-forward.svg",
+      "local": "resources/icons/lucide/step-forward.svg",
+      "gitBlob": "734398a7a9f0bef90e485c1685c3bc7904be4f25",
+      "sha256": "9253ad46e005b2b4a011e9bbeb66aadab56306e4b3674e7da3008af2274a0bb7",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/camera.svg",
+      "local": "resources/icons/lucide/camera.svg",
+      "gitBlob": "1e82bf45f3c522db0e22f16e0a5fc8fd00b79b7e",
+      "sha256": "ebbb3178dd80dfd942770a2237fe7bfc3515c55c7daa9d3666933a656d2790e3",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/pin.svg",
+      "local": "resources/icons/lucide/pin.svg",
+      "gitBlob": "04bc7cb604b4705f22b44a15666a4f4615351048",
+      "sha256": "55e8e5e04bcb671179fc1dd589abf09cf6a1e71301ff14eb739419cfab6011e7",
+      "modifications": null
     }
   ]
 }

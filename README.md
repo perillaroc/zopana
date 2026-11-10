@@ -26,6 +26,12 @@ zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以�
 
 “添加文件夹”在后台扫描一层目录，按自然文件名排序并去重，可取消；不会为每个列表项预先打开播放器读取时长。列表及窗口状态的跨启动记忆在 M5 接入。
 
+音频、字幕菜单按当前文件的实际轨道显示语言、名称和内封/外挂信息；J 切音轨，H 显隐字幕，K 切字幕轨，Ctrl+L 手动加载 SRT/ASS/SSA/VTT。同目录只自动匹配同基名或语言后缀字幕，例如 `movie.srt`、`movie.en.ass`、`movie.zh-Hans.vtt`。字幕随画面缩放，放大时可能裁切；R 恢复适窗。字幕菜单提供字体 0.5–2.0× 和字幕延迟，音频菜单提供音频延迟；正延迟表示较晚。
+
+视频区 [ / ] 按 0.25× 调整倍速，Backspace 恢复 1×；播放菜单提供 0.5/0.75/1/1.25/1.5/2/3× 及音调保持。倍速在本次会话换片后延续，重启回到 1×。D 暂停并向前一帧，A/B 设置至少相隔 0.5 秒的循环，Ctrl+B 清除；区间外定位会清除循环。音频/字幕延迟每次换片归零。
+
+Ctrl+S 保存无字幕的原始画面；Ctrl+Shift+S 保存包含字幕和黑边的当前取景，排除应用 OSD。PNG 在后台编码写入系统图片目录的 `zopana` 子目录，文件名不会覆盖旧图；保存成功后显示路径及“打开文件夹”。截图目录设置在 M5 提供。I 查看媒体实际信息，T 切换主窗口置顶；置顶不影响独立列表的层级。
+
 功能图标使用固定提交的 Lucide SVG，来源和校验见 [图标清单](resources/icons/lucide/SOURCES.json)。完整 ISC 与 Feather MIT 许可见 [图标许可证](packaging/notices/lucide-LICENSE.txt)，也可通过“帮助 → 第三方许可”查看。
 
 ## 开发环境
@@ -159,16 +165,21 @@ mpv_render_context_create: 0 (success)
 | 文件 | 职责 |
 | --- | --- |
 | `src/main.cpp` | 创建 Qt 应用和播放器，启动主窗口并管理退出顺序。 |
-| `src/mainwindow.{h,cpp}` | 组装界面、文件选择和播放状态呈现。 |
-| `src/playeractions.{h,cpp}` | 共享 QAction、快捷键作用域、可用状态与图标。 |
-| `src/controlbar.{h,cpp}` | 自适应控制栏、进度预览和音量入口。 |
-| `src/videosurface.{h,cpp}` | 视频容器与空态、加载、错误、结束等状态页。 |
-| `src/theme.{h,cpp}` | 深色调色板、系统高对比度及 SVG 图标绘制。 |
-| `src/playbackdialogs.{h,cpp}` | 毫秒时间输入、校验和从共享动作表生成快捷键帮助。 |
-| `src/playlistmodel.{h,cpp}` | 唯一队列、稳定 itemId、状态、去重与行移动。 |
-| `src/playlistcontroller.{h,cpp}` | 选片、播放顺序、随机历史、EOF 与失败上限。 |
-| `src/playlistpanel.{h,cpp}` / `src/playlisthost.{h,cpp}` | 同一列表的停靠、窄屏覆盖和独立窗口呈现。 |
-| `src/folderscanner.{h,cpp}` | 可取消的后台非递归扫描与自然排序。 |
-| `src/player.{h,cpp}` | 持有 `mpv_handle`，异步提交命令，按文件处理事件和属性反馈。 |
-| `src/videowidget.{h,cpp}` | 接收滚轮和拖动输入，在 Qt 的 OpenGL 上下文中保存完整画面，并按当前取景绘制。 |
-| `src/viewgeometry.h` | 用窗口逻辑像素计算适窗画幅、指针锚点、拖动边界及调整窗口后的构图。 |
+| `src/ui/mainwindow.{h,cpp}` | 组装界面、文件选择和播放状态呈现。 |
+| `src/ui/playeractions.{h,cpp}` | 共享 QAction、快捷键作用域、可用状态与图标。 |
+| `src/ui/controlbar.{h,cpp}` | 自适应控制栏、进度预览和音量入口。 |
+| `src/ui/videosurface.{h,cpp}` | 视频容器与空态、加载、错误、结束等状态页。 |
+| `src/ui/theme.{h,cpp}` | 深色调色板、系统高对比度及 SVG 图标绘制。 |
+| `src/ui/playbackdialogs.{h,cpp}` | 毫秒时间输入、校验和从共享动作表生成快捷键帮助。 |
+| `src/ui/mediacontrols.{h,cpp}` | 音轨/字幕菜单、倍速与延迟、媒体信息、置顶及截图入口。 |
+| `src/playlist/playlistmodel.{h,cpp}` | 唯一队列、稳定 itemId、状态、去重与行移动。 |
+| `src/playlist/playlistcontroller.{h,cpp}` | 选片、播放顺序、随机历史、EOF 与失败上限。 |
+| `src/playlist/playlistpanel.{h,cpp}` / `src/playlist/playlisthost.{h,cpp}` | 同一列表的停靠、窄屏覆盖和独立窗口呈现。 |
+| `src/playlist/folderscanner.{h,cpp}` | 可取消的后台非递归扫描与自然排序。 |
+| `src/playback/player.{h,cpp}` | 持有 `mpv_handle`，异步提交命令，按文件处理事件和属性反馈。 |
+| `src/playback/mediastate.h` | mpv 节点转换、当前文件轨道及恢复指纹。 |
+| `src/capture/captureservice.{h,cpp}` | 读取源画面/取景副本，后台编码及不覆盖写盘，隔离旧文件的完成提示。 |
+| `src/video/videowidget.{h,cpp}` | 接收滚轮和拖动输入，在 Qt 的 OpenGL 上下文中保存完整画面，并按当前取景绘制。 |
+| `src/video/viewgeometry.h` | 用窗口逻辑像素计算适窗画幅、指针锚点、拖动边界及调整窗口后的构图。 |
+
+源码按 `playback`、`video`、`ui`、`playlist`、`capture` 子目录组织，[src/CMakeLists.txt](src/CMakeLists.txt) 管理共享的 `zopana_core` 静态库；根目录负责依赖、应用入口和可选验证工具。正式程序和实验工具链接同一核心，避免复制业务实现。当前不引入 Git submodule，也不为每个目录创建独立库；具备独立复用需求和清晰依赖边界时再提取 target。libmpv SDK 继续通过 `MPV_ROOT` 引用，Lucide SVG 按固定提交随代码保留。

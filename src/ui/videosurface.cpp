@@ -33,12 +33,16 @@ VideoSurface::VideoSurface(VideoWidget *video, QWidget *parent) : QWidget(parent
     osd_->setAccessibleName(QStringLiteral("播放操作提示"));
     osdTimer_.setSingleShot(true);
     connect(&osdTimer_, &QTimer::timeout, osd_, &QWidget::hide);
+    captureFolder_ = new QToolButton(this); captureFolder_->setObjectName("captureFolderButton");
+    captureFolder_->setMinimumSize(100,32); captureFolder_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon); captureFolder_->hide();
+    connect(&osdTimer_, &QTimer::timeout, captureFolder_, &QWidget::hide);
 }
 
 void VideoSurface::setControls(QWidget *controls) { controls_ = controls; arrange(); }
 void VideoSurface::setFullscreen(bool fullscreen) { fullscreen_ = fullscreen; arrange(); }
 void VideoSurface::showOsd(const QString &kind, const QString &text, int milliseconds)
 {
+    captureFolder_->hide();
     osd_->setProperty("kind", kind); osd_->setText(text); osd_->setAccessibleDescription(text);
     osd_->setFixedWidth(qMin(480, qMax(180, width() - 48))); osd_->adjustSize();
     osd_->move(24, 24); osd_->show(); osd_->raise(); osdTimer_.start(milliseconds);
@@ -46,7 +50,13 @@ void VideoSurface::showOsd(const QString &kind, const QString &text, int millise
 bool VideoSurface::dismissOsd()
 {
     if (!osd_->isVisible()) return false;
-    osdTimer_.stop(); osd_->hide(); return true;
+    osdTimer_.stop(); osd_->hide(); captureFolder_->hide(); return true;
+}
+void VideoSurface::showCaptureSaved(const QString &path, QAction *openFolder)
+{
+    showOsd("capture",QStringLiteral("已保存：%1").arg(path),4000);
+    captureFolder_->setDefaultAction(openFolder); captureFolder_->setAccessibleName(openFolder->text());
+    captureFolder_->adjustSize(); captureFolder_->move(24,osd_->geometry().bottom()+6); captureFolder_->show(); captureFolder_->raise();
 }
 
 void VideoSurface::present(const QString &title, const QString &body, QAction *primary, QAction *secondary)
