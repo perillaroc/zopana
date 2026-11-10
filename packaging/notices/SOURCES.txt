@@ -3,7 +3,7 @@ Third-party sources for the zopana Windows x64 build
 Qt 6.11.3 (Qt Base), dynamically linked
 Copyright (C) The Qt Company Ltd. and other contributors.
 The build uses the LGPLv3 option for Qt Core, GUI, Widgets, OpenGL,
-OpenGLWidgets and the Windows platform and style plugins. The Qt 6.11.3
+OpenGLWidgets, Concurrent and the Windows platform and style plugins. The Qt 6.11.3
 SDK documentation includes the Qt Core and Qt GUI third-party notices.
 Qt source and installation/build instructions:
 https://download.qt.io/archive/qt/6.11/6.11.3/submodules/qtbase-everywhere-src-6.11.3.tar.xz

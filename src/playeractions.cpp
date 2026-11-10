@@ -26,7 +26,14 @@ constexpr Definition definitions[] = {
     {"audio.volumeUp", "增大音量", ""}, {"audio.volumeDown", "减小音量", ""},
     {"audio.mute", "静音", "volume-2"}, {"view.inputMode", "切换鼠标模式", ""},
     {"view.zoomIn", "放大画面", "zoom-in"}, {"view.zoomOut", "缩小画面", "zoom-out"},
-    {"window.shortcuts", "快捷键帮助", "keyboard"}
+    {"window.shortcuts", "快捷键帮助", "keyboard"},
+    {"file.add", "添加文件", "list-plus"}, {"file.addFolder", "添加文件夹", "folder-plus"}, {"file.cancelScan", "取消扫描", ""},
+    {"play.previous", "上一项", "skip-back"}, {"play.next", "下一项", "skip-forward"},
+    {"window.playlist", "播放列表", "list-video"}, {"window.playlistMode", "独立窗口", ""}, {"window.closePlaylist", "隐藏列表窗口", ""},
+    {"queue.playSelected", "播放所选", "play"}, {"queue.removeSelected", "移除所选", ""},
+    {"queue.moveUp", "上移", ""}, {"queue.moveDown", "下移", ""}, {"queue.clear", "清空列表", ""},
+    {"queue.order.sequential", "顺序播放", ""}, {"queue.order.single", "单曲循环", ""},
+    {"queue.order.list", "列表循环", ""}, {"queue.order.random", "随机播放", ""}
 };
 }
 
@@ -42,7 +49,7 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
         action->setShortcutContext(Qt::WindowShortcut);
         action->setAutoRepeat(false);
         action->setShortcutVisibleInContextMenu(true);
-        window.addAction(action);
+        if (i != ClosePlaylist && !(i >= QueuePlay && i <= QueueDown)) window.addAction(action);
         actions_[i] = action;
         action->setProperty("scope", QStringLiteral("窗口"));
         connect(action, &QAction::triggered, this, &PlayerActions::invoked);
@@ -71,6 +78,17 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     view(ZoomIn, {QKeySequence(Qt::Key_Equal), QKeySequence(Qt::Key_Plus), QKeySequence(Qt::SHIFT | Qt::Key_Plus)}, true);
     view(ZoomOut, {QKeySequence(Qt::Key_Minus)}, true);
     get(Shortcuts)->setShortcut(QKeySequence(Qt::Key_F1));
+    get(Add)->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
+    view(Previous, {QKeySequence(Qt::Key_PageUp)}); view(Next, {QKeySequence(Qt::Key_PageDown)});
+    view(Playlist, {QKeySequence(Qt::Key_P)}); get(Playlist)->setCheckable(true);
+    get(ClosePlaylist)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W)); get(ClosePlaylist)->setProperty("scope", QStringLiteral("独立列表"));
+    for (auto id : {QueuePlay, QueueRemove, QueueUp, QueueDown}) { get(id)->setShortcutContext(Qt::WidgetShortcut); get(id)->setProperty("scope", QStringLiteral("队列")); }
+    get(QueuePlay)->setShortcuts({QKeySequence(Qt::Key_Return), QKeySequence(Qt::Key_Enter)});
+    get(QueueRemove)->setShortcut(QKeySequence(Qt::Key_Delete));
+    get(QueueUp)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Up)); get(QueueDown)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Down));
+    auto *orders = new QActionGroup(this);
+    for (auto id : {OrderSequential, OrderSingle, OrderList, OrderRandom}) { get(id)->setCheckable(true); orders->addAction(get(id)); }
+    get(OrderSequential)->setChecked(true);
     get(Fullscreen)->setProperty("scope", QStringLiteral("窗口：F11；观看：Enter"));
     auto *mode = new QActionGroup(this);
     for (auto id : {FeatureMode, StandardMode}) { get(id)->setCheckable(true); mode->addAction(get(id)); }
@@ -80,6 +98,16 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     qApp->installEventFilter(this);
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) { if (now != composing_) composing_.clear(); });
     refreshIcons();
+}
+
+void PlayerActions::attachPlaylist(QWidget &window, QWidget &view)
+{
+    playlistWindow_ = &window; queue_ = &view;
+    for (auto *action : actions_) {
+        const auto scope = action->property("scope").toString();
+        if (scope == QStringLiteral("队列")) view.addAction(action);
+        else if (scope != QStringLiteral("观看") && action != get(Quit)) window.addAction(action);
+    }
 }
 
 bool PlayerActions::watching() const
@@ -96,6 +124,20 @@ bool PlayerActions::eventFilter(QObject *object, QEvent *event)
         const auto *input = static_cast<QInputMethodEvent *>(event);
         if (input->preeditString().isEmpty()) { if (composing_ == object) composing_.clear(); }
         else composing_ = object;
+    }
+    if ((event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) && queue_
+        && QApplication::focusWidget() == queue_) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        const QKeySequence pressed(QKeyCombination(key->modifiers() & ~Qt::KeypadModifier, Qt::Key(key->key())));
+        for (auto id : {QueuePlay, QueueRemove, QueueUp, QueueDown}) for (const auto &sequence : get(id)->shortcuts()) {
+            if (sequence.matches(pressed) != QKeySequence::ExactMatch) continue;
+            key->accept();
+            const bool allowed = !QApplication::activeModalWidget() && !QApplication::activePopupWidget() && !composing_
+                && (QApplication::activeWindow() == &window_ || QApplication::activeWindow() == playlistWindow_);
+            if (event->type() == QEvent::KeyPress && !allowed) return QObject::eventFilter(object, event);
+            if (event->type() == QEvent::KeyPress && allowed && !key->isAutoRepeat() && get(id)->isEnabled()) get(id)->trigger();
+            return true;
+        }
     }
     if (event->type() == QEvent::ShortcutOverride) {
         auto *key = static_cast<QKeyEvent *>(event);

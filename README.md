@@ -18,7 +18,13 @@ zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以�
 
 双击或 F11 切换全屏；观看区域 Enter 也可切换。全屏底栏覆盖显示，无输入 2.5 秒后隐藏；鼠标移动或键盘操作会唤出，菜单、拖动、栏内焦点及错误期间保持显示。Esc 先取消拖动或关闭菜单，再退出全屏。
 
-可拖入一个本地媒体文件，或给已加载媒体拖入 SRT/ASS/SSA/VTT 字幕。多个文件、文件夹和 Ctrl 追加会明确提示；播放列表在下一阶段接入。原有字幕随画面缩放。
+打开文件支持多选，替换列表并播放第一项；Ctrl+Shift+O 添加文件，正在播放时保持当前内容。视频区拖放默认替换，按 Ctrl 追加；拖入列表时追加或按插入线放置。向已加载媒体拖入 SRT/ASS/SSA/VTT 可加载字幕；混合拖入时仅关联与第一个媒体同名的字幕。原有字幕随画面缩放。
+
+按 P 或点击列表按钮显示播放列表，列表标题的“独立窗口”可将它移到单独的普通窗口。独立列表可单独移动、缩放、最小化，主窗口最小化后仍可选片；关闭列表或 Ctrl+W 只隐藏，关闭主窗口退出整个应用。宽窗口停靠可拖动分隔条，窄窗口与全屏采用覆盖面板，Esc 先关闭覆盖面板再退出全屏。
+
+列表 Enter/双击播放所选，Delete 移除，Ctrl+↑/↓ 重排；只选择、添加或重排不会切片。移除当前项会停止并选中相邻项，需主动播放。视频区 PageUp/PageDown 切上一项/下一项；播放菜单可选择顺序、单曲循环、列表循环或随机。随机上一项按播放记录返回，自动续播连续坏文件有遍历上限。
+
+“添加文件夹”在后台扫描一层目录，按自然文件名排序并去重，可取消；不会为每个列表项预先打开播放器读取时长。列表及窗口状态的跨启动记忆在 M5 接入。
 
 功能图标使用固定提交的 Lucide SVG，来源和校验见 [图标清单](resources/icons/lucide/SOURCES.json)。完整 ISC 与 Feather MIT 许可见 [图标许可证](packaging/notices/lucide-LICENSE.txt)，也可通过“帮助 → 第三方许可”查看。
 
@@ -28,7 +34,7 @@ zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以�
 | --- | --- | --- |
 | 编译器和 SDK | Visual Studio 2022，MSVC v143（`cl` 19.44.35226 x64），Windows SDK 10.0.26100.0。安装“使用 C++ 的桌面开发”工作负载 | [Visual Studio 2022](https://visualstudio.microsoft.com/vs/older-downloads/) |
 | 构建工具 | CMake 4.0.2，Ninja 1.12.1 | [CMake 4.0.2](https://github.com/Kitware/CMake/releases/tag/v4.0.2) · [Ninja 1.12.1](https://github.com/ninja-build/ninja/releases/tag/v1.12.1) |
-| Qt | Qt 6.11.3 的 `msvc2022_64` kit，含 Widgets、OpenGL、OpenGLWidgets 和 SVG | [Qt 安装器](https://www.qt.io/development/download-qt-installer-oss) |
+| Qt | Qt 6.11.3 的 `msvc2022_64` kit，含 Widgets、OpenGL、OpenGLWidgets、SVG 和 Concurrent | [Qt 安装器](https://www.qt.io/development/download-qt-installer-oss) |
 | 播放引擎 | libmpv 0.42.0 Windows x64 LGPL SDK，client API 2.6 | [mpv 0.42.0 发布包](https://github.com/mpv-player/mpv/releases/tag/v0.42.0) |
 
 在已加载 VS 2022 **x64** 开发环境的 PowerShell 中执行以下命令。也可从开始菜单的 **x64 Native Tools Command Prompt for VS 2022** 运行 `powershell -NoProfile`。
@@ -159,6 +165,10 @@ mpv_render_context_create: 0 (success)
 | `src/videosurface.{h,cpp}` | 视频容器与空态、加载、错误、结束等状态页。 |
 | `src/theme.{h,cpp}` | 深色调色板、系统高对比度及 SVG 图标绘制。 |
 | `src/playbackdialogs.{h,cpp}` | 毫秒时间输入、校验和从共享动作表生成快捷键帮助。 |
+| `src/playlistmodel.{h,cpp}` | 唯一队列、稳定 itemId、状态、去重与行移动。 |
+| `src/playlistcontroller.{h,cpp}` | 选片、播放顺序、随机历史、EOF 与失败上限。 |
+| `src/playlistpanel.{h,cpp}` / `src/playlisthost.{h,cpp}` | 同一列表的停靠、窄屏覆盖和独立窗口呈现。 |
+| `src/folderscanner.{h,cpp}` | 可取消的后台非递归扫描与自然排序。 |
 | `src/player.{h,cpp}` | 持有 `mpv_handle`，异步提交命令，按文件处理事件和属性反馈。 |
 | `src/videowidget.{h,cpp}` | 接收滚轮和拖动输入，在 Qt 的 OpenGL 上下文中保存完整画面，并按当前取景绘制。 |
 | `src/viewgeometry.h` | 用窗口逻辑像素计算适窗画幅、指针锚点、拖动边界及调整窗口后的构图。 |

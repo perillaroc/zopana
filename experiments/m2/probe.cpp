@@ -2,6 +2,7 @@
 #include "playeractions.h"
 #include "playbackdialogs.h"
 #include "videowidget.h"
+#include "playlistcontroller.h"
 
 #include <QAction>
 #include <QApplication>
@@ -339,12 +340,15 @@ public:
     }
     void dropping()
     {
-        const int before = loads; const auto current = path;
         drop({fixtures + "/grid.mp4", fixtures + "/audio.m4a"});
-        check("multiple drops report count and keep current file", loads == before && path == current && widget<QLabel>("playerOsd")->text().contains("2"));
+        require("multiple media drop opens first queued item", until([this] { return state == Player::State::Loaded && path.endsWith("grid.mp4"); }));
+        player.setPaused(true); require("dropped item pauses", until([this] { return flag("pause"); }));
+        const auto current = path;
+        auto *queue = window.findChild<PlaylistController *>();
+        check("multiple media drop retains every item", queue->model().rowCount() == 2);
         drop({"https://example.invalid/file.mp4"}); check("remote URL drop rejected", path == current && widget<QLabel>("playerOsd")->text().contains(QStringLiteral("本地")));
         drop({fixtures}); check("folder drop rejected explicitly", path == current && widget<QLabel>("playerOsd")->text().contains(QStringLiteral("文件夹")));
-        drop({fixtures + "/grid.mp4"}, Qt::ControlModifier); check("append drop never silently replaces", path == current && widget<QLabel>("playerOsd")->text().contains(QStringLiteral("追加")));
+        drop({fixtures + "/grid.mp4"}, Qt::ControlModifier); check("Ctrl append deduplicates without replacing current", path == current && queue->model().rowCount() == 2);
         for (auto extension : {"srt", "ass", "vtt"}) {
             QSignalSpy loaded(&player, &Player::subtitleLoaded); drop({fixtures + "/external." + extension});
             require(QString("single %1 subtitle drop confirmed").arg(extension), until([&] { return loaded.count() == 1; }));

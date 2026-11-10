@@ -21,10 +21,12 @@ public:
     bool initialize();
     mpv_handle *handle() const { return handle_; }
     void setRendererReady(bool ready);
-    void openFile(const QString &path);
+    void openFile(const QString &path, quint64 itemId = 0);
+    quint64 itemId() const { return itemId_; }
+    uint64_t generation() const { return generation_; }
     void setPaused(bool paused);
     void togglePaused();
-    void stop();
+    void stop(bool clearFile = false);
     void seek(double seconds);
     void seekRelative(double seconds);
     double lastPosition() const;
@@ -38,6 +40,7 @@ public:
     void shutdown();
 
 signals:
+    void sessionChanged(quint64 generation, quint64 itemId, Player::State state, const QString &error);
     void fileOpening();
     void mediaChanged(Player::State state, const QString &path, const QString &error);
     void durationChanged(double seconds);
@@ -55,7 +58,7 @@ signals:
 private:
     void queueLoad();
     void submitPendingLoad();
-    enum class Command { Load, Seek, Pause, Volume, Mute, Stop, Subtitle };
+    enum class Command { Load, Seek, Pause, Volume, Mute, Stop, Subtitle, ResetLoop };
     struct Request { Command command; uint64_t generation; QString subject; };
     bool submitControl(Command command, const char **args);
     void flushSeek();
@@ -72,7 +75,9 @@ private:
     bool rendererReady_ = false;
     bool loadPending_ = false;
     bool stopPending_ = false;
+    bool resetLoopsPending_ = false;
     uint64_t generation_ = 0, nextRequest_ = 1;
+    quint64 itemId_ = 0;
     QHash<uint64_t, Request> requests_;
     QTimer seekTimer_;
     std::optional<double> seekTarget_, pendingSeek_;

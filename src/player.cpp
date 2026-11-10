@@ -122,12 +122,14 @@ void Player::setRendererReady(bool ready)
     }
 }
 
-void Player::openFile(const QString &path)
+void Player::openFile(const QString &path, quint64 itemId)
 {
     if (closing_ || !handle_ || path.isEmpty())
         return;
     emit fileOpening();
     path_ = path;
+    itemId_ = itemId;
+    resetLoopsPending_ = true;
     position_ = 0;
     paused_ = false;
     queueLoad();
@@ -154,6 +156,13 @@ void Player::submitPendingLoad()
     // previous file's outstanding seek must never execute on the new file.
     if (closing_ || !requests_.isEmpty())
         return;
+    if (resetLoopsPending_) {
+        resetLoopsPending_ = false;
+        const char *a[] = {"set", "ab-loop-a", "no", nullptr};
+        const char *b[] = {"set", "ab-loop-b", "no", nullptr};
+        submitControl(Command::ResetLoop, a); submitControl(Command::ResetLoop, b);
+        return;
+    }
     if (stopPending_) {
         stopPending_ = false;
         const char *args[] = {"stop", "keep-playlist", nullptr};
@@ -190,7 +199,7 @@ void Player::togglePaused()
     }
 }
 
-void Player::stop()
+void Player::stop(bool clearFile)
 {
     if (!handle_ || closing_ || path_.isEmpty())
         return;
@@ -199,7 +208,9 @@ void Player::stop()
     if (selectedEntry_) mpv_unobserve_property(handle_, selectedEntry_);
     selectedEntry_ = 0;
     loadPending_ = false; stopPending_ = true;
+    resetLoopsPending_ = true;
     position_ = 0; paused_ = false; seekable_ = false;
+    if (clearFile) { path_.clear(); itemId_ = 0; }
     emit audioAvailableChanged(false);
     changeState(State::Idle);
     submitPendingLoad();
@@ -311,7 +322,9 @@ void Player::changeState(State state, const QString &error)
 {
     if (state != State::Loaded) clearSeek();
     state_ = state;
+    const auto generation = generation_, item = itemId_;
     emit mediaChanged(state, path_, error);
+    emit sessionChanged(generation, item, state, error);
 }
 
 void Player::drainEvents()

@@ -136,6 +136,41 @@
       "gitBlob": "254582887503f763af4e284f05bc858464ff664d",
       "sha256": "f509925ca81964ed06251ad4702e989bb81a566ffc74d15c2226b4f07ded67be",
       "modifications": null
+    },
+    {
+      "upstream": "icons/list-plus.svg",
+      "local": "resources/icons/lucide/list-plus.svg",
+      "gitBlob": "96fae02cc713f1ac111ca9454bf27859546d654c",
+      "sha256": "416b579ca6f60752c31769fced8b30d6271940775dacf980ab85ec8c15268b0c",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/folder-plus.svg",
+      "local": "resources/icons/lucide/folder-plus.svg",
+      "gitBlob": "661ebf4d8254e17cd0f0147c5c9f6a45bbfe9fe3",
+      "sha256": "76d62eb7796ce6c7e303c437464923de2d1ae19a5c8d010f8b36dfc1d6180890",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/skip-back.svg",
+      "local": "resources/icons/lucide/skip-back.svg",
+      "gitBlob": "bf6b2cc9fdc208a4031f495bfe5e0f998ed26439",
+      "sha256": "901579624a7d28036a39b3b8bd9e6da0e8cf771a79c67836d8a52b3e2287c031",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/skip-forward.svg",
+      "local": "resources/icons/lucide/skip-forward.svg",
+      "gitBlob": "2d6ba0494671b7e64f88038b9809c8a63aea5029",
+      "sha256": "f6bdc4b8d453332bafcf1366a48d5ece4bd4f15eced97c85c3676bd22c5cadf9",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/list-video.svg",
+      "local": "resources/icons/lucide/list-video.svg",
+      "gitBlob": "4a5fa8e5dd54ae16941dc3f734362354f3dcf69f",
+      "sha256": "f6d062a395d0e39d7639a76815f4f1a92017774c55c76b88e4d0dbd933ef47a3",
+      "modifications": null
     }
   ]
 }

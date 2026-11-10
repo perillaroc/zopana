@@ -5,11 +5,11 @@ if(NOT MSVC OR NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
     message(FATAL_ERROR "The libmpv SDK requires an MSVC x64 build. Use the VS 2022 x64 Developer PowerShell.")
 endif()
 
-find_package(Qt6 CONFIG QUIET COMPONENTS Widgets OpenGL OpenGLWidgets Svg)
+find_package(Qt6 CONFIG QUIET COMPONENTS Widgets OpenGL OpenGLWidgets Svg Concurrent)
 if(NOT Qt6_FOUND)
     message(FATAL_ERROR
         "Set CMAKE_PREFIX_PATH to a Qt 6 MSVC x64 kit containing Qt6Config.cmake "
-        "and the Widgets, OpenGL, OpenGLWidgets and Svg packages under lib/cmake. "
+        "and the Widgets, OpenGL, OpenGLWidgets, Svg and Concurrent packages under lib/cmake. "
         "${Qt6_NOT_FOUND_MESSAGE}")
 endif()
 
@@ -40,6 +40,11 @@ add_library(zopana_core STATIC
     src/videosurface.cpp src/videosurface.h
     src/theme.cpp src/theme.h
     src/playbackdialogs.cpp src/playbackdialogs.h
+    src/playlistmodel.cpp src/playlistmodel.h
+    src/playlistcontroller.cpp src/playlistcontroller.h
+    src/playlistpanel.cpp src/playlistpanel.h
+    src/playlisthost.cpp src/playlisthost.h
+    src/folderscanner.cpp src/folderscanner.h
     resources/player.qrc
 )
 set_target_properties(zopana_core PROPERTIES AUTOMOC ON AUTORCC ON)
@@ -47,7 +52,7 @@ target_compile_features(zopana_core PUBLIC cxx_std_20)
 target_compile_options(zopana_core PRIVATE /utf-8)
 target_compile_definitions(zopana_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_include_directories(zopana_core PUBLIC src)
-target_link_libraries(zopana_core PUBLIC Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Svg mpv::mpv)
+target_link_libraries(zopana_core PUBLIC Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Svg Qt6::Concurrent mpv::mpv)
 add_executable(zopana src/main.cpp)
 target_compile_features(zopana PRIVATE cxx_std_20)
 target_link_libraries(zopana PRIVATE zopana_core)
@@ -67,4 +72,10 @@ option(ZOPANA_BUILD_M2_PROBE "Build the M2 playback and input validation tools" 
 if(ZOPANA_BUILD_M2_PROBE)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     add_subdirectory(experiments/m2)
+endif()
+
+option(ZOPANA_BUILD_M3_PROBE "Build the M3 playlist validation tools" OFF)
+if(ZOPANA_BUILD_M3_PROBE)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    add_subdirectory(experiments/m3)
 endif()

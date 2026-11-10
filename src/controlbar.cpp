@@ -127,6 +127,8 @@ ControlBar::ControlBar(PlayerActions &actions, QWidget *parent) : QWidget(parent
     open_ = button(actions.get(PlayerActions::Open), "openButton"); row->addWidget(open_);
     play_ = button(actions.get(PlayerActions::PlayPause), "playPauseButton");
     play_->setFixedSize(40, 40); row->addWidget(play_);
+    auto *previous = button(actions.get(PlayerActions::Previous), "previousButton"); row->addWidget(previous);
+    auto *next = button(actions.get(PlayerActions::Next), "nextButton"); row->addWidget(next);
     auto *stop = button(actions.get(PlayerActions::Stop), "stopButton"); row->addWidget(stop);
     connect(actions.get(PlayerActions::PlayPause), &QAction::changed, this, [this] { refreshIcons(); });
     info_ = new QWidget; auto *infoLayout = new QVBoxLayout(info_);
@@ -165,11 +167,12 @@ ControlBar::ControlBar(PlayerActions &actions, QWidget *parent) : QWidget(parent
     volumeLabel_ = new QLabel("100%"); volumeLabel_->setObjectName("volumeLabel"); volumeLabel_->setMinimumWidth(38); row->addWidget(volumeLabel_);
     connect(volume_, &QSlider::valueChanged, this, &ControlBar::volumeRequested);
     connect(popupVolume_, &QSlider::valueChanged, this, &ControlBar::volumeRequested);
+    auto *playlist = button(actions.get(PlayerActions::Playlist), "playlistButton"); row->addWidget(playlist);
     auto *fullscreen = button(actions.get(PlayerActions::Fullscreen), "fullscreenButton"); row->addWidget(fullscreen);
     more_ = new QToolButton; more_->setObjectName("moreButton"); more_->setAccessibleName(QStringLiteral("更多操作"));
     more_->setToolTip(QStringLiteral("更多操作")); more_->setFixedSize(32, 32); more_->setFocusPolicy(Qt::StrongFocus);
     auto *moreMenu = new QMenu(more_);
-    for (auto id : {PlayerActions::Open, PlayerActions::Stop, PlayerActions::SeekGoto, PlayerActions::FeatureMode, PlayerActions::StandardMode,
+    for (auto id : {PlayerActions::Open, PlayerActions::Previous, PlayerActions::Next, PlayerActions::Stop, PlayerActions::SeekGoto, PlayerActions::FeatureMode, PlayerActions::StandardMode,
                    PlayerActions::ZoomIn, PlayerActions::ZoomOut, PlayerActions::ResetView, PlayerActions::Mute,
                    PlayerActions::Fullscreen, PlayerActions::Shortcuts, PlayerActions::Quit}) moreMenu->addAction(actions.get(id));
     more_->setMenu(moreMenu); more_->setPopupMode(QToolButton::InstantPopup); row->addWidget(more_);
@@ -250,6 +253,7 @@ void ControlBar::resizeEvent(QResizeEvent *event)
     volume_->setVisible(width() >= 1000);
     volumeLabel_->setVisible(width() >= 800);
     open_->setVisible(width() >= 800);
+    for (auto name : {"previousButton", "nextButton", "stopButton"}) findChild<QToolButton *>(name)->setVisible(width() >= 800);
     zoom_->setVisible(width() >= 800);
     reset_->setToolButtonStyle(width() >= 1000 ? Qt::ToolButtonTextBesideIcon : Qt::ToolButtonIconOnly);
 }
