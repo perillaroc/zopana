@@ -13,6 +13,10 @@ class PlaylistPanel;
 class PlaylistHost;
 class FolderScanner;
 class QSplitter;
+class QLabel;
+class QMenu;
+class QShowEvent;
+class QToolButton;
 class QUrl;
 
 class MainWindow final : public QMainWindow
@@ -24,6 +28,8 @@ public:
 
 protected:
     void changeEvent(QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     bool eventFilter(QObject *object, QEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
@@ -33,6 +39,9 @@ private:
     void openFile();
     void openFiles(bool append);
     void addFolder();
+    QMenu *setupTopBar();
+    void updateWindowButtons();
+    void enableResizeFrame();
     void setupPlaylist();
     void updatePlaylistActions();
     void ingestUrls(const QList<QUrl> &urls, bool replace, int row = -1);
@@ -50,6 +59,9 @@ private:
     VideoWidget *video_ = nullptr;
     VideoSurface *surface_ = nullptr;
     ControlBar *controls_ = nullptr;
+    QWidget *topBar_ = nullptr;
+    QLabel *title_ = nullptr, *zoomLabel_ = nullptr, *rateLabel_ = nullptr;
+    QToolButton *menuButton_ = nullptr, *minimize_ = nullptr, *maximize_ = nullptr, *close_ = nullptr;
     PlayerActions *actions_ = nullptr;
     QSplitter *splitter_ = nullptr;
     PlaylistController *playlist_ = nullptr;
@@ -63,5 +75,6 @@ private:
     double durationSeconds_ = 0;
     bool paused_ = false, seekable_ = false, wasMaximized_ = false;
     bool audioAvailable_ = false;
+    bool maximizePressed_ = false;
     QTimer hideTimer_;
 };

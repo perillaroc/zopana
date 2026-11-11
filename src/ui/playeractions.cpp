@@ -18,7 +18,7 @@ constexpr Definition definitions[] = {
     {"app.quit", "退出", ""}, {"window.about", "关于 zopana", "info"},
     {"window.licenses", "第三方许可", "file-text"},
     {"play.stop", "停止", "square"},
-    {"seek.backSmall", "后退 5 秒", ""}, {"seek.forwardSmall", "前进 5 秒", ""},
+    {"seek.backSmall", "后退 5 秒", "skip-back"}, {"seek.forwardSmall", "前进 5 秒", "skip-forward"},
     {"seek.backMedium", "后退 30 秒", ""}, {"seek.forwardMedium", "前进 30 秒", ""},
     {"seek.backLarge", "后退 60 秒", ""}, {"seek.forwardLarge", "前进 60 秒", ""},
     {"seek.start", "跳到开头", ""}, {"seek.end", "跳到最后画面", ""},

@@ -147,11 +147,19 @@ public:
                 contained &= label->width() >= label->fontMetrics().horizontalAdvance(label->text());
             check(tag + " layout fits", contained && disjoint, {{"barWidth", bar->width()}, {"buttonCount", rectangles.size()}});
             check(tag + " accessible controls", named && large);
-            check(tag + " native window frame", !(window.windowFlags() & Qt::FramelessWindowHint));
-            if (size.width() == 640) {
-                auto *more = widget<QToolButton>("moreButton");
-                check(tag + " compact open in more menu", !widget<QToolButton>("openButton")->isVisible() && more->menu()->actions().contains(action("file.open")));
+            check(tag + " custom window bar", window.windowFlags().testFlag(Qt::FramelessWindowHint)
+                && widget<QToolButton>("fullscreenButton")->parentWidget() == widget<QWidget>("playerTopBar"));
+            auto *volume = widget<QSlider>("volumeSlider");
+            check(tag + " both sliders remain on one row", volume->isVisible() && seek->geometry().center().y() == volume->geometry().center().y()
+                && seek->geometry().right() < volume->geometry().left());
+            int lastX = -1;
+            bool ordered = true;
+            for (auto name : {"playPauseButton", "stopButton", "backButton", "forwardButton", "openButton", "currentTimeLabel", "durationTimeLabel"}) {
+                auto *control = widget<QWidget>(name);
+                ordered &= control->isVisible() && lastX < control->x();
+                lastX = control->x();
             }
+            check(tag + " playback buttons and times stay in order", ordered);
             screenshot(tag);
             layouts.append(QJsonObject{{"state", stateName}, {"width", size.width()}, {"height", size.height()}, {"buttonsFit", contained && disjoint}});
         }
@@ -183,10 +191,15 @@ public:
         layoutMatrix("paused");
         check("video reset capability enabled", action("view.reset")->isEnabled());
         auto *seek = widget<QSlider>("seekSlider");
-        seek->setFocus(); const int before = seek->value();
+        seek->setFocus(Qt::TabFocusReason); const int before = seek->value();
         QTest::keyClick(seek, Qt::Key_Right);
         check("focused seek slider moves one second", until([&] { return std::abs(number("time-pos") - before - 1) < .1; }));
+        check("keyboard navigation marks slider focus", seek->property("keyboardFocus").toBool());
         screenshot("keyboard-focus");
+        QTest::mousePress(seek, Qt::LeftButton);
+        check("mouse operation clears keyboard-only focus styling", !seek->property("keyboardFocus").toBool());
+        QTest::keyClick(seek, Qt::Key_Escape);
+        QTest::mouseRelease(seek, Qt::LeftButton);
 
         QSignalSpy triggered(action("play.toggle"), &QAction::triggered);
         auto *play = widget<QToolButton>("playPauseButton"); play->setFocus();
@@ -234,6 +247,7 @@ public:
         action("view.reset")->trigger();
 
         auto *context = video->context();
+        const QRect normalGeometry = window.geometry();
         video->setFocus(); QTest::keyClick(video, Qt::Key_F11); QTest::qWait(100);
         check("F11 enters fullscreen", window.isFullScreen()); screenshot("fullscreen");
         QMenu menu(&window); menu.addAction(action("play.toggle")); menu.popup(video->mapToGlobal(QPoint(50, 50))); QTest::qWait(30);
@@ -241,8 +255,20 @@ public:
         check("menu Escape does not leave fullscreen", !menu.isVisible() && window.isFullScreen());
         QTest::keyClick(video, Qt::Key_Escape); QTest::qWait(100);
         check("Escape exits fullscreen without context rebuild", !window.isFullScreen() && video->context() == context && paused());
+        check("fullscreen exit restores normal geometry", !window.isMaximized() && window.geometry() == normalGeometry);
         video->setFocus(); QTest::keyClick(video, Qt::Key_Return); QTest::qWait(60);
         check("watching Enter enters fullscreen", window.isFullScreen()); QTest::keyClick(video, Qt::Key_Escape);
+
+        auto *maximize = widget<QToolButton>("windowMaximizeButton");
+        auto *fullscreen = widget<QToolButton>("fullscreenButton");
+        QTest::mouseClick(maximize, Qt::LeftButton);
+        require("top bar maximizes window", until([this] { return window.isMaximized(); }));
+        QTest::mouseClick(fullscreen, Qt::LeftButton);
+        require("top bar enters fullscreen from maximized", until([this] { return window.isFullScreen(); }));
+        QTest::keyClick(video, Qt::Key_Escape);
+        check("fullscreen exit restores maximized state", until([this] { return window.isMaximized() && !window.isFullScreen(); }));
+        QTest::mouseClick(maximize, Qt::LeftButton);
+        check("top bar restores previous normal geometry", until([&] { return !window.isMaximized() && window.geometry() == normalGeometry; }));
 
         bool licenseSeen = false, modalSafe = false;
         QTimer::singleShot(100, &window, [&] {

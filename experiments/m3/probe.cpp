@@ -32,6 +32,7 @@
 #include <QToolButton>
 #include <QUrl>
 #include <QWindow>
+#include <qt_windows.h>
 #include <cmath>
 #include <functional>
 #include <stdexcept>
@@ -77,7 +78,7 @@ public:
         std::printf("%s %s\n", passed ? "PASS" : "FAIL", name.toUtf8().constData()); std::fflush(stdout);
     }
     void require(QString name, bool passed) { check(name, passed); if (!passed) throw std::runtime_error(name.toStdString()); }
-    void activate(QWidget &widget) { widget.show(); widget.raise(); widget.activateWindow(); require("test window active", QTest::qWaitForWindowActive(&widget)); }
+    void activate(QWidget &widget) { widget.show(); widget.raise(); widget.activateWindow(); require("test window active", until([&] { return QApplication::activeWindow() == &widget; })); }
     double number(const char *name) { double value = -100; mpv_get_property(observer, name, MPV_FORMAT_DOUBLE, &value); return value; }
     bool paused() { int value = 0; mpv_get_property(observer, "pause", MPV_FORMAT_FLAG, &value); return value; }
     void command(const QStringList &arguments)
@@ -256,15 +257,38 @@ public:
         for (int i = 0; i < 20; ++i) { host->setDetached(true); host->setDetached(false); QTest::qWait(10); }
         check("20 host switches retain model selection playback and GL context", loads == stableLoads && panel->selectedId() == ids[1] && player.itemId() == ids[1] && video->context() == context && paused());
         host->setDetached(true); activate(*host->window()); view->setFocus(); QTest::qWait(80);
-        check("independent playlist is an ordinary unowned window", host->window()->isWindow() && host->window()->parentWidget() == nullptr && !(host->window()->windowFlags() & Qt::WindowStaysOnTopHint) && host->window()->windowHandle()->transientParent() == nullptr);
+        const auto mainHandle = reinterpret_cast<HWND>(window.winId());
+        const auto listHandle = reinterpret_cast<HWND>(host->window()->winId());
+        check("floating playlist is owned and excluded from the Windows taskbar", host->window()->windowHandle()->transientParent() == window.windowHandle()
+            && GetWindow(listHandle, GW_OWNER) == mainHandle && (GetWindowLongPtrW(listHandle, GWL_EXSTYLE) & WS_EX_TOOLWINDOW)
+            && !(GetWindowLongPtrW(listHandle, GWL_EXSTYLE) & WS_EX_APPWINDOW));
         check("independent list keeps shared model", view->model() == &queue->model());
         host->window()->move(host->window()->pos() + QPoint(30, 20)); host->window()->resize(350, 530); const auto geometry = host->window()->geometry();
         window.move(window.pos() + QPoint(15, 10)); QTest::qWait(30); check("moving main does not move independent list", host->window()->geometry() == geometry);
+        auto *toggle = window.findChild<QToolButton *>("playlistButton");
+        activate(window);
+        QTest::mouseClick(toggle, Qt::LeftButton);
+        check("one main-window click hides an inactive floating list", !host->visible() && !host->window()->isVisible() && !toggle->isChecked());
+        QTest::mouseClick(toggle, Qt::LeftButton);
+        check("one click restores floating list and selection", host->window()->isVisible() && toggle->isChecked() && panel->selectedId() == ids[1]);
         window.showMinimized(); QTest::qWait(100);
-        check("main minimization leaves list usable", !host->window()->isMinimized() && host->window()->isVisible());
-        activate(*host->window()); panel->select(ids[2]); view->setFocus(); QTest::keyClick(view, Qt::Key_Return); waitLoaded(ids[2]);
-        check("independent queue operates while main minimized", window.isMinimized() && player.itemId() == ids[2]);
-        host->window()->showMinimized(); QTest::qWait(40); check("playlist minimizes independently", host->window()->isMinimized()); host->setVisible(true);
+        check("main minimization hides floating list while preserving preference", host->preferredVisible() && !IsWindowVisible(listHandle));
+        window.showNormal(); activate(window);
+        check("main restore shows floating list at the same position", until([&] { return IsWindowVisible(listHandle) && host->window()->geometry() == geometry; }));
+
+        auto *back = window.findChild<QToolButton *>("backButton");
+        auto *forward = window.findChild<QToolButton *>("forwardButton");
+        require("direction buttons ready for seeking", until([&] { return action("seek.forwardSmall")->isEnabled(); }));
+        player.seek(7);
+        require("seek fixture starts at seven seconds", until([&] { return std::abs(number("time-pos") - 7) < .1; }));
+        QTest::mouseClick(back, Qt::LeftButton);
+        check("left click on back seeks five seconds in current item", until([&] { return std::abs(number("time-pos") - 2) < .1 && player.itemId() == ids[1]; }));
+        QTest::mouseClick(forward, Qt::LeftButton);
+        check("left click on forward seeks five seconds in current item", until([&] { return std::abs(number("time-pos") - 7) < .1 && player.itemId() == ids[1]; }));
+        QTest::mouseClick(forward, Qt::RightButton); waitLoaded(ids[0]);
+        QTest::mouseClick(back, Qt::RightButton); waitLoaded(ids[1]);
+        check("right clicks skip playlist items without opening a menu", !QApplication::activePopupWidget());
+        check("direction icons remain visible after media changes", !back->icon().isNull() && !forward->icon().isNull());
         activate(*host->window()); view->setFocus(); QTest::keyClick(view, Qt::Key_W, Qt::ControlModifier);
         check("Ctrl W hides only independent list", until([&] { return !host->visible(); }) && state == Player::State::Loaded);
         host->setVisible(true); QTest::qWait(40); check("reshow preserves independent geometry", host->window()->geometry() == geometry && host->detached());
@@ -276,7 +300,7 @@ public:
         QTimer::singleShot(80, &window, [&] {
             auto *dialog = QApplication::activeModalWidget(); if (!dialog) return;
             QTest::keyClick(view, Qt::Key_F11); QTest::keyClick(view, Qt::Key_Return);
-            modalSafe = window.isFullScreen() && player.itemId() == ids[2]; QTest::keyClick(dialog, Qt::Key_Escape);
+            modalSafe = window.isFullScreen() && player.itemId() == ids[1]; QTest::keyClick(dialog, Qt::Key_Escape);
         });
         action("window.shortcuts")->trigger(); check("modal dialog protects both windows", modalSafe);
         activate(window); video->setFocus(); QTest::keyClick(video, Qt::Key_Escape); QTest::qWait(80);
@@ -285,6 +309,11 @@ public:
             window.resize(size); QTest::qWait(80);
             check(QString("playlist layout %1 fits window").arg(size.width()), window.size() == size && panel->width() >= 260);
             if (size.width() < 900) {
+                auto *overlay = window.findChild<QWidget *>("playlistOverlay");
+                auto *topBar = window.findChild<QWidget *>("playerTopBar");
+                auto *controls = window.findChild<QWidget *>("controlBar");
+                check("narrow overlay leaves both control bars usable", overlay->y() >= topBar->geometry().bottom() + 1
+                    && overlay->geometry().bottom() < controls->mapTo(window.centralWidget(), QPoint()).y());
                 const auto geometry = video->geometry(); host->setVisible(false, false); QTest::qWait(40);
                 check("narrow overlay hide preserves viewport", video->geometry() == geometry); host->setVisible(true, false);
                 activate(window); view->setFocus(); QTest::keyClick(view, Qt::Key_Escape); check("Escape closes overlay one layer", !host->overlayVisible() && !window.isFullScreen()); host->setVisible(true, false);
@@ -298,7 +327,7 @@ public:
         host->setDetached(true); host->setVisible(true); QTest::qWait(50);
         check("detached screenshot", host->window()->grab().save(output + "/detached.png"));
         if (QGuiApplication::screens().size() > 1) { auto *screen = QGuiApplication::screens()[1]; host->window()->move(screen->availableGeometry().center() - host->window()->rect().center()); QTest::qWait(80); check("second-screen list stays usable", screen->availableGeometry().intersects(host->window()->geometry())); }
-        check("host switches did not cause unrelated loads", loads == before + 2, {{"before",before},{"after",loads}});
+        check("host switches did not cause unrelated loads", loads == before + 3, {{"before",before},{"after",loads}});
         window.setWindowFlag(Qt::WindowStaysOnTopHint, true); window.show(); QTest::qWait(80);
         check("main topmost flag does not propagate to playlist", !(host->window()->windowFlags() & Qt::WindowStaysOnTopHint));
         window.setWindowFlag(Qt::WindowStaysOnTopHint, false); window.show(); QTest::qWait(80);

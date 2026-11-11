@@ -21,6 +21,9 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QKeyEvent>
+#include <QLabel>
+#include <QMouseEvent>
+#include <QResizeEvent>
 #include <QSlider>
 #include <QSplitter>
 #include <QListView>
@@ -31,12 +34,16 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMenu>
-#include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScreen>
+#include <QToolButton>
+#include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QtMath>
+#include <windows.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <cmath>
@@ -47,10 +54,38 @@ int wholeSeconds(double value)
 {
     return std::isfinite(value) ? int(std::clamp(value, 0.0, double(std::numeric_limits<int>::max()))) : 0;
 }
+
+class WindowTitle final : public QLabel
+{
+public:
+    void setTitle(const QString &title)
+    {
+        setToolTip(title);
+        setAccessibleName(title);
+        updateText();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QLabel::resizeEvent(event);
+        updateText();
+    }
+
+private:
+    void updateText() { setText(fontMetrics().elidedText(toolTip(), Qt::ElideMiddle, width())); }
+};
+
+void showMultiplier(QLabel *label, const QString &caption, double value)
+{
+    label->setText(QStringLiteral("%1 %2×").arg(caption).arg(value, 0, 'f', 2));
+    label->setVisible(value > 0 && std::abs(value - 1) >= .005);
+}
 }
 
 MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), player_(player)
 {
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowMinMaxButtonsHint | Qt::WindowSystemMenuHint);
     auto uiFont = font();
     if (uiFont.pointSizeF() < 10) { uiFont.setPointSizeF(10); setFont(uiFont); }
     auto *theme = new Theme::Controller(*qApp, this);
@@ -63,13 +98,16 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     surface_ = new VideoSurface(video_, splitter_); splitter_->addWidget(surface_);
     actions_ = new PlayerActions(*this, *video_, *surface_);
     controls_ = new ControlBar(*actions_, surface_); surface_->setControls(controls_);
+    auto *menu = setupTopBar();
     setupPlaylist();
     setAcceptDrops(true); surface_->setMouseTracking(true);
     hideTimer_.setSingleShot(true); hideTimer_.setInterval(2500);
     connect(&hideTimer_, &QTimer::timeout, this, &MainWindow::hideControls);
     qApp->installEventFilter(this);
     connect(actions_, &PlayerActions::invoked, this, &MainWindow::revealControls);
-    connect(theme, &Theme::Controller::applied, this, [this] { actions_->refreshIcons(); controls_->refreshIcons(); });
+    connect(theme, &Theme::Controller::applied, this, [this] {
+        actions_->refreshIcons(); controls_->refreshIcons(); menuButton_->setIcon(Theme::icon("ellipsis", palette()));
+    });
 
     const auto action = [this](PlayerActions::Id id) { return actions_->get(id); };
     connect(action(PlayerActions::Open), &QAction::triggered, this, &MainWindow::openFile);
@@ -126,30 +164,29 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     });
     connect(action(PlayerActions::Licenses), &QAction::triggered, this, &MainWindow::showLicenses);
 
-    auto *file = menuBar()->addMenu(QStringLiteral("文件(&F)"));
+    auto *file = menu->addMenu(QStringLiteral("文件(&F)"));
     file->setObjectName("fileMenu");
     file->addAction(action(PlayerActions::Open)); file->addAction(action(PlayerActions::Add)); file->addAction(action(PlayerActions::AddFolder));
     file->addSeparator(); file->addAction(action(PlayerActions::Quit));
-    auto *play = menuBar()->addMenu(QStringLiteral("播放(&P)"));
+    auto *play = menu->addMenu(QStringLiteral("播放(&P)"));
     play->setObjectName("playMenu");
     for (auto id : {PlayerActions::PlayPause, PlayerActions::Stop, PlayerActions::Previous, PlayerActions::Next, PlayerActions::BackSmall, PlayerActions::ForwardSmall,
             PlayerActions::BackMedium, PlayerActions::ForwardMedium, PlayerActions::BackLarge, PlayerActions::ForwardLarge,
             PlayerActions::SeekStart, PlayerActions::SeekEnd, PlayerActions::SeekGoto}) play->addAction(action(id));
     auto *order = play->addMenu(QStringLiteral("播放顺序"));
     for (auto id : {PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList, PlayerActions::OrderRandom}) order->addAction(action(id));
-    auto *picture = menuBar()->addMenu(QStringLiteral("画面(&V)"));
+    auto *picture = menu->addMenu(QStringLiteral("画面(&V)"));
     picture->setObjectName("pictureMenu");
     picture->addAction(action(PlayerActions::FeatureMode)); picture->addAction(action(PlayerActions::StandardMode));
     picture->addAction(action(PlayerActions::InputMode));
     picture->addSeparator(); picture->addAction(action(PlayerActions::ZoomIn)); picture->addAction(action(PlayerActions::ZoomOut)); picture->addAction(action(PlayerActions::ResetView));
-    auto *audio = menuBar()->addMenu(QStringLiteral("音频(&A)"));
+    auto *audio = menu->addMenu(QStringLiteral("音频(&A)"));
     audio->setObjectName("audioMenu");
-    audio->addMenu(controls_->volumeMenu())->setText(QStringLiteral("音量"));
     for (auto id : {PlayerActions::Mute, PlayerActions::VolumeUp, PlayerActions::VolumeDown}) audio->addAction(action(id));
-    auto *view = menuBar()->addMenu(QStringLiteral("视图(&W)"));
+    auto *view = menu->addMenu(QStringLiteral("视图(&W)"));
     view->setObjectName("viewMenu");
     for (auto id : {PlayerActions::Playlist, PlayerActions::PlaylistMode, PlayerActions::Fullscreen}) view->addAction(action(id));
-    auto *help = menuBar()->addMenu(QStringLiteral("帮助(&H)"));
+    auto *help = menu->addMenu(QStringLiteral("帮助(&H)"));
     help->addAction(action(PlayerActions::Shortcuts)); help->addAction(action(PlayerActions::About)); help->addAction(action(PlayerActions::Licenses));
     auto *context = new QMenu(video_);
     context->setObjectName("videoContextMenu");
@@ -162,7 +199,8 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     });
     connect(video_, &VideoWidget::fullscreenRequested, action(PlayerActions::Fullscreen), &QAction::trigger);
     connect(video_, &VideoWidget::zoomChanged, this, [this](double scale) {
-        controls_->setZoom(scale); surface_->showOsd("zoom", QStringLiteral("画面 %1×").arg(scale, 0, 'f', 2));
+        showMultiplier(zoomLabel_, QStringLiteral("缩放"), scale);
+        surface_->showOsd("zoom", QStringLiteral("画面 %1×").arg(scale, 0, 'f', 2));
     });
     connect(video_, &VideoWidget::rendererReadyChanged, &player_, &Player::setRendererReady);
     connect(video_, &VideoWidget::playbackToggleRequested, this, [this] {
@@ -172,7 +210,10 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     connect(controls_, &ControlBar::seekRequested, this, [this](int seconds) { if (state_ == Player::State::Loaded && seekable_) player_.seek(seconds); });
     connect(controls_, &ControlBar::volumeRequested, &player_, &Player::setVolume);
     connect(&player_, &Player::mediaChanged, this, &MainWindow::updateMedia);
-    connect(&player_, &Player::fileOpening, this, [this] { controls_->cancelSeekPreview(); video_->cancelInput(); surface_->dismissOsd(); video_->setVideoSize({}); controls_->setZoom(1); });
+    connect(&player_, &Player::fileOpening, this, [this] { controls_->cancelSeekPreview(); video_->cancelInput(); surface_->dismissOsd(); video_->setVideoSize({}); zoomLabel_->hide(); });
+    connect(&player_, &Player::detailsChanged, this, [this] {
+        showMultiplier(rateLabel_, QStringLiteral("倍速"), state_ == Player::State::Loaded ? player_.mediaProperty("speed").toDouble() : 1);
+    });
     connect(&player_, &Player::durationChanged, this, [this](double seconds) {
         if (state_ == Player::State::Loaded) { durationSeconds_ = seconds; duration_ = wholeSeconds(seconds); controls_->setTimeline(position_, duration_, seekable_); updateSeekActions(); }
     });
@@ -201,7 +242,6 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
         if (state_ == Player::State::Loaded) { videoSize_ = size; video_->setVideoSize(size); updatePresentation(); }
     });
     connect(&player_, &Player::commandError, this, [this](const QString &message) {
-        controls_->setStatus(QStringLiteral("操作失败"), {}); controls_->setToolTip(message);
         surface_->showOsd("error", QStringLiteral("操作失败：%1").arg(message), 3000);
     });
     setMinimumSize(640, 400);
@@ -214,6 +254,171 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
 }
 
 bool MainWindow::videoContextValid() const { return video_->isValid(); }
+
+QMenu *MainWindow::setupTopBar()
+{
+    topBar_ = new QWidget(centralWidget());
+    topBar_->setObjectName("playerTopBar");
+    topBar_->setAttribute(Qt::WA_StyledBackground);
+    topBar_->setBackgroundRole(QPalette::Button);
+    topBar_->setAutoFillBackground(true);
+    topBar_->setFixedHeight(38);
+    auto *row = new QHBoxLayout(topBar_);
+    row->setContentsMargins(8, 3, 8, 3);
+    row->setSpacing(4);
+    auto makeButton = [row](const QString &name) {
+        auto *button = new QToolButton;
+        button->setObjectName(name);
+        button->setMinimumSize(32, 32);
+        button->setFocusPolicy(Qt::StrongFocus);
+        row->addWidget(button);
+        return button;
+    };
+    auto actionButton = [this, makeButton](const QString &name, PlayerActions::Id id, Qt::ToolButtonStyle style) {
+        auto *button = makeButton(name);
+        auto *action = actions_->get(id);
+        button->setDefaultAction(action);
+        button->setToolButtonStyle(style);
+        const auto sync = [button, action] { button->setAccessibleName(action->text()); };
+        connect(action, &QAction::changed, button, sync);
+        sync();
+        return button;
+    };
+
+    menuButton_ = makeButton("moreButton");
+    menuButton_->setAccessibleName(QStringLiteral("主菜单"));
+    menuButton_->setToolTip(menuButton_->accessibleName());
+    menuButton_->setIcon(Theme::icon("ellipsis", palette()));
+    auto *menu = new QMenu(menuButton_);
+    menu->setObjectName("playerMenu");
+    menuButton_->setMenu(menu);
+    menuButton_->setPopupMode(QToolButton::InstantPopup);
+
+    title_ = new WindowTitle;
+    title_->setObjectName("windowTitleLabel");
+    title_->setTextFormat(Qt::PlainText);
+    title_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    row->addWidget(title_, 1);
+    actionButton("featureModeButton", PlayerActions::FeatureMode, Qt::ToolButtonTextOnly);
+    actionButton("standardModeButton", PlayerActions::StandardMode, Qt::ToolButtonTextOnly);
+    actionButton("resetViewButton", PlayerActions::ResetView, Qt::ToolButtonTextBesideIcon);
+    zoomLabel_ = new QLabel;
+    zoomLabel_->setObjectName("zoomLabel");
+    rateLabel_ = new QLabel;
+    rateLabel_->setObjectName("rateLabel");
+    for (auto *label : {zoomLabel_, rateLabel_}) { row->addWidget(label); label->hide(); }
+
+    actionButton("fullscreenButton", PlayerActions::Fullscreen, Qt::ToolButtonIconOnly)->setFixedWidth(32);
+    minimize_ = makeButton("windowMinimizeButton");
+    maximize_ = makeButton("windowMaximizeButton");
+    close_ = makeButton("windowCloseButton");
+    QFont glyphFont(QStringLiteral("Segoe MDL2 Assets"));
+    glyphFont.setPixelSize(12);
+    for (auto *button : {minimize_, maximize_, close_}) {
+        button->setFont(glyphFont);
+        button->setFixedWidth(36);
+    }
+    minimize_->setText(QStringLiteral("\uE921"));
+    minimize_->setAccessibleName(QStringLiteral("最小化"));
+    minimize_->setToolTip(minimize_->accessibleName());
+    close_->setText(QStringLiteral("\uE8BB"));
+    close_->setAccessibleName(QStringLiteral("关闭"));
+    close_->setToolTip(close_->accessibleName());
+    connect(minimize_, &QToolButton::clicked, this, &QWidget::showMinimized);
+    connect(maximize_, &QToolButton::clicked, this, [this] { if (isMaximized()) showNormal(); else showMaximized(); });
+    connect(close_, &QToolButton::clicked, this, &QWidget::close);
+    updateWindowButtons();
+    static_cast<QVBoxLayout *>(centralWidget()->layout())->insertWidget(0, topBar_);
+    return menu;
+}
+
+void MainWindow::updateWindowButtons()
+{
+    const bool maximized = isMaximized();
+    maximize_->setText(maximized ? QStringLiteral("\uE923") : QStringLiteral("\uE922"));
+    maximize_->setAccessibleName(maximized ? QStringLiteral("还原窗口") : QStringLiteral("最大化"));
+    maximize_->setToolTip(maximize_->accessibleName());
+    minimize_->setVisible(!isFullScreen());
+    maximize_->setVisible(!isFullScreen());
+}
+
+void MainWindow::showEvent(QShowEvent *event)
+{
+    QMainWindow::showEvent(event);
+    if (!isFullScreen()) enableResizeFrame();
+}
+
+void MainWindow::enableResizeFrame()
+{
+    // Keep native sizing and Snap support while the client paints the entire frame.
+    const auto hwnd = reinterpret_cast<HWND>(winId());
+    const auto style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    if (!(style & WS_THICKFRAME)) {
+        SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_THICKFRAME);
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+    if (eventType == "windows_generic_MSG") {
+        const auto &msg = *static_cast<MSG *>(message);
+        if (msg.message == WM_NCLBUTTONDOWN && msg.wParam == HTMAXBUTTON && maximize_ && maximize_->isVisible()) {
+            maximizePressed_ = true;
+            maximize_->setDown(true);
+            SetCapture(msg.hwnd);
+            *result = 0;
+            return true;
+        }
+        if (maximizePressed_ && (msg.message == WM_LBUTTONUP || msg.message == WM_CAPTURECHANGED)) {
+            const bool clicked = msg.message == WM_LBUTTONUP && maximize_->rect().contains(maximize_->mapFromGlobal(QCursor::pos()));
+            maximizePressed_ = false;
+            maximize_->setDown(false);
+            if (msg.message == WM_LBUTTONUP) {
+                ReleaseCapture();
+                if (clicked) maximize_->click();
+                *result = 0;
+                return true;
+            }
+        }
+        if (msg.message == WM_NCCALCSIZE && msg.wParam && IsZoomed(msg.hwnd)
+            && (GetWindowLongPtrW(msg.hwnd, GWL_STYLE) & WS_THICKFRAME)) {
+            MONITORINFO monitor{sizeof(MONITORINFO)};
+            if (GetMonitorInfoW(MonitorFromWindow(msg.hwnd, MONITOR_DEFAULTTONEAREST), &monitor)) {
+                auto &rect = reinterpret_cast<NCCALCSIZE_PARAMS *>(msg.lParam)->rgrc[0];
+                IntersectRect(&rect, &rect, &monitor.rcWork);
+                *result = 0;
+                return true;
+            }
+        }
+        if (msg.message == WM_NCHITTEST && topBar_ && !isFullScreen()) {
+            POINT point{GET_X_LPARAM(msg.lParam), GET_Y_LPARAM(msg.lParam)};
+            ScreenToClient(msg.hwnd, &point);
+            if (!isMaximized()) {
+                RECT client;
+                GetClientRect(msg.hwnd, &client);
+                const UINT dpi = GetDpiForWindow(msg.hwnd);
+                const int border = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+                const bool left = point.x < border, right = point.x >= client.right - border;
+                const bool top = point.y < border, bottom = point.y >= client.bottom - border;
+                if (left || right || top || bottom) {
+                    if (left) *result = top ? HTTOPLEFT : bottom ? HTBOTTOMLEFT : HTLEFT;
+                    else if (right) *result = top ? HTTOPRIGHT : bottom ? HTBOTTOMRIGHT : HTRIGHT;
+                    else *result = top ? HTTOP : HTBOTTOM;
+                    return true;
+                }
+            }
+            const QPoint local(qFloor(point.x / devicePixelRatioF()), qFloor(point.y / devicePixelRatioF()));
+            const QPoint barPoint = topBar_->mapFrom(this, local);
+            if (topBar_->rect().contains(barPoint)) {
+                auto *target = topBar_->childAt(barPoint);
+                if (target == maximize_) { *result = HTMAXBUTTON; return true; }
+                if (!qobject_cast<QToolButton *>(target)) { *result = HTCAPTION; return true; }
+            }
+        }
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
 
 void MainWindow::openFile()
 {
@@ -241,15 +446,23 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (!actions_) return;
     if (event->type() == QEvent::WindowStateChange) {
-        actions_->setFullscreen(isFullScreen()); menuBar()->setVisible(!isFullScreen());
-        surface_->setFullscreen(isFullScreen());
-        playlistHost_->setFullscreen(isFullScreen());
-        controls_->show(); unsetCursor();
+        const bool fullscreen = isFullScreen();
+        if (!fullscreen && isVisible() && !isMinimized()) enableResizeFrame();
+        actions_->setFullscreen(fullscreen);
+        auto *layout = static_cast<QVBoxLayout *>(centralWidget()->layout());
+        if (fullscreen && layout->indexOf(topBar_) >= 0) {
+            layout->removeWidget(topBar_);
+            topBar_->setGeometry(0, 0, centralWidget()->width(), topBar_->height());
+        } else if (!fullscreen && layout->indexOf(topBar_) < 0) layout->insertWidget(0, topBar_);
+        updateWindowButtons();
+        surface_->setFullscreen(fullscreen, fullscreen ? topBar_->height() : 0);
+        playlistHost_->setFullscreen(fullscreen);
+        topBar_->show(); controls_->show(); unsetCursor();
         if (isFullScreen()) revealControls(); else hideTimer_.stop();
     }
     if (event->type() == QEvent::ActivationChange) {
         if (isActiveWindow()) revealControls();
-        else { controls_->show(); unsetCursor(); hideTimer_.stop(); video_->cancelInput(); controls_->cancelSeekPreview(); }
+        else { topBar_->show(); controls_->show(); unsetCursor(); hideTimer_.stop(); video_->cancelInput(); controls_->cancelSeekPreview(); }
     }
     if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange) {
         actions_->refreshIcons(); if (controls_) controls_->refreshIcons();
@@ -261,9 +474,11 @@ void MainWindow::updateMedia(Player::State state, const QString &path, const QSt
     state_ = state; path_ = path; error_ = error;
     const QString file = QFileInfo(path).fileName();
     setWindowTitle(file.isEmpty() ? QCoreApplication::applicationName() : file + QStringLiteral(" — ") + QCoreApplication::applicationName());
+    static_cast<WindowTitle *>(title_)->setTitle(file.isEmpty() ? QCoreApplication::applicationName() : file);
+    showMultiplier(rateLabel_, QStringLiteral("倍速"), state == Player::State::Loaded ? player_.mediaProperty("speed").toDouble() : 1);
     if (state != Player::State::Loaded) {
         audioAvailable_ = false; actions_->setAudioAvailable(false); controls_->setAudioAvailable(false);
-        controls_->cancelSeekPreview(); video_->cancelInput(); controls_->setZoom(1);
+        controls_->cancelSeekPreview(); video_->cancelInput(); zoomLabel_->hide();
         seekable_ = false; videoSize_ = {};
         if (state != Player::State::Loading) video_->setVideoSize({});
     }
@@ -286,28 +501,24 @@ void MainWindow::updatePresentation()
     if (!loaded && playlist_->model().rowCount() && state_ == Player::State::Idle) actions_->get(PlayerActions::PlayPause)->setEnabled(true);
     actions_->get(PlayerActions::Stop)->setEnabled(loaded || state_ == Player::State::Loading);
     const QString file = QFileInfo(path_).fileName();
-    QString status;
     switch (state_) {
     case Player::State::Idle:
-        status = path_.isEmpty() ? QStringLiteral("就绪") : QStringLiteral("已停止");
         surface_->present(path_.isEmpty() ? QStringLiteral("打开视频，开始观看") : QStringLiteral("已停止"),
             path_.isEmpty() ? QStringLiteral("支持常见本地媒体格式\n按 Ctrl+O 选择文件") : file,
             actions_->get(replayable ? PlayerActions::PlayPause : PlayerActions::Open));
         break;
     case Player::State::Loading:
-        status = QStringLiteral("正在打开…"); surface_->present(status, file, nullptr); break;
+        surface_->present(QStringLiteral("正在打开…"), file, nullptr); break;
     case Player::State::Error:
-        status = QStringLiteral("打开失败"); surface_->present(QStringLiteral("无法打开此文件"), file + '\n' + error_,
+        surface_->present(QStringLiteral("无法打开此文件"), file + '\n' + error_,
             actions_->get(PlayerActions::Retry), actions_->get(PlayerActions::Open)); break;
     case Player::State::Ended:
-        status = QStringLiteral("播放完毕"); surface_->present(status, file, actions_->get(PlayerActions::PlayPause), actions_->get(PlayerActions::Open)); break;
+        surface_->present(QStringLiteral("播放完毕"), file, actions_->get(PlayerActions::PlayPause), actions_->get(PlayerActions::Open)); break;
     case Player::State::Loaded:
-        status = paused_ ? QStringLiteral("已暂停") : QStringLiteral("正在播放");
         if (videoSize_.isEmpty()) surface_->present(QStringLiteral("音频播放"), file, nullptr);
         else surface_->showVideo();
         break;
     }
-    controls_->setStatus(status, videoSize_.isEmpty() ? QString() : QStringLiteral("%1 × %2").arg(videoSize_.width()).arg(videoSize_.height()));
 }
 
 void MainWindow::showLicenses()
@@ -340,29 +551,39 @@ void MainWindow::showShortcuts() { PlaybackDialogs::shortcuts(QApplication::acti
 void MainWindow::revealControls()
 {
     if (!isFullScreen()) return;
-    controls_->show(); controls_->raise(); unsetCursor(); hideTimer_.start();
+    topBar_->show(); topBar_->raise(); controls_->show(); controls_->raise(); unsetCursor(); hideTimer_.start();
 }
 
 void MainWindow::hideControls()
 {
     if (!isFullScreen()) return;
     auto *focus = QApplication::focusWidget();
-    const bool controlFocus = focus && (focus == controls_ || controls_->isAncestorOf(focus));
-    const bool pointerInControls = controls_->rect().contains(controls_->mapFromGlobal(QCursor::pos()));
+    const bool controlFocus = focus && (controls_->isAncestorOf(focus) || topBar_->isAncestorOf(focus));
+    const bool pointerInControls = (controls_->isVisible() && controls_->rect().contains(controls_->mapFromGlobal(QCursor::pos())))
+        || (topBar_->isVisible() && topBar_->rect().contains(topBar_->mapFromGlobal(QCursor::pos())));
     auto *seek = controls_->findChild<QSlider *>("seekSlider");
     if (!isActiveWindow() || QApplication::activePopupWidget() || QApplication::activeModalWidget()
         || controlFocus || pointerInControls || seek->isSliderDown() || video_->gestureActive() || playlistHost_->overlayVisible() || surface_->property("resumePending").toBool() || state_ == Player::State::Error) {
         hideTimer_.start(); return;
     }
-    controls_->hide(); setCursor(Qt::BlankCursor);
+    topBar_->hide(); controls_->hide(); setCursor(Qt::BlankCursor);
 }
 
 bool MainWindow::eventFilter(QObject *object, QEvent *event)
 {
     auto *widget = qobject_cast<QWidget *>(object);
-    if (widget && (widget == this || isAncestorOf(widget))) {
+    if (topBar_ && isFullScreen() && widget && widget->window() == this) {
         switch (event->type()) {
-        case QEvent::MouseMove:
+        case QEvent::Resize:
+            if (widget == centralWidget()) topBar_->resize(centralWidget()->width(), topBar_->height());
+            break;
+        case QEvent::MouseMove: {
+            const int y = centralWidget()->mapFromGlobal(static_cast<QMouseEvent *>(event)->globalPosition().toPoint()).y();
+            if (y >= 0 && y < topBar_->height()) { topBar_->show(); topBar_->raise(); }
+            if (y >= centralWidget()->height() - controls_->height()) { controls_->show(); controls_->raise(); }
+            unsetCursor(); hideTimer_.start();
+            break;
+        }
         case QEvent::MouseButtonPress:
         case QEvent::Wheel:
         case QEvent::KeyPress:
@@ -388,7 +609,7 @@ void MainWindow::setupPlaylist()
 {
     playlist_ = new PlaylistController(player_, this); playlist_->setObjectName("playlistController");
     panel_ = new PlaylistPanel(playlist_->model(), *actions_);
-    playlistHost_ = new PlaylistHost(*this, *centralWidget(), *splitter_, panel_);
+    playlistHost_ = new PlaylistHost(*this, *centralWidget(), *splitter_, panel_, *topBar_, *controls_);
     scanner_ = new FolderScanner(this); scanner_->setObjectName("folderScanner");
     actions_->attachPlaylist(*playlistHost_->window(), *panel_->view());
     const auto action = [this](PlayerActions::Id id) { return actions_->get(id); };

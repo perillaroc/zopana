@@ -19,7 +19,6 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QMenu>
-#include <QMenuBar>
 #include <QPointer>
 #include <QSignalBlocker>
 #include <QTableWidget>
@@ -85,7 +84,7 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     audioDelay_ = numberControl(audio,"audio-delay","audioDelaySpin",-3600,3600,QStringLiteral("音频延迟（秒，正值表示音频较晚）"));
     for (auto id : {PlayerActions::AudioDelayLess,PlayerActions::AudioDelayMore,PlayerActions::AudioDelayReset}) audio->addAction(action(id));
     auto *sub = new QMenu(QStringLiteral("字幕(&S)"),&window); sub->setObjectName("subtitleMenu");
-    window.menuBar()->insertMenu(window.findChild<QMenu *>("viewMenu")->menuAction(),sub);
+    window.findChild<QMenu *>("playerMenu")->insertMenu(window.findChild<QMenu *>("viewMenu")->menuAction(),sub);
     sub->addAction(action(PlayerActions::SubLoad)); sub->addAction(action(PlayerActions::SubToggle));
     subtitleTracks_ = sub->addMenu(QStringLiteral("字幕轨道")); subtitleTracks_->setObjectName("subtitleTracksMenu");
     sub->addAction(action(PlayerActions::SubNext)); sub->addSeparator();
@@ -104,9 +103,6 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     picture->addAction(action(PlayerActions::CaptureSource)); picture->addAction(action(PlayerActions::CaptureViewport)); picture->addAction(action(PlayerActions::CaptureFolder));
     auto *view = window.findChild<QMenu *>("viewMenu"); view->addAction(action(PlayerActions::AlwaysOnTop)); view->addAction(action(PlayerActions::MediaInfo));
     window.findChild<QMenu *>("fileMenu")->addAction(action(PlayerActions::FileLocation));
-    auto *more = bar.moreMenu(); more->addMenu(rateMenu_); more->addMenu(audio); more->addMenu(sub);
-    for (auto id : {PlayerActions::FrameForward,PlayerActions::LoopA,PlayerActions::LoopB,PlayerActions::LoopClear,
-            PlayerActions::CaptureSource,PlayerActions::CaptureViewport,PlayerActions::MediaInfo,PlayerActions::AlwaysOnTop}) more->addAction(action(id));
     auto *context = window.findChild<QMenu *>("videoContextMenu");
     context->addMenu(rateMenu_); context->addMenu(audio); context->addMenu(sub);
     for (auto id : {PlayerActions::CaptureSource,PlayerActions::CaptureViewport,PlayerActions::MediaInfo}) context->addAction(action(id));
@@ -153,7 +149,7 @@ void MediaControls::refresh()
     for (auto [id,rate] : rates) { actions_.get(id)->setEnabled(loaded || player_.recovering()); actions_.get(id)->setChecked(std::abs(rate-speed) < .0001); }
     for (auto id : {PlayerActions::RateLess,PlayerActions::RateMore,PlayerActions::Pitch}) actions_.get(id)->setEnabled(loaded || player_.recovering());
     actions_.get(PlayerActions::Pitch)->setChecked(player_.mediaProperty("audio-pitch-correction").toBool());
-    rateMenu_->setTitle(QStringLiteral("倍速 · %1×").arg(speed,0,'f',2)); bar_.setRate(speed);
+    rateMenu_->setTitle(QStringLiteral("倍速 · %1×").arg(speed,0,'f',2));
     captureReady_ = video_.canCapture();
     for (auto id : {PlayerActions::CaptureSource,PlayerActions::CaptureViewport,PlayerActions::FrameForward}) actions_.get(id)->setEnabled(loaded && captureReady_);
     for (auto id : {PlayerActions::LoopA,PlayerActions::LoopB,PlayerActions::LoopClear}) actions_.get(id)->setEnabled(loaded && player_.seekable());

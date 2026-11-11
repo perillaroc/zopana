@@ -31,7 +31,7 @@ set_target_properties(mpv::mpv PROPERTIES
 )
 
 add_subdirectory(src)
-add_executable(zopana src/main.cpp)
+add_executable(zopana WIN32 src/main.cpp)
 target_compile_features(zopana PRIVATE cxx_std_20)
 target_link_libraries(zopana PRIVATE zopana_core)
 

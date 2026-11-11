@@ -30,6 +30,9 @@ public:
     bool highContrast() const { return highContrast_; }
     bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
 
+protected:
+    bool eventFilter(QObject *object, QEvent *event) override;
+
 signals:
     void applied();
 

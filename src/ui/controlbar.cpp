@@ -5,7 +5,6 @@
 #include <QAction>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QMenu>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QApplication>
@@ -17,7 +16,6 @@
 #include <QStyleOptionSlider>
 #include <QToolButton>
 #include <QVBoxLayout>
-#include <QWidgetAction>
 
 namespace { QString timestamp(int seconds); }
 class SeekSlider final : public QSlider
@@ -109,6 +107,50 @@ private:
 };
 
 namespace {
+class SeekButton final : public QToolButton
+{
+public:
+    SeekButton(QAction *seek, QAction *skip)
+        : skip_(skip)
+    {
+        setDefaultAction(seek);
+        setContextMenuPolicy(Qt::PreventContextMenu);
+        setMinimumSize(32, 32);
+        setIconSize({20, 20});
+        setFocusPolicy(Qt::StrongFocus);
+        const auto sync = [this, seek, skip] {
+            const QString tip = QStringLiteral("左键：%1\n右键：%2").arg(seek->text(), skip->text());
+            setEnabled(seek->isEnabled() || skip->isEnabled());
+            setToolTip(tip);
+            setAccessibleName(seek->text());
+            setAccessibleDescription(tip);
+        };
+        connect(seek, &QAction::changed, this, sync);
+        connect(skip, &QAction::changed, this, sync);
+        sync();
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::RightButton) event->accept();
+        else QToolButton::mousePressEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::RightButton) {
+            if (rect().contains(event->position().toPoint())) skip_->trigger();
+            event->accept();
+            return;
+        }
+        QToolButton::mouseReleaseEvent(event);
+    }
+
+private:
+    QAction *skip_;
+};
+
 QString timestamp(int seconds)
 {
     return QStringLiteral("%1:%2:%3").arg(seconds / 3600, 2, 10, QLatin1Char('0'))
@@ -122,8 +164,8 @@ ControlBar::ControlBar(PlayerActions &actions, QWidget *parent) : QWidget(parent
     setAttribute(Qt::WA_StyledBackground);
     setBackgroundRole(QPalette::Button); setAutoFillBackground(true);
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(16, 6, 16, 10); layout->setSpacing(6);
-    auto *timeline = new QHBoxLayout; timeline->setSpacing(12); layout->addLayout(timeline);
+    layout->setContentsMargins(12, 4, 12, 8); layout->setSpacing(4);
+    auto *timeline = new QHBoxLayout; timeline->setSpacing(8); layout->addLayout(timeline);
     current_ = new QLabel(timestamp(0)); current_->setObjectName("currentTimeLabel");
     current_->setAccessibleName(QStringLiteral("当前播放时间"));
     duration_ = new QLabel("--:--"); duration_->setObjectName("durationTimeLabel");
@@ -133,67 +175,38 @@ ControlBar::ControlBar(PlayerActions &actions, QWidget *parent) : QWidget(parent
     seek_ = new SeekSlider; seek_->setObjectName("seekSlider");
     seek_->setAccessibleName(QStringLiteral("播放进度（秒）"));
     seek_->setRange(0, 0); seek_->setSingleStep(1); seek_->setPageStep(10); seek_->setMinimumHeight(24);
-    timeline->addWidget(current_); timeline->addWidget(seek_, 1); timeline->addWidget(duration_);
+    timeline->addWidget(seek_, 1);
     seek_->hover = new QLabel(parent ? parent : this); seek_->hover->setObjectName("seekHoverTime");
     seek_->hover->setAttribute(Qt::WA_TransparentForMouseEvents); seek_->hover->setAutoFillBackground(true);
     seek_->hover->setBackgroundRole(QPalette::Button); seek_->hover->setMargin(6); seek_->hover->setFrameShape(QFrame::StyledPanel); seek_->hover->hide();
     connect(seek_, &QSlider::sliderMoved, this, &ControlBar::showTime);
     connect(seek_, &QSlider::valueChanged, this, &ControlBar::seekRequested);
 
-    auto *row = new QHBoxLayout; row->setSpacing(10); layout->addLayout(row);
-    open_ = button(actions.get(PlayerActions::Open), "openButton"); row->addWidget(open_);
+    volumeButton_ = button(actions.get(PlayerActions::Mute), "volumeButton");
+    volumeButton_->setFixedSize(32, 32); timeline->addWidget(volumeButton_);
+    connect(actions.get(PlayerActions::Mute), &QAction::changed, this, [this] { setVolume(volumeValue_); });
+    volume_ = new QSlider(Qt::Horizontal); volume_->setRange(0, 100); volume_->setValue(100);
+    volume_->setFixedWidth(96); volume_->setMinimumHeight(24);
+    volume_->setObjectName("volumeSlider"); volume_->setAccessibleName(QStringLiteral("音量"));
+    timeline->addWidget(volume_);
+    connect(volume_, &QSlider::valueChanged, this, &ControlBar::volumeRequested);
+
+    auto *row = new QHBoxLayout; row->setSpacing(6); layout->addLayout(row);
     play_ = button(actions.get(PlayerActions::PlayPause), "playPauseButton");
     play_->setFixedSize(40, 40); row->addWidget(play_);
-    auto *previous = button(actions.get(PlayerActions::Previous), "previousButton"); row->addWidget(previous);
-    auto *next = button(actions.get(PlayerActions::Next), "nextButton"); row->addWidget(next);
-    auto *stop = button(actions.get(PlayerActions::Stop), "stopButton"); row->addWidget(stop);
     connect(actions.get(PlayerActions::PlayPause), &QAction::changed, this, [this] { refreshIcons(); });
-    info_ = new QWidget; auto *infoLayout = new QVBoxLayout(info_);
-    infoLayout->setContentsMargins(4, 0, 4, 0); infoLayout->setSpacing(0);
-    status_ = new QLabel; status_->setObjectName("statusLabel"); status_->setTextFormat(Qt::PlainText);
-    videoSize_ = new QLabel; videoSize_->setObjectName("videoSizeLabel");
-    infoLayout->addWidget(status_); infoLayout->addWidget(videoSize_); row->addWidget(info_);
+    row->addWidget(button(actions.get(PlayerActions::Stop), "stopButton"));
+    auto *back = new SeekButton(actions.get(PlayerActions::BackSmall), actions.get(PlayerActions::Previous));
+    auto *forward = new SeekButton(actions.get(PlayerActions::ForwardSmall), actions.get(PlayerActions::Next));
+    back->setObjectName("backButton"); forward->setObjectName("forwardButton");
+    row->addWidget(back); row->addWidget(forward);
+    row->addWidget(button(actions.get(PlayerActions::Open), "openButton"));
+    row->addSpacing(4);
+    row->addWidget(current_);
+    row->addWidget(new QLabel("/"));
+    row->addWidget(duration_);
     row->addStretch();
-    auto *mode = new QWidget; mode->setObjectName("modeGroup"); auto *modeLayout = new QHBoxLayout(mode);
-    modeLayout->setContentsMargins(3, 3, 3, 3); modeLayout->setSpacing(2);
-    auto *feature = button(actions.get(PlayerActions::FeatureMode), "featureModeButton", mode);
-    auto *standard = button(actions.get(PlayerActions::StandardMode), "standardModeButton", mode);
-    for (auto *toggle : {feature, standard}) { toggle->setToolButtonStyle(Qt::ToolButtonTextOnly); modeLayout->addWidget(toggle); }
-    row->addWidget(mode);
-    zoom_ = new QLabel("1.00×"); zoom_->setObjectName("zoomLabel"); zoom_->setAccessibleName(QStringLiteral("画面倍率"));
-    zoom_->setMinimumWidth(48); row->addWidget(zoom_);
-    rate_ = new QLabel("1.00×"); rate_->setObjectName("rateLabel"); rate_->setAccessibleName(QStringLiteral("播放倍速")); row->addWidget(rate_);
-    reset_ = button(actions.get(PlayerActions::ResetView), "resetViewButton"); row->addWidget(reset_);
-
-    volumeButton_ = new QToolButton; volumeButton_->setObjectName("volumeButton");
-    volumeButton_->setDefaultAction(actions.get(PlayerActions::Mute));
-    connect(actions.get(PlayerActions::Mute), &QAction::changed, this, [this] { setVolume(volumeValue_); });
-    volumeButton_->setAccessibleName(QStringLiteral("静音与音量菜单")); volumeButton_->setFixedSize(40, 32);
-    volumeButton_->setFocusPolicy(Qt::StrongFocus);
-    volumeMenu_ = new QMenu(this); volumeButton_->setMenu(volumeMenu_); volumeButton_->setPopupMode(QToolButton::MenuButtonPopup);
-    volumeMenu_->addAction(actions.get(PlayerActions::Mute));
-    auto *volumeAction = new QWidgetAction(volumeMenu_);
-    auto *volumePanel = new QWidget; auto *volumeLayout = new QVBoxLayout(volumePanel);
-    auto *title = new QLabel(QStringLiteral("音量")); popupVolume_ = new QSlider(Qt::Horizontal);
-    popupVolume_->setRange(0, 100); popupVolume_->setValue(100); popupVolume_->setMinimumWidth(160);
-    popupVolume_->setAccessibleName(QStringLiteral("弹出音量滑块")); popupVolume_->setObjectName("popupVolumeSlider");
-    volumeLayout->addWidget(title); volumeLayout->addWidget(popupVolume_); volumeAction->setDefaultWidget(volumePanel);
-    volumeMenu_->addAction(volumeAction); row->addWidget(volumeButton_);
-    volume_ = new QSlider(Qt::Horizontal); volume_->setRange(0, 100); volume_->setValue(100);
-    volume_->setFixedWidth(100); volume_->setObjectName("volumeSlider"); volume_->setAccessibleName(QStringLiteral("音量"));
-    volume_->setToolTip(QStringLiteral("音量 0%–100%")); row->addWidget(volume_);
-    volumeLabel_ = new QLabel("100%"); volumeLabel_->setObjectName("volumeLabel"); volumeLabel_->setMinimumWidth(38); row->addWidget(volumeLabel_);
-    connect(volume_, &QSlider::valueChanged, this, &ControlBar::volumeRequested);
-    connect(popupVolume_, &QSlider::valueChanged, this, &ControlBar::volumeRequested);
-    auto *playlist = button(actions.get(PlayerActions::Playlist), "playlistButton"); row->addWidget(playlist);
-    auto *fullscreen = button(actions.get(PlayerActions::Fullscreen), "fullscreenButton"); row->addWidget(fullscreen);
-    more_ = new QToolButton; more_->setObjectName("moreButton"); more_->setAccessibleName(QStringLiteral("更多操作"));
-    more_->setToolTip(QStringLiteral("更多操作")); more_->setFixedSize(32, 32); more_->setFocusPolicy(Qt::StrongFocus);
-    auto *moreMenu = new QMenu(more_);
-    for (auto id : {PlayerActions::Open, PlayerActions::Previous, PlayerActions::Next, PlayerActions::Stop, PlayerActions::SeekGoto, PlayerActions::FeatureMode, PlayerActions::StandardMode,
-                   PlayerActions::ZoomIn, PlayerActions::ZoomOut, PlayerActions::ResetView, PlayerActions::Mute,
-                   PlayerActions::Fullscreen, PlayerActions::Shortcuts, PlayerActions::Quit}) moreMenu->addAction(actions.get(id));
-    more_->setMenu(moreMenu); more_->setPopupMode(QToolButton::InstantPopup); row->addWidget(more_);
+    row->addWidget(button(actions.get(PlayerActions::Playlist), "playlistButton"));
     setTimeline(0, 0, false); refreshIcons();
 }
 
@@ -224,20 +237,13 @@ void ControlBar::setTimeline(int position, int duration, bool seekable)
 
 void ControlBar::showTime(int seconds) { current_->setText(timestamp(seconds)); }
 
-void ControlBar::setStatus(const QString &status, const QString &size)
-{
-    status_->setText(status); videoSize_->setText(size);
-}
-
 void ControlBar::setVolume(double volume)
 {
     volumeValue_ = volume;
     const int percent = qBound(0, qRound(volume), 100);
-    for (auto *slider : {volume_, popupVolume_}) {
-        if (!slider->isSliderDown()) { const QSignalBlocker block(slider); slider->setValue(percent); }
-    }
-    volumeLabel_->setText(muted_ ? QStringLiteral("静音") : QStringLiteral("%1%").arg(percent));
-    volumeButton_->setToolTip(audioAvailable_ ? QStringLiteral("%1 · 音量 %2%（M 切换静音；箭头展开音量）").arg(muted_ ? QStringLiteral("已静音") : QStringLiteral("有声")).arg(percent)
+    if (!volume_->isSliderDown()) { const QSignalBlocker block(volume_); volume_->setValue(percent); }
+    volume_->setToolTip(QStringLiteral("音量 %1%").arg(percent));
+    volumeButton_->setToolTip(audioAvailable_ ? QStringLiteral("%1 · 音量 %2%").arg(muted_ ? QStringLiteral("取消静音") : QStringLiteral("静音")).arg(percent)
         : QStringLiteral("当前媒体没有可用音轨"));
     volumeButton_->setAccessibleDescription(volumeButton_->toolTip());
 }
@@ -246,14 +252,11 @@ void ControlBar::setMuted(bool muted) { muted_ = muted; setVolume(volumeValue_);
 void ControlBar::setAudioAvailable(bool available)
 {
     audioAvailable_ = available;
-    for (auto *slider : {volume_, popupVolume_}) slider->setEnabled(available);
+    volume_->setEnabled(available);
     volumeButton_->setEnabled(available);
     setVolume(volumeValue_);
 }
-void ControlBar::setZoom(double scale) { zoom_->setText(QStringLiteral("%1×").arg(scale, 0, 'f', 2)); }
-void ControlBar::setRate(double rate) { rate_->setText(QStringLiteral("%1×").arg(rate,0,'f',2)); rate_->setToolTip(QStringLiteral("播放倍速：%1×").arg(rate,0,'f',2)); }
 void ControlBar::setLoop(const QVariant &a, const QVariant &b) { seek_->loopA = a; seek_->loopB = b; seek_->update(); }
-QMenu *ControlBar::moreMenu() const { return more_->menu(); }
 bool ControlBar::cancelSeekPreview()
 {
     if (!seek_->cancel()) return false;
@@ -264,18 +267,10 @@ void ControlBar::refreshIcons()
 {
     play_->setIcon(Theme::icon(actions_.get(PlayerActions::PlayPause)->property("iconName").toString(), palette(), true));
     volumeButton_->setIcon(Theme::icon(muted_ ? "volume-x" : "volume-2", palette()));
-    more_->setIcon(Theme::icon("ellipsis", palette()));
 }
 
 void ControlBar::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
-    info_->setVisible(width() >= 1000);
-    volume_->setVisible(width() >= 1000);
-    volumeLabel_->setVisible(width() >= 800);
-    open_->setVisible(width() >= 800);
-    for (auto name : {"previousButton", "nextButton", "stopButton"}) findChild<QToolButton *>(name)->setVisible(width() >= 800);
-    zoom_->setVisible(width() >= 800);
-    rate_->setVisible(width() >= 1000);
-    reset_->setToolButtonStyle(width() >= 1000 ? Qt::ToolButtonTextBesideIcon : Qt::ToolButtonIconOnly);
+    volume_->setFixedWidth(qBound(64, width() / 8, 112));
 }

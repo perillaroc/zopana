@@ -42,13 +42,23 @@ VideoSurface::VideoSurface(VideoWidget *video, QWidget *parent) : QWidget(parent
 }
 
 void VideoSurface::setControls(QWidget *controls) { controls_ = controls; arrange(); }
-void VideoSurface::setFullscreen(bool fullscreen) { fullscreen_ = fullscreen; arrange(); }
+void VideoSurface::setFullscreen(bool fullscreen, int topInset)
+{
+    fullscreen_ = fullscreen;
+    if (topInset_ != topInset) {
+        topInset_ = topInset;
+        osd_->move(24, overlayTop());
+        captureFolder_->move(24, osd_->geometry().bottom() + 6);
+        emit overlayTopChanged();
+    }
+    arrange();
+}
 void VideoSurface::showOsd(const QString &kind, const QString &text, int milliseconds)
 {
     captureFolder_->hide();
     osd_->setProperty("kind", kind); osd_->setText(text); osd_->setAccessibleDescription(text);
     osd_->setFixedWidth(qMin(480, qMax(180, width() - 48))); osd_->adjustSize();
-    osd_->move(24, 24); osd_->show(); osd_->raise(); osdTimer_.start(milliseconds);
+    osd_->move(24, overlayTop()); osd_->show(); osd_->raise(); osdTimer_.start(milliseconds);
 }
 bool VideoSurface::dismissOsd()
 {

@@ -185,7 +185,13 @@ public:
     {
         player.setVolume(50); until([this] { return std::abs(number("volume") - 50) < .01; });
         key(Qt::Key_M); require("M mutes with engine feedback", until([this] { return flag("mute"); }));
-        check("mute action reflects engine state", until([this] { return action("audio.mute")->isChecked() && widget<QLabel>("volumeLabel")->text() == QStringLiteral("静音"); }));
+        auto *mute = widget<QToolButton>("volumeButton");
+        check("mute button reflects engine state and has no popup", until([&] { return action("audio.mute")->isChecked()
+            && mute->isChecked() && !mute->menu() && mute->toolTip().contains(QStringLiteral("取消静音")); }));
+        QTest::mouseClick(mute, Qt::LeftButton);
+        require("left click unmutes without opening a menu", until([&] { return !flag("mute") && !QApplication::activePopupWidget(); }));
+        video->setFocus(); key(Qt::Key_M);
+        require("restore muted state before changing volume", until([this] { return flag("mute"); }));
         key(Qt::Key_Up); require("volume key unmutes from saved volume", until([this] { return !flag("mute") && std::abs(number("volume") - 55) < .01; }));
         key(Qt::Key_Down); require("Down lowers five points", until([this] { return std::abs(number("volume") - 50) < .01; }));
         key(Qt::Key_M); until([this] { return flag("mute"); });
@@ -208,8 +214,10 @@ public:
         key(Qt::Key_Equal); QTest::qWait(100); key(Qt::Key_Minus, Qt::KeypadModifier); QTest::qWait(100);
         check("keypad minus zooms out", video->zoomScale() == 1);
         for (int i = 0; i < 40; ++i) key(Qt::Key_Equal);
-        QTest::qWait(150); check("zoom clamps at eight", video->zoomScale() == 8 && widget<QLabel>("zoomLabel")->text() == QStringLiteral("8.00×"));
+        auto *zoom = widget<QLabel>("zoomLabel");
+        QTest::qWait(150); check("zoom clamps at eight", video->zoomScale() == 8 && zoom->isVisible() && zoom->text() == QStringLiteral("缩放 8.00×"));
         key(Qt::Key_R); QTest::qWait(80); key(Qt::Key_V); check("V returns to zoom mode", action("view.mode.feature")->isChecked());
+        check("fit zoom stays hidden", zoom->isHidden());
         key(Qt::Key_V); QTest::qWait(80);
     }
     void mouse()

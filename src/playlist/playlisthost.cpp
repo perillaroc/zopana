@@ -16,10 +16,11 @@ class PlaylistWindow final : public QWidget
 {
 public:
     std::function<void()> hiding;
-    PlaylistWindow() : QWidget(nullptr, Qt::Window)
+    explicit PlaylistWindow(QWidget &owner) : QWidget(&owner, Qt::Tool)
     {
         setObjectName("playlistWindow"); setWindowTitle(QStringLiteral("播放列表 · zopana"));
-        setAttribute(Qt::WA_QuitOnClose, false); setMinimumSize(260, 320); resize(320, 560);
+        setAttribute(Qt::WA_QuitOnClose, false); setAttribute(Qt::WA_ShowWithoutActivating);
+        setMinimumSize(260, 320); resize(320, 560);
         auto *layout = new QVBoxLayout(this); layout->setContentsMargins(0, 0, 0, 0);
     }
 protected:
@@ -32,8 +33,9 @@ protected:
     void paintEvent(QPaintEvent *) override { QPainter painter(this); painter.fillRect(rect(), QColor(0, 0, 0, 110)); }
 };
 
-PlaylistHost::PlaylistHost(QWidget &main, QWidget &central, QSplitter &splitter, PlaylistPanel *panel)
-    : QObject(&main), main_(main), central_(central), splitter_(splitter), panel_(panel), window_(std::make_unique<PlaylistWindow>())
+PlaylistHost::PlaylistHost(QWidget &main, QWidget &central, QSplitter &splitter, PlaylistPanel *panel,
+                           const QWidget &topBar, const QWidget &controls)
+    : QObject(&main), main_(main), central_(central), topBar_(topBar), controls_(controls), splitter_(splitter), panel_(panel), window_(new PlaylistWindow(main))
 {
     setObjectName("playlistHost");
     dock_ = new QWidget(&splitter); dock_->setObjectName("playlistDock"); dock_->setMinimumWidth(260);
@@ -42,6 +44,7 @@ PlaylistHost::PlaylistHost(QWidget &main, QWidget &central, QSplitter &splitter,
     overlay_ = new QWidget(&central); overlay_->setObjectName("playlistOverlay");
     auto *overlayLayout = new QVBoxLayout(overlay_); overlayLayout->setContentsMargins(0, 0, 0, 0); overlay_->hide();
     window_->hiding = [this] { setVisible(false); };
+    main_.installEventFilter(this);
     central.installEventFilter(this);
     connect(&splitter, &QSplitter::splitterMoved, this, [this] {
         if (!dock_->isVisible()) return;
@@ -51,8 +54,7 @@ PlaylistHost::PlaylistHost(QWidget &main, QWidget &central, QSplitter &splitter,
     });
     arrange();
 }
-PlaylistHost::~PlaylistHost() = default;
-QWidget *PlaylistHost::window() const { return window_.get(); }
+QWidget *PlaylistHost::window() const { return window_; }
 void PlaylistHost::restore(bool detached,bool visible,int width) { detached_=detached; visible_=visible; dockWidth_=qBound(260,width,2000); arrange(); emit changed(); }
 bool PlaylistHost::overlayVisible() const { return overlay_->isVisible(); }
 void PlaylistHost::shutdown() { window_->hide(); if (panel_) panel_->hide(); }
@@ -74,8 +76,7 @@ void PlaylistHost::setVisible(bool visible, bool activate)
 }
 void PlaylistHost::toggle()
 {
-    if (detached_ && visible_ && (!window_->isActiveWindow() || window_->isMinimized())) setVisible(true);
-    else setVisible(!visible());
+    setVisible(!visible(), !detached_);
 }
 void PlaylistHost::setFullscreen(bool fullscreen)
 {
@@ -88,16 +89,18 @@ void PlaylistHost::arrange(bool activate)
 {
     if (!panel_) return;
     const bool overlay = fullscreen_ || central_.width() < 900;
-    QWidget *target = detached_ ? window_.get() : overlay ? overlay_ : dock_;
+    QWidget *target = detached_ ? window_ : overlay ? overlay_ : dock_;
     const bool moving = panel_->parentWidget() != target;
     const int scroll = panel_->view()->verticalScrollBar()->value();
     if (moving) { panel_->setParent(target); target->layout()->addWidget(panel_); }
     dock_->setVisible(!detached_ && !overlay && visible());
-    scrim_->setGeometry(central_.rect()); scrim_->setVisible(!detached_ && overlay && visible());
-    overlay_->setGeometry(qMax(0, central_.width() - qMin(320, central_.width() - 48)), 0, qMin(320, central_.width() - 48), central_.height());
+    const QRect area = central_.rect().adjusted(0, topBar_.height(), 0, -controls_.height());
+    const int overlayWidth = qBound(0, area.width() - 48, 320);
+    scrim_->setGeometry(area); scrim_->setVisible(!detached_ && overlay && visible());
+    overlay_->setGeometry(area.right() + 1 - overlayWidth, area.y(), overlayWidth, qMax(0, area.height()));
     overlay_->setVisible(!detached_ && overlay && visible());
     if (scrim_->isVisible()) { scrim_->raise(); overlay_->raise(); }
-    if (detached_ && visible_) {
+    if (detached_ && visible_ && main_.isVisible() && !main_.isMinimized()) {
         if (window_->geometry().intersected(QGuiApplication::primaryScreen()->availableGeometry()).isEmpty()) {
             bool onScreen = false; for (auto *screen : QGuiApplication::screens()) onScreen |= screen->availableGeometry().intersects(window_->geometry());
             if (!onScreen) window_->move(QGuiApplication::primaryScreen()->availableGeometry().center() - QPoint(window_->width() / 2, window_->height() / 2));
@@ -108,11 +111,12 @@ void PlaylistHost::arrange(bool activate)
     panel_->setVisible(visible());
     if (moving) QTimer::singleShot(0, this, [this, scroll] { if (panel_) panel_->view()->verticalScrollBar()->setValue(scroll); });
     if (dock_->isVisible() && moving) splitter_.setSizes({qMax(640, central_.width() - dockWidth_), dockWidth_});
-    if (activate) panel_->view()->setFocus();
+    if (activate && panel_->isVisible()) panel_->view()->setFocus();
 }
 bool PlaylistHost::eventFilter(QObject *object, QEvent *event)
 {
     if (object == &central_ && event->type() == QEvent::Resize) arrange();
+    if (object == &main_ && (event->type() == QEvent::Show || event->type() == QEvent::Hide || event->type() == QEvent::WindowStateChange)) arrange();
     if (object == scrim_ && event->type() == QEvent::MouseButtonPress) { setVisible(false); return true; }
     return QObject::eventFilter(object, event);
 }

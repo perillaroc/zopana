@@ -2,12 +2,15 @@
 
 #include <QApplication>
 #include <QFile>
+#include <QFocusEvent>
 #include <QIconEngine>
 #include <QPainter>
+#include <QSlider>
 #include <QStyle>
 #include <QStyleHints>
 #include <QSvgRenderer>
 #include <QTimer>
+#include <QToolButton>
 #include <QWidget>
 #include <windows.h>
 
@@ -65,32 +68,32 @@ private:
 };
 
 const char stylesheet[] = R"(
-QMainWindow, QWidget#controlBar, QMenuBar { background:palette(button); }
-QMenuBar { padding:2px 8px; }
-QMenuBar::item { padding:4px 10px; background:transparent; }
-QMenuBar::item:selected, QMenu::item:selected { background:palette(highlight); color:palette(highlighted-text); }
+QMainWindow, QWidget#controlBar, QWidget#playerTopBar { background:palette(button); }
+QMenu::item:selected { background:palette(highlight); color:palette(highlighted-text); }
 QMenu { background:palette(button); border:1px solid palette(mid); padding:5px; }
 QMenu::item { padding:7px 24px 7px 28px; border-radius:3px; }
 QMenu::item:disabled { color:palette(disabled,button-text); }
 QMenu::separator { height:1px; background:palette(mid); margin:5px; }
-QToolButton { color:palette(button-text); border:1px solid transparent; border-radius:5px; padding:6px; }
+QToolButton { color:palette(button-text); border:1px solid transparent; border-bottom-width:2px; border-radius:5px; padding:6px; }
 QToolButton:hover { background:palette(alternate-base); }
 QToolButton:pressed, QToolButton:checked { background:palette(mid); }
-QToolButton:focus, QSlider:focus, QPlainTextEdit:focus { border:2px solid palette(highlight); }
+QToolButton[keyboardFocus="true"]:focus { border-bottom-color:palette(highlight); }
 QToolButton:disabled { color:palette(disabled,button-text); }
 QToolButton::menu-indicator { image:none; }
 QToolButton#playPauseButton, QToolButton#cardPrimary { background:palette(highlight); color:palette(highlighted-text); }
 QToolButton#playPauseButton:disabled, QToolButton#cardPrimary:disabled { background:palette(alternate-base); }
-QToolButton#playPauseButton:focus, QToolButton#cardPrimary:focus { border:2px solid palette(text); }
-QWidget#modeGroup { background:palette(window); border-radius:5px; }
-QLabel#statusLabel, QLabel#videoSizeLabel, QLabel#cardBody { color:palette(placeholder-text); }
+QToolButton#playPauseButton[keyboardFocus="true"]:focus, QToolButton#cardPrimary[keyboardFocus="true"]:focus { border-bottom-color:palette(highlighted-text); }
+QToolButton#windowCloseButton:hover { background:#a82b35; color:white; }
+QLabel#zoomLabel, QLabel#rateLabel, QLabel#cardBody { color:palette(placeholder-text); }
+QListView#playlistView { outline:0; selection-background-color:palette(mid); selection-color:palette(text); }
 QWidget#stateCard { background:palette(window); border:1px solid palette(mid); border-radius:8px; }
 QLabel#playerOsd { background:palette(button); color:palette(text); border:1px solid palette(mid); border-radius:6px; }
 QLabel#cardTitle { font-size:20px; font-weight:600; }
-QSlider { border:2px solid transparent; }
+QSlider { border:2px solid transparent; outline:0; }
 QSlider::groove:horizontal { height:4px; background:palette(mid); border-radius:2px; }
 QSlider::sub-page:horizontal { background:palette(highlight); border-radius:2px; }
 QSlider::handle:horizontal { width:12px; margin:-4px 0; background:palette(highlight); border-radius:6px; }
+QSlider[keyboardFocus="true"]::handle:horizontal:focus { background:palette(text); }
 QSlider::handle:horizontal:disabled { background:palette(disabled,button-text); }
 QToolTip { background:palette(button); color:palette(text); border:1px solid palette(mid); padding:5px; }
 )";
@@ -109,10 +112,35 @@ Controller::Controller(QApplication &app, QObject *parent) : QObject(parent), ap
     static const bool initialized = [] { initializePlayerResources(); return true; }();
     Q_UNUSED(initialized);
     app_.installNativeEventFilter(this);
+    app_.installEventFilter(this);
     apply(systemHighContrast());
 }
 
-Controller::~Controller() { app_.removeNativeEventFilter(this); }
+Controller::~Controller() { app_.removeEventFilter(this); app_.removeNativeEventFilter(this); }
+
+bool Controller::eventFilter(QObject *object, QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::FocusIn:
+    case QEvent::MouseButtonPress:
+    case QEvent::KeyPress: {
+        auto *widget = qobject_cast<QWidget *>(object);
+        if (!widget || (!qobject_cast<QToolButton *>(widget) && !qobject_cast<QSlider *>(widget))) break;
+        bool keyboardFocus = event->type() == QEvent::KeyPress;
+        if (event->type() == QEvent::FocusIn) {
+            const auto reason = static_cast<QFocusEvent *>(event)->reason();
+            keyboardFocus = reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason || reason == Qt::ShortcutFocusReason;
+        }
+        if (widget->property("keyboardFocus").toBool() != keyboardFocus) {
+            widget->setProperty("keyboardFocus", keyboardFocus);
+            if (!highContrast_) { widget->style()->unpolish(widget); widget->style()->polish(widget); widget->update(); }
+        }
+        break;
+    }
+    default: break;
+    }
+    return false;
+}
 
 void Controller::apply(bool highContrast)
 {

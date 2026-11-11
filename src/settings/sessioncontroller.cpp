@@ -8,7 +8,6 @@
 #include "videowidget.h"
 #include "videosurface.h"
 #include "captureservice.h"
-#include "controlbar.h"
 #include <QAction>
 #include <QApplication>
 #include <QEvent>
@@ -27,12 +26,13 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     setObjectName("sessionController"); actions_=window.findChild<PlayerActions *>(); playlist_=window.findChild<PlaylistController *>(); host_=window.findChild<PlaylistHost *>(); surface_=window.findChild<VideoSurface *>(); video_=window.findChild<VideoWidget *>();
     recent_=new QMenu(QStringLiteral("最近文件"),&window); recent_->setObjectName("recentFilesMenu"); auto *file=window.findChild<QMenu *>("fileMenu"); file->insertMenu(actions_->get(PlayerActions::Quit),recent_); file->insertAction(actions_->get(PlayerActions::Quit),actions_->get(PlayerActions::ClearHistory));
     window.findChild<QMenu *>("viewMenu")->addAction(actions_->get(PlayerActions::Settings));
-    window.findChild<ControlBar *>()->moreMenu()->addAction(actions_->get(PlayerActions::Settings)); window.findChild<QMenu *>("videoContextMenu")->addAction(actions_->get(PlayerActions::Settings));
+    window.findChild<QMenu *>("videoContextMenu")->addAction(actions_->get(PlayerActions::Settings));
     actions_->get(PlayerActions::Settings)->setEnabled(true); actions_->get(PlayerActions::ClearHistory)->setEnabled(true);
     connect(actions_->get(PlayerActions::Settings),&QAction::triggered,this,&SessionController::showSettings); connect(actions_->get(PlayerActions::ClearHistory),&QAction::triggered,this,&SessionController::clearHistory);
     prompt_=new QWidget(surface_); prompt_->setObjectName("resumePrompt"); prompt_->setAutoFillBackground(true); auto *layout=new QVBoxLayout(prompt_);
     promptText_=new QLabel; promptText_->setWordWrap(true); promptText_->setTextFormat(Qt::PlainText); layout->addWidget(promptText_);
     auto *row=new QHBoxLayout; auto *resume=new QPushButton(QStringLiteral("继续")),*start=new QPushButton(QStringLiteral("从头播放")); resume->setObjectName("resumeContinueButton"); resume->setDefault(true); start->setObjectName("resumeStartButton"); row->addWidget(resume); row->addWidget(start); layout->addLayout(row); prompt_->hide();
+    connect(surface_,&VideoSurface::overlayTopChanged,this,&SessionController::arrangePrompt);
     connect(resume,&QPushButton::clicked,this,[this] { chooseResume(true); }); connect(start,&QPushButton::clicked,this,[this] { chooseResume(false); });
     resumeTimer_.setSingleShot(true); resumeTimer_.setInterval(8000); connect(&resumeTimer_,&QTimer::timeout,this,[this] { chooseResume(false); });
     recentTimer_.setSingleShot(true); connect(&recentTimer_,&QTimer::timeout,this,&SessionController::rebuildRecent);
@@ -152,7 +152,7 @@ void SessionController::tryResume()
     const int seconds=int(resumeEntry_->position); promptText_->setText(QStringLiteral("继续上次 %1:%2:%3？\n8 秒未选择将从头播放。").arg(seconds/3600,2,10,QChar('0')).arg(seconds/60%60,2,10,QChar('0')).arg(seconds%60,2,10,QChar('0')));
     arrangePrompt(); prompt_->show(); prompt_->raise(); surface_->setProperty("resumePending",true); prompt_->findChild<QPushButton *>("resumeContinueButton")->setFocus(); resumeTimer_.start();
 }
-void SessionController::arrangePrompt() { prompt_->setFixedWidth(qMin(480,qMax(220,surface_->width()-48))); prompt_->adjustSize(); prompt_->move((surface_->width()-prompt_->width())/2,24); }
+void SessionController::arrangePrompt() { prompt_->setFixedWidth(qMin(480,qMax(220,surface_->width()-48))); prompt_->adjustSize(); prompt_->move((surface_->width()-prompt_->width())/2,surface_->overlayTop()); }
 void SessionController::dismissResume()
 {
     awaitingResume_=false; resumeSeek_.reset(); resumeTimer_.stop(); surface_->setProperty("resumePending",false); const bool focused=prompt_->isAncestorOf(QApplication::focusWidget()); prompt_->hide(); if(focused) video_->setFocus();
