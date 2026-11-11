@@ -1,0 +1,5 @@
+add_executable(zopana_m6 probe.cpp)
+target_link_libraries(zopana_m6 PRIVATE zopana_core Qt6::Test Ole32 Psapi)
+target_compile_definitions(zopana_m6 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_options(zopana_m6 PRIVATE /utf-8)
+set_target_properties(zopana_m6 PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

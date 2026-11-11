@@ -11,6 +11,7 @@ import zipfile
 parser = argparse.ArgumentParser()
 parser.add_argument('build', type=Path)
 parser.add_argument('fixture', type=Path)
+parser.add_argument('--extract-to', type=Path, help='Run the smoke test in a fresh extraction directory')
 args = parser.parse_args()
 build = args.build.resolve()
 stage = build / 'dist-final/zopana-windows-x64'
@@ -19,12 +20,23 @@ repo = Path(__file__).resolve().parents[2]
 sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
 with zipfile.ZipFile(zip_path) as archive:
     entries = [name for name in archive.namelist() if not name.endswith('/')]
-    matches = all(archive.read(name) == (build / 'dist-final' / name).read_bytes() for name in entries)
+    staging_files = {path.relative_to(stage.parent).as_posix() for path in stage.rglob('*') if path.is_file()}
+    matches = (len(entries) == len(staging_files) and set(entries) == staging_files
+               and all(archive.read(name) == (stage.parent / name).read_bytes() for name in entries))
+    lowercase_exe = [name for name in entries if name.lower().endswith('.exe')] == ['zopana-windows-x64/zopana.exe']
+    if args.extract_to:
+        extraction = args.extract_to.resolve()
+        extraction.mkdir(parents=True, exist_ok=False)
+        archive.extractall(extraction)
+        stage = extraction / stage.name
 audit = dict(entries=len(entries), zipSHA256=sha(zip_path), exeSHA256=sha(build / 'zopana.exe'),
+             zipChecksumMatches=sha(zip_path) == zip_path.with_suffix('.zip.sha256').read_text(encoding='ascii').split()[0],
+             lowercaseExe=lowercase_exe, extractedRuntime=bool(args.extract_to), runtimeDirectory=str(stage),
              allZipEntriesMatchStaging=matches, exeMatches=sha(stage / 'zopana.exe') == sha(build / 'zopana.exe'),
              qtSvgIncluded=(stage / 'Qt6Svg.dll').is_file(),
              lucideLicenseMatches=sha(stage / 'notices/lucide-LICENSE.txt') == sha(repo / 'packaging/notices/lucide-LICENSE.txt'))
-audit['passed'] = all(audit[key] for key in ('allZipEntriesMatchStaging', 'exeMatches', 'qtSvgIncluded', 'lucideLicenseMatches'))
+audit['passed'] = all(audit[key] for key in ('zipChecksumMatches', 'lowercaseExe', 'allZipEntriesMatchStaging',
+                                           'exeMatches', 'qtSvgIncluded', 'lucideLicenseMatches'))
 (build / 'package-audit.json').write_text(json.dumps(audit, indent=2), encoding='utf-8')
 if not audit['passed']:
     raise SystemExit('Package audit failed')

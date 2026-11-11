@@ -14,7 +14,7 @@ zopana 是一个 Windows 桌面视频播放器。打开本地视频后，可以�
 
 视频区快捷键：Space 播放/暂停，S 停止，←/→ ±5 秒，Shift+←/→ ±30 秒，Ctrl+←/→ ±60 秒，Home/End 开头/结尾，↑/↓ 调音量，M 静音，V 切换模式，+/− 中心缩放，R 适窗。Ctrl+G 打开时间输入，F1 查看与当前命令表同步的完整帮助。
 
-观看按键仅在视频区生效；Tab / Shift+Tab 导航控件。滑块上的方向键保持原生调节，按钮上的 Space 只激活该按钮。菜单、按钮和视频右键菜单共用 QAction。停止保留当前文件，Space 可从头重播；静音时调音量会取消静音。
+观看按键仅在视频区生效。数字小键盘 +/− 也可缩放，小键盘 Enter 切换全屏。Tab / Shift+Tab 导航控件，滑块上的方向键保持原生调节，按钮上的 Space 只激活该按钮。菜单、按钮和视频右键菜单共用 QAction。停止保留当前文件，Space 可从头重播。静音时调音量会取消静音。
 
 双击或 F11 切换全屏；观看区域 Enter 也可切换。全屏底栏覆盖显示，无输入 2.5 秒后隐藏；鼠标移动或键盘操作会唤出，菜单、拖动、栏内焦点及错误期间保持显示。Esc 先取消拖动或关闭菜单，再退出全屏。
 
@@ -42,7 +42,7 @@ F5、视图菜单或“更多”打开设置，可调整截图目录、音轨/�
 
 应用和组织标识固定为 `zopana`。设置位于 `QStandardPaths::AppConfigLocation/settings.ini`，历史位于 `AppLocalDataLocation/history.json`，与启动工作目录无关；便携包也使用用户数据目录。设置保留有效字段和未知字段，损坏值回退默认；保存失败会提示并保留当前播放。音量、静音、鼠标模式和字幕字体比例会记住；倍速每次启动为 1×，新文件仍从适窗构图开始。
 
-功能图标使用固定提交的 Lucide SVG，来源和校验见 [图标清单](resources/icons/lucide/SOURCES.json)。完整 ISC 与 Feather MIT 许可见 [图标许可证](packaging/notices/lucide-LICENSE.txt)，也可通过“帮助 → 第三方许可”查看。
+功能图标使用固定提交的 Lucide SVG，来源和校验见图标清单。完整 ISC 与 Feather MIT 许可可通过“帮助 → 第三方许可”或“帮助 → 关于 zopana → 第三方许可”查看。[图标清单](resources/icons/lucide/SOURCES.json) · [图标许可证](packaging/notices/lucide-LICENSE.txt)
 
 ## 开发环境
 
@@ -120,6 +120,8 @@ $dist = Join-Path $PWD ('build\release-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 ```
 
 脚本用 `windeployqt` 部署 Qt，从指定 SDK 复制 libmpv，并从 VS 的 x64 可再发行目录复制 VC++ 运行库。输出目录包含 `zopana-windows-x64.zip` 和 `zopana-windows-x64.zip.sha256`。随包的 `README.txt` 说明启动与运行库要求。[打包脚本](packaging/package-windows.ps1) · [随包说明](packaging/README.txt)
+
+发布验收可在独立 Windows x64 上运行 M6 脚本。它会校验 SHA-256，将便携包解压到含中文和空格的目录，验证进程加载的 Qt 和 libmpv 来自随包文件，并记录播放、输入、独立列表、截图和设置的手动结果。[M6 复现说明](experiments/m6/README.md)
 
 当前便携包供个人使用。仓库保留第三方依赖的版本、源码和构建来源。对外发布前再选定 zopana 自身的许可证，并整理需要随包提供的第三方许可材料。[第三方依赖来源清单](packaging/notices/SOURCES.txt)
 

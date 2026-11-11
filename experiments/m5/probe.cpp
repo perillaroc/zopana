@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QKeySequenceEdit>
@@ -151,8 +152,30 @@ public:
         p=session.preferences(); p.recordHistory=false; session.applyPreferences(p); p.recordHistory=true; session.applyPreferences(p); session.flushProgress(); check("history toggle cannot undo current-file clear suppression",history.entries().isEmpty());
         player.openFile(fixtures+"/portrait.mp4",0,{},true); require("automatic replay loads",until([&] { return player.state()==Player::State::Loaded && video->canCapture(); })); session.flushProgress(); check("automatic replay cannot undo clear suppression",history.entries().isEmpty());
         open(fixtures+"/portrait.mp4"); paused(true); session.flushProgress(); check("explicit reopen releases clear suppression",history.entries().size()==1);
-        for(int i=0;i<12;++i) { const auto path=temporary.path()+QString("/recent-%1.mkv").arg(i); write(path,"recent fixture"); history.remember(path,0,16); } QTest::qWait(100);
-        auto *menu=window.findChild<QMenu *>("recentFilesMenu"); check("file menu shows only ten recent paths",menu->actions().size()==10); QFile::remove(history.entries().first().path); QMetaObject::invokeMethod(menu,"aboutToShow",Qt::DirectConnection); check("missing recent file stays visible and disabled",!menu->actions().first()->isEnabled());
+        QStringList recentFixtures;
+        for (int i = 0; i < 12; ++i) {
+            const auto path = temporary.path() + QString("/recent-%1.mkv").arg(i);
+            write(path, "recent fixture");
+            recentFixtures.append(QFileInfo(path).canonicalFilePath());
+            history.remember(path, 0, 16);
+        }
+        QTest::qWait(100);
+        auto *menu = window.findChild<QMenu *>("recentFilesMenu");
+        check("file menu shows only ten recent paths", menu->actions().size() == 10);
+        QString removedPath;
+        for (const auto *action : menu->actions()) {
+            if (recentFixtures.contains(action->toolTip())) {
+                removedPath = action->toolTip();
+                break;
+            }
+        }
+        require("remove only a temporary recent fixture", !removedPath.isEmpty() && QFile::remove(removedPath));
+        QMetaObject::invokeMethod(menu, "aboutToShow", Qt::DirectConnection);
+        bool missingDisabled = false;
+        for (const auto *action : menu->actions()) {
+            if (action->toolTip().section('\n', 0, 0) == removedPath) missingDisabled = !action->isEnabled();
+        }
+        check("missing recent file stays visible and disabled", missingDisabled);
         session.saveWindows(); check("runtime subtitle scale and mode persist",settings.load().subtitleScale==player.propertyTarget("sub-scale").toDouble());
         open(fixtures+QString::fromUtf8("/网格 multi.mkv")); paused(true); const auto selected=player.mediaProperty("aid"); p=session.preferences(); p.audioLanguages="jpn"; p.subtitleLanguages="jpn"; session.applyPreferences(p); QTest::qWait(80); check("language preference preserves current manual selection",player.mediaProperty("aid")==selected);
         open(fixtures+QString::fromUtf8("/网格 multi.mkv")); require("language preference applies to next audio and subtitle tracks",until([&] { bool audio=false,sub=false; for(const auto &track:player.tracks()) { audio|=track.type=="audio" && track.language=="jpn" && track.id==player.mediaProperty("aid").toLongLong(); sub|=track.type=="sub" && track.language=="jpn" && track.id==player.mediaProperty("sid").toLongLong(); } return audio && sub; })); paused(true); shot("m5-player");

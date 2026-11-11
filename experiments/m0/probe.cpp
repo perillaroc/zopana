@@ -1,6 +1,9 @@
 #include "mainwindow.h"
 #include "player.h"
 #include "videowidget.h"
+#include "historystore.h"
+#include "sessioncontroller.h"
+#include "settingsstore.h"
 
 #include <QApplication>
 #include <QAction>
@@ -118,6 +121,9 @@ class Probe final : public QObject
 public:
     Player player;
     std::unique_ptr<QMainWindow> window;
+    std::unique_ptr<SettingsStore> settings;
+    std::unique_ptr<HistoryStore> history;
+    std::unique_ptr<SessionController> session;
     Surface *surface = nullptr;
     VideoWidget *video = nullptr;
     mpv_handle *client = nullptr;
@@ -141,7 +147,7 @@ public:
     uint64_t nextRequest = 100;
     QTimer pump;
 
-    Probe(QString fixtureDir, QString outputDir, bool baseline)
+    Probe(QString fixtureDir, QString outputDir, bool baseline, bool production = false)
         : fixtures(std::move(fixtureDir)), output(std::move(outputDir))
     {
         fixtures = QDir::fromNativeSeparators(fixtures);
@@ -156,7 +162,13 @@ public:
         connect(&pump, &QTimer::timeout, this, [this] { drain(); });
         pump.start();
         if (baseline) {
-            window = std::make_unique<MainWindow>(player);
+            auto main = std::make_unique<MainWindow>(player);
+            if (production) {
+                settings = std::make_unique<SettingsStore>(output + "/profile/config");
+                history = std::make_unique<HistoryStore>(output + "/profile/data");
+                session = std::make_unique<SessionController>(player, *main, *settings, *history);
+            }
+            window = std::move(main);
             window->resize(960, 640); // Keep the B04 comparison size across UI milestones.
             video = window->findChild<VideoWidget *>("videoWidget");
         } else {
@@ -190,6 +202,8 @@ public:
     ~Probe() override
     {
         pump.stop();
+        if (session) window->close();
+        session.reset();
         player.shutdown();
         window.reset();
         if (client) mpv_destroy(client);
@@ -611,13 +625,14 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     app.setApplicationName("zopana-m0");
     app.setQuitOnLastWindowClosed(false);
-    if (app.arguments().size() != 4) { std::fprintf(stderr, "Usage: zopana_m0 baseline|baseline-perf|probe FIXTURES OUTPUT\n"); return 2; }
+    if (app.arguments().size() != 4) { std::fprintf(stderr, "Usage: zopana_m0 baseline|baseline-perf|production-perf|probe FIXTURES OUTPUT\n"); return 2; }
     const auto mode = app.arguments()[1];
     try {
-        Probe probe(app.arguments()[2], app.arguments()[3], mode.startsWith("baseline"));
+        const bool production = mode == "production-perf";
+        Probe probe(app.arguments()[2], app.arguments()[3], production || mode.startsWith("baseline"), production);
         try {
             if (mode == "info") { /* Environment-only run for effective DPI calibration. */ }
-            else if (mode.startsWith("baseline")) probe.baseline(mode == "baseline-perf");
+            else if (production || mode.startsWith("baseline")) probe.baseline(production || mode == "baseline-perf");
             else { probe.renderCases(); probe.recoveryCases(); probe.fixtureCases(); }
         } catch (const std::exception &error) {
             probe.check("aborted", false, {{"reason", error.what()}});

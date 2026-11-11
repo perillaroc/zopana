@@ -272,12 +272,33 @@ public:
         require("recovery file loaded",until([&] { return engine.state()==Player::State::Loaded && engine.tracks().size()==5; }));
         require("recovery seek capability ready",until([&] { return seekable && engine.lastPosition()>0; }));
         engine.setPaused(true); engine.seek(2.4); require("recovery position ready",until([&] { return std::abs(position-2.4)<.05; })); QTest::qWait(150);
-        engine.addSubtitle(fixtures+"/external.ass"); engine.addSubtitle(fixtures+"/external.srt");
-        require("recovery externals visible",until([&] { return engine.tracks().size()==7; }));
-        qlonglong assId=0; for(const auto &track:engine.tracks()) if(track.externalPath.endsWith("external.ass")) assId=track.id;
+        const auto ass = fixtures + "/external.ass";
+        const auto srt = fixtures + "/external.srt";
+        const auto externalId = [&](const QString &path) -> qlonglong {
+            for (const auto &track : engine.tracks()) {
+                if (track.external && mediaPathKey(track.externalPath) == mediaPathKey(path)) return track.id;
+            }
+            return 0;
+        };
+        QSignalSpy subtitles(&engine, &Player::subtitleLoaded);
+        engine.addSubtitle(ass);
+        require("ASS finishes loading before SRT", until([&] {
+            return subtitles.count() == 1 && externalId(ass) > 0;
+        }));
+        const auto assId = externalId(ass);
+        engine.addSubtitle(srt);
+        require("recovery externals visible with SRT after ASS", until([&] {
+            return subtitles.count() == 2 && engine.tracks().size() == 7 && externalId(srt) > assId;
+        }));
         const auto removeId=QByteArray::number(assId); const char *remove[]={"sub-remove",removeId.constData(),nullptr};
-        require("remove external to create track ID gap",mpv_command(engine.handle(),remove)>=0 && until([&] { return engine.tracks().size()==6; }));
-        engine.addSubtitle(fixtures+"/external.ass"); require("readded external has new track ID",until([&] { return engine.tracks().size()==7 && engine.mediaProperty("sid").toLongLong()>assId; }));
+        require("remove external to create track ID gap", mpv_command(engine.handle(), remove) >= 0 && until([&] {
+            return engine.tracks().size() == 6 && externalId(ass) == 0;
+        }));
+        engine.addSubtitle(ass);
+        require("readded external has new track ID", until([&] {
+            const auto newId = externalId(ass);
+            return subtitles.count() == 3 && engine.tracks().size() == 7 && newId > assId && engine.mediaProperty("sid").toLongLong() == newId;
+        }));
         engine.selectTrack("audio",2,engine.generation()); engine.setMediaProperty("speed",1.5); engine.setMediaProperty("sub-scale",1.2);
         engine.setMediaProperty("sub-delay",.2); engine.setMediaProperty("audio-delay",.1); engine.setMediaProperty("sub-visibility",false);
         engine.setMediaProperty("ab-loop-a",2.0); engine.setMediaProperty("ab-loop-b",4.0); QTest::qWait(200);

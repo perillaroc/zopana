@@ -296,9 +296,16 @@ void PlayerActions::setFullscreen(bool fullscreen)
 
 void PlayerActions::refreshIcons()
 {
-    for (auto *action : actions_) {
+    const auto &palette = window_.palette();
+    const bool paletteChanged = iconPaletteKey_ != palette.cacheKey();
+    iconPaletteKey_ = palette.cacheKey();
+    for (size_t index = 0; index < actions_.size(); ++index) {
+        auto *action = actions_[index];
         const auto name = action->property("iconName").toString();
-        if (!name.isEmpty()) action->setIcon(Theme::icon(name, window_.palette()));
+        if (!name.isEmpty() && (paletteChanged || appliedIconNames_[index] != name)) {
+            action->setIcon(Theme::icon(name, palette));
+            appliedIconNames_[index] = name;
+        }
         QStringList keys;
         for (const auto &key : action->shortcuts()) keys.append(key.toString(QKeySequence::NativeText));
         const auto tip = action->statusTip().isEmpty() ? action->text() : action->statusTip();

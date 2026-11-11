@@ -50,6 +50,8 @@ private:
     bool watching() const;
     QWidget &window_, &video_, &surface_;
     std::array<QAction *, Count> actions_{};
+    std::array<QString, Count> appliedIconNames_;
+    qint64 iconPaletteKey_ = 0;
     QPointer<QObject> composing_;
     QPointer<QWidget> queue_, playlistWindow_;
     QVariantMap defaults_;

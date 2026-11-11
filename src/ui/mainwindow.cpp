@@ -34,6 +34,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPushButton>
 #include <QScreen>
 #include <QVBoxLayout>
 
@@ -114,7 +115,14 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     });
     connect(action(PlayerActions::Quit), &QAction::triggered, this, &QWidget::close);
     connect(action(PlayerActions::About), &QAction::triggered, this, [this] {
-        QMessageBox::about(this, QStringLiteral("关于 zopana"), QStringLiteral("zopana\n本地视频播放与画面细节观察\nQt Widgets · libmpv\n图标：Lucide（ISC / Feather MIT）\n完整图标许可见“帮助 → 第三方许可”。"));
+        QWidget *owner = QApplication::activeWindow() ? QApplication::activeWindow() : this;
+        QMessageBox dialog(QMessageBox::Information, QStringLiteral("关于 zopana"),
+                           QStringLiteral("zopana\n本地视频播放与画面细节观察\nQt Widgets · libmpv\n图标：Lucide（ISC / Feather MIT）"),
+                           QMessageBox::Close, owner);
+        auto *licenses = dialog.addButton(actions_->get(PlayerActions::Licenses)->text(), QMessageBox::ActionRole);
+        licenses->setObjectName("aboutLicenses");
+        dialog.exec();
+        if (dialog.clickedButton() == licenses) showLicenses();
     });
     connect(action(PlayerActions::Licenses), &QAction::triggered, this, &MainWindow::showLicenses);
 
