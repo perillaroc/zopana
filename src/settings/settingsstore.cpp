@@ -24,7 +24,7 @@ Preferences SettingsStore::load()
     const auto flag=[&](const char *key,bool fallback) { const auto v=s.value(key,fallback); const auto text=v.toString().toLower(); return text=="true" || text=="1" ? true : text=="false" || text=="0" ? false : fallback; };
     const auto path=s.value("capture/directory").toString(); if(QDir::isAbsolutePath(path)) p.captureDirectory=path;
     p.audioLanguages=s.value("tracks/audioLanguages").toString(); p.subtitleLanguages=s.value("tracks/subtitleLanguages").toString();
-    p.recordHistory=flag("history/enabled",true); p.resumePolicy=int(number("history/resumePolicy",0,0,2));
+    p.recordHistory=flag("history/enabled",p.recordHistory); p.resumePolicy=int(number("history/resumePolicy",0,0,2));
     p.subtitleScale=number("tracks/subtitleScale",1,.5,2); p.volume=number("audio/volume",100,0,100); p.muted=flag("audio/muted",false);
     p.standardMode=flag("input/standardMode",false); p.maximized=flag("window/maximized",false);
     p.mainGeometry=s.value("window/normalGeometry").toRect(); p.playlistGeometry=s.value("playlist/normalGeometry").toRect();

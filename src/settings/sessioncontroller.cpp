@@ -52,7 +52,7 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
         if(state==Player::State::Loaded && !player_.lastLoadWasRecovery()) { tryResume(); if(!awaitingResume_) flushProgress(); }
         if(state==Player::State::Ended) { dismissResume(); flushProgress(true); recordCurrent_=false; }
         if(state==Player::State::Error) { dismissResume(); recordCurrent_=false; }
-        if(state==Player::State::Idle && path.isEmpty()) { currentPath_.clear(); recentTimer_.start(0); }
+        if(state==Player::State::Idle && path.isEmpty()) currentPath_.clear();
     });
     connect(&player_,&Player::durationChanged,this,[this] { tryResume(); }); connect(&player_,&Player::seekableChanged,this,[this] { tryResume(); });
     connect(&player_,&Player::audioAvailableChanged,this,[this] { tryResume(); });
@@ -70,7 +70,10 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
 }
 void SessionController::captureWindows(Preferences &p) const
 {
-    if(!window_.isMinimized()) { p.maximized=window_.restoreMaximized(); p.mainGeometry=window_.isMaximized() || window_.isFullScreen()?window_.normalGeometry():window_.geometry(); }
+    if(!window_.isMinimized()) {
+        p.maximized=window_.restoreMaximized();
+        p.mainGeometry=window_.windowedGeometry();
+    }
     auto *list=host_->window(); const auto normal=list->normalGeometry(); p.playlistGeometry=list->isMinimized() || list->isMaximized()?normal:list->geometry();
     p.detached=host_->detached(); p.playlistVisible=host_->preferredVisible(); p.dockWidth=host_->dockWidth();
     p.volume=player_.volumeTarget(); p.muted=player_.muted(); p.standardMode=actions_->get(PlayerActions::StandardMode)->isChecked();
@@ -121,13 +124,13 @@ void SessionController::showSettings()
 void SessionController::rebuildRecent()
 {
     if(recent_->isVisible()) return;
-    recent_->clear(); QList<QAction *> emptyActions; int index=0;
+    recent_->clear(); int index=0;
     for(const auto &entry:history_.entries()) {
         if(index>=10) break; const QFileInfo file(entry.path); const auto path=entry.path; auto *action=recent_->addAction(QStringLiteral("%1. %2").arg(index+1).arg(file.fileName())); action->setToolTip(path+(file.isFile()?entry.matchesFile()?QString():QStringLiteral("\n文件已变化，旧断点不会恢复"):QStringLiteral("\n文件不存在"))); action->setEnabled(file.isFile());
-        connect(action,&QAction::triggered,this,[this,path] { playlist_->addFiles({path},true); }); if(index<5) emptyActions.append(action); ++index;
+        connect(action,&QAction::triggered,this,[this,path] { playlist_->addFiles({path},true); }); ++index;
     }
     if(!index) { auto *action=recent_->addAction(QStringLiteral("暂无最近文件")); action->setEnabled(false); }
-    recent_->setEnabled(index>0); surface_->setRecentActions(currentPath_.isEmpty()?emptyActions:QList<QAction *>());
+    recent_->setEnabled(index>0);
 }
 void SessionController::clearHistory() { recordCurrent_=false; if(!currentPath_.isEmpty()) suppressedPaths_.insert(mediaPathKey(currentPath_)); dismissResume(); history_.clear(); rebuildRecent(); surface_->showOsd("history",QStringLiteral("最近文件和播放进度已清除"),2500); }
 void SessionController::flushProgress(bool ended)
@@ -140,7 +143,7 @@ void SessionController::prepareFile()
 {
     const auto key=mediaPathKey(currentPath_); if(!player_.automaticOpen()) suppressedPaths_.remove(key); recordCurrent_=preferences_.recordHistory && !suppressedPaths_.contains(key);
     resumeEntry_=history_.find(currentPath_); awaitingResume_=player_.resumeAllowed() && preferences_.recordHistory && preferences_.resumePolicy!=2 && resumeEntry_ && resumeEntry_->resumable();
-    if(awaitingResume_) player_.setInitialPaused(true); recentTimer_.start(0);
+    if(awaitingResume_) player_.setInitialPaused(true);
 }
 void SessionController::tryResume()
 {

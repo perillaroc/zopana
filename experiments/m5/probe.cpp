@@ -52,7 +52,7 @@ void write(const QString &path,const QByteArray &bytes) { QDir().mkpath(QFileInf
 void stores(Report &r)
 {
     QTemporaryDir temporary(r.output+"/stores-XXXXXX"); r.require("temporary data directory",temporary.isValid()); const auto root=temporary.path(); SettingsStore settings(root+"/config");
-    const auto defaults=settings.load(); r.check("default preferences and stable app identity",defaults.recordHistory && defaults.resumePolicy==0 && defaults.volume==100 && defaults.subtitleScale==1 && QCoreApplication::organizationName()=="zopana" && QCoreApplication::applicationName()=="zopana");
+    const auto defaults=settings.load(); r.check("default preferences and stable app identity",!defaults.recordHistory && defaults.resumePolicy==0 && defaults.volume==100 && defaults.subtitleScale==1 && QCoreApplication::organizationName()=="zopana" && QCoreApplication::applicationName()=="zopana");
     auto p=defaults; p.volume=35; p.muted=true; p.standardMode=true; p.captureDirectory=root+QString::fromUtf8("/中文 截图"); p.mainGeometry=QRect(100,100,900,600); p.detached=true; p.playlistVisible=true; p.playlistGeometry=QRect(1000,150,320,500); p.dockWidth=380; p.shortcuts["future.command"]=QStringList{"Ctrl+F12"}; r.require("INI preferences save atomically",settings.save(p));
     { QSettings raw(settings.fileName(),QSettings::IniFormat); raw.setValue("schemaVersion",9); raw.setValue("future/keep","retained"); raw.setValue("audio/volume","invalid"); raw.setValue("history/resumePolicy",999); raw.sync(); }
     const auto loaded=settings.load(); r.check("invalid values fall back while valid fields survive",loaded.volume==100 && loaded.resumePolicy==0 && loaded.muted && loaded.detached && loaded.standardMode && loaded.mainGeometry==p.mainGeometry && loaded.captureDirectory==p.captureDirectory);
@@ -132,7 +132,7 @@ public:
     }
     void resume()
     {
-        auto p=session.preferences(); p.resumePolicy=0; session.applyPreferences(p); history.remember(longFile,45,137); history.waitForSaved(); open(longFile);
+        auto p=session.preferences(); p.recordHistory=true; p.resumePolicy=0; session.applyPreferences(p); history.remember(longFile,45,137); history.waitForSaved(); open(longFile);
         require("valid breakpoint shows paused prompt",until([&] { return session.resumePending() && window.findChild<QWidget *>("resumePrompt")->isVisible() && player.paused(); }));
         check("continue is default keyboard focus",QApplication::focusWidget()==window.findChild<QPushButton *>("resumeContinueButton")); shot("resume-prompt"); QTest::keyClick(window.findChild<QPushButton *>("resumeContinueButton"),Qt::Key_Return); require("continue seeks before playback",until([&] { return !session.resumePending() && !player.paused() && player.position()>=45 && player.position()<47; }));
         paused(true); seek(50); session.flushProgress(); history.waitForSaved(); check("pause and explicit progress flush persist position",std::abs(history.find(longFile)->position-50)<.15);
@@ -181,33 +181,69 @@ public:
         open(fixtures+QString::fromUtf8("/网格 multi.mkv")); require("language preference applies to next audio and subtitle tracks",until([&] { bool audio=false,sub=false; for(const auto &track:player.tracks()) { audio|=track.type=="audio" && track.language=="jpn" && track.id==player.mediaProperty("aid").toLongLong(); sub|=track.type=="sub" && track.language=="jpn" && track.id==player.mediaProperty("sid").toLongLong(); } return audio && sub; })); paused(true); shot("m5-player");
         seek(player.lastPosition()); session.flushProgress(); require("EOF test has a stored nonzero position",history.find(player.path()) && history.find(player.path())->position>10); player.setPaused(false); require("natural EOF reached",until([&] { return player.state()==Player::State::Ended; })); check("natural EOF clears saved progress and retains recent item",history.find(player.path()) && history.find(player.path())->position==0);
     }
-    void run() { dialog(); open(fixtures+QString::fromUtf8("/网格 multi.mkv")); bindings(); resume(); records(); }
+    void run() { dialog(); open(fixtures+QString::fromUtf8("/网格 multi.mkv")); session.flushProgress(); check("playback is not recorded by default",history.entries().isEmpty()); bindings(); resume(); records(); }
 };
-void roundtrip(Report &r,const QString &fixtures,bool reading)
+void roundtrip(Report &r,const QString &fixtures,bool reading,bool closeInFullscreen)
 {
+    const QSize normalSize(1000,650);
     SettingsStore settings(r.output+"/persist/config"); HistoryStore history(r.output+"/persist/data");
-    if(!reading) { auto p=SettingsStore::defaults(); p.volume=37; p.muted=true; p.standardMode=true; p.subtitleScale=1.3; p.mainGeometry=QRect(60,80,1000,650); p.playlistGeometry=QRect(1100,120,320,480); p.detached=true; p.playlistVisible=true; p.dockWidth=360; p.shortcuts["play.toggle"]=QStringList{"Ctrl+P"}; r.require("seed restart preferences",settings.save(p)); }
+    if(!reading) { auto p=SettingsStore::defaults(); p.recordHistory=true; p.volume=37; p.muted=true; p.standardMode=true; p.subtitleScale=1.3; p.mainGeometry=QRect(QPoint(60,80),normalSize); p.playlistGeometry=QRect(1100,120,320,480); p.detached=true; p.playlistVisible=true; p.dockWidth=360; p.shortcuts["play.toggle"]=QStringList{"Ctrl+P"}; r.require("seed restart preferences",settings.save(p)); }
     Player player; r.require("restart engine initialized",player.initialize()); MainWindow window(player); SessionController session(player,window,settings,history); window.show(); window.raise(); window.activateWindow(); auto *video=window.findChild<VideoWidget *>(); r.require("restart window ready",QTest::qWaitForWindowActive(&window) && until([&] { return video->rendererReady(); })); r.dpr=video->devicePixelRatioF(); auto *host=window.findChild<PlaylistHost *>(); auto *actions=window.findChild<PlayerActions *>();
+    auto *maximize=window.findChild<QToolButton *>("windowMaximizeButton");
     if(reading) {
         r.require("restart audio state restored",until([&] { return player.volumeTarget()==37 && player.muted(); }));
         r.check("restart restores mode and subtitle scale",actions->get(PlayerActions::StandardMode)->isChecked() && std::abs(player.propertyTarget("sub-scale").toDouble()-1.3)<.001);
         r.check("restart restores detached visible list without minimization",host->detached() && host->preferredVisible() && !host->window()->isMinimized());
         r.check("restart does not restore fullscreen or zoom",!window.isFullScreen() && !window.isMinimized() && video->zoomScale()==1 && player.propertyTarget("speed").toDouble()==1);
-        r.check("restart restores maximization and normal geometry",window.isMaximized() && window.normalGeometry().size()==QSize(1000,650));
+        r.require("restart opens maximized",window.isMaximized());
         r.check("restart restores shortcut overrides",actions->get(PlayerActions::PlayPause)->shortcut()==QKeySequence("Ctrl+P"));
-        r.check("empty state shows five recent paths",window.findChild<QWidget *>("recentFilesCard")->findChildren<QToolButton *>().size()==5);
+        const auto *menu=window.findChild<QMenu *>("recentFilesMenu");
+        r.require("enabled history remains accessible in the File menu after restart",session.preferences().recordHistory && history.entries().size()>=8 && menu && menu->isEnabled() && menu->actions().size()==history.entries().size());
+        auto *card=window.findChild<QWidget *>("stateCard"); bool showsRecent=false;
+        for(auto *button:card->findChildren<QToolButton *>()) showsRecent|=button->isVisible() && menu->actions().contains(button->defaultAction());
+        r.check("startup card has no recent files with history enabled",card->isVisible() && !showsRecent);
         r.check("restart geometry remains visible",window.screen()->availableGeometry().intersects(window.frameGeometry()) && host->window()->screen()->availableGeometry().intersects(host->window()->frameGeometry()));
-        const auto normal=window.normalGeometry(); window.showNormal(); window.resize(640,400); QTest::qWait(80); auto *card=window.findChild<QWidget *>("stateCard"); auto *bar=window.findChild<QWidget *>("controlBar"); r.check("five recent paths fit narrow empty state with scrolling",card->y()>=0 && card->geometry().bottom()<bar->y()); window.grab().save(r.output+"/recent-640.png"); window.setGeometry(normal); window.showMaximized();
+        QTest::mouseClick(maximize,Qt::LeftButton);
+        r.require("restore button leaves maximized mode",until([&] { return !window.isMaximized(); }));
+        QTest::qWait(80);
+        r.check("restore button returns to the original window size",window.size()==normalSize,{{"width",window.width()},{"height",window.height()}});
+        const auto normal=window.geometry(); window.resize(640,400); QTest::qWait(80); auto *bar=window.findChild<QWidget *>("controlBar"); r.check("startup card fits narrow window above controls",card->y()>=0 && card->geometry().bottom()<bar->y()); window.grab().save(r.output+"/startup-640.png"); window.setGeometry(normal); window.showMaximized();
     } else {
         for(int i=0;i<8;++i) { const auto path=r.output+QString("/persist/recent-%1.mkv").arg(i); write(path,"restart recent fixture"); history.remember(path,0,16); }
-        player.openFile(fixtures+"/grid.mp4"); r.require("restart writer media ready",until([&] { return player.state()==Player::State::Loaded && video->canCapture(); })); player.setPaused(true); video->zoomSteps(5); player.setMediaProperty("speed",2.0); host->window()->showMinimized(); window.showMaximized(); QTest::qWait(100); actions->get(PlayerActions::Fullscreen)->trigger(); QTest::qWait(100); session.saveWindows(); r.check("fullscreen and minimized list excluded from persisted flags",settings.load().detached && settings.load().playlistVisible && settings.load().maximized);
+        player.openFile(fixtures+"/grid.mp4"); r.require("restart writer media ready",until([&] { return player.state()==Player::State::Loaded && video->canCapture(); })); player.setPaused(true); video->zoomSteps(5); player.setMediaProperty("speed",2.0); host->window()->showMinimized();
+        r.check("original window has the configured size",window.size()==normalSize,{{"width",window.width()},{"height",window.height()}});
+        QTest::mouseClick(maximize,Qt::LeftButton);
+        r.require("writer window maximizes",until([&] { return window.isMaximized(); }));
+        actions->get(PlayerActions::Fullscreen)->trigger();
+        r.require("writer enters fullscreen",until([&] { return window.isFullScreen(); }));
+        if(!closeInFullscreen) {
+            QTest::qWait(100);
+            session.saveWindows();
+            const auto fullscreenSettings=settings.load();
+            r.check("fullscreen and minimized list excluded from persisted flags",fullscreenSettings.detached && fullscreenSettings.playlistVisible && fullscreenSettings.maximized);
+            r.check("fullscreen preserves the original window size",fullscreenSettings.mainGeometry.size()==normalSize,{{"width",fullscreenSettings.mainGeometry.width()},{"height",fullscreenSettings.mainGeometry.height()}});
+            actions->get(PlayerActions::Fullscreen)->trigger();
+            r.require("writer exits fullscreen before closing maximized",until([&] { return window.isMaximized() && !window.isFullScreen(); }));
+        }
     }
-    window.close(); history.waitForSaved(); player.shutdown();
+    if(closeInFullscreen) {
+        r.require("quit requested while still fullscreen",window.isFullScreen());
+        actions->get(PlayerActions::Quit)->trigger();
+        r.require("quit closes the window",!window.isVisible());
+    } else {
+        window.close();
+    }
+    if(!reading) {
+        const auto saved=settings.load();
+        r.check("closing saves the maximized state and original window size",saved.maximized && saved.mainGeometry.size()==normalSize,{{"width",saved.mainGeometry.width()},{"height",saved.mainGeometry.height()}});
+    }
+    history.waitForSaved(); player.shutdown();
 }
 void crashCheckpoint(Report &r,const QString &fixtures,bool reading)
 {
     const auto path=QDir(fixtures).absoluteFilePath("../zopana-ui-m2-v1/long-grid.mp4"); SettingsStore settings(r.output+"/persist/config"); HistoryStore history(r.output+"/persist/data");
     if(reading) { const auto entry=history.find(path); r.check("abrupt exit recovers last periodic checkpoint",entry && entry->resumable() && entry->position>=45 && entry->position<60); return; }
+    auto p=settings.load(); p.recordHistory=true; r.require("enable history for checkpoint test",settings.save(p));
     history.clear(); history.waitForSaved(); Player player; r.require("checkpoint engine initialized",player.initialize()); MainWindow window(player); SessionController session(player,window,settings,history); player.setVolume(0); window.show(); auto *video=window.findChild<VideoWidget *>();
     r.require("checkpoint renderer ready",until([&] { return video->rendererReady(); })); player.openFile(path); r.require("checkpoint media loaded",until([&] { return player.state()==Player::State::Loaded && player.lastPosition()>0; }));
     player.seek(45); r.require("checkpoint seek reached",until([&] { return player.position()>=45 && player.position()<47; }));
@@ -224,5 +260,5 @@ int main(int argc,char **argv)
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs); QApplication app(argc,argv); SettingsStore::setApplicationIdentity(); app.setQuitOnLastWindowClosed(false);
     if(app.arguments().size()!=4) return 2; const auto mode=app.arguments()[1],fixtures=app.arguments()[2],output=app.arguments()[3];
     if(mode=="ui" || mode=="bindings") { try { Suite suite(fixtures,output); try { if(mode=="ui") suite.run(); else { suite.dialog(); suite.open(suite.fixtures+QString::fromUtf8("/网格 multi.mkv")); suite.bindings(); } } catch(const std::exception &e) { suite.check("aborted",false,{{"reason",e.what()}}); } return suite.save()?0:1; } catch(const std::exception &e) { std::fprintf(stderr,"%s\n",e.what()); return 2; } }
-    Report report(output); try { if(mode=="stores") stores(report); else if(mode=="write" || mode=="read") roundtrip(report,QDir::fromNativeSeparators(QFileInfo(fixtures).absoluteFilePath()),mode=="read"); else if(mode=="crash-write" || mode=="crash-read") crashCheckpoint(report,QDir::fromNativeSeparators(QFileInfo(fixtures).absoluteFilePath()),mode=="crash-read"); else return 2; } catch(const std::exception &e) { report.check("aborted",false,{{"reason",e.what()}}); } return report.save()?0:1;
+    Report report(output); try { if(mode=="stores") stores(report); else if(mode=="write" || mode=="write-fullscreen" || mode=="read") roundtrip(report,QDir::fromNativeSeparators(QFileInfo(fixtures).absoluteFilePath()),mode=="read",mode=="write-fullscreen"); else if(mode=="crash-write" || mode=="crash-read") crashCheckpoint(report,QDir::fromNativeSeparators(QFileInfo(fixtures).absoluteFilePath()),mode=="crash-read"); else return 2; } catch(const std::exception &e) { report.check("aborted",false,{{"reason",e.what()}}); } return report.save()?0:1;
 }

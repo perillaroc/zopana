@@ -25,6 +25,7 @@ public:
     explicit MainWindow(Player &player, QWidget *parent = nullptr);
     bool videoContextValid() const;
     bool restoreMaximized() const { return isFullScreen()?wasMaximized_:isMaximized(); }
+    QRect windowedGeometry() const;
 
 protected:
     void changeEvent(QEvent *event) override;
@@ -71,6 +72,7 @@ private:
     Player::State state_ = Player::State::Idle;
     QString path_, error_;
     QSize videoSize_;
+    QRect geometryBeforeFullscreen_;
     int duration_ = 0, position_ = 0;
     double durationSeconds_ = 0;
     bool paused_ = false, seekable_ = false, wasMaximized_ = false;

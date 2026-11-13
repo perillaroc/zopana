@@ -434,10 +434,23 @@ void MainWindow::openFiles(bool append)
     if (owner == this) video_->setFocus();
 }
 
+QRect MainWindow::windowedGeometry() const
+{
+    if (isFullScreen() && geometryBeforeFullscreen_.isValid()) return geometryBeforeFullscreen_;
+    return isMaximized() || isFullScreen() || isMinimized() ? normalGeometry() : geometry();
+}
+
 void MainWindow::toggleFullscreen()
 {
-    if (isFullScreen()) { if (wasMaximized_) showMaximized(); else showNormal(); }
-    else { wasMaximized_ = isMaximized(); showFullScreen(); }
+    if (isFullScreen()) {
+        if (wasMaximized_) showMaximized();
+        else showNormal();
+    } else {
+        // On Windows, Qt can report a different normal rectangle after the native frame changes.
+        geometryBeforeFullscreen_ = windowedGeometry();
+        wasMaximized_ = isMaximized();
+        showFullScreen();
+    }
     video_->setFocus();
 }
 

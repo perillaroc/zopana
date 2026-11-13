@@ -5,7 +5,7 @@
 
 struct Preferences {
     QString captureDirectory, audioLanguages, subtitleLanguages;
-    bool recordHistory = true;
+    bool recordHistory = false;
     int resumePolicy = 0; // Ask, always resume, start over.
     double subtitleScale = 1, volume = 100;
     bool muted = false, standardMode = false;
