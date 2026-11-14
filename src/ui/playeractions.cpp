@@ -53,7 +53,17 @@ constexpr Definition definitions[] = {
     {"play.skip.outro","跳过片尾",""}, {"play.skip.settings","跳略设置…",""},
     {"view.rotate.next","顺时针旋转 90°",""}, {"view.rotate.previous","逆时针旋转 90°",""}, {"view.rotate.reset","复位额外旋转",""},
     {"window.scale.050","窗口 50%",""}, {"window.scale.100","窗口 100%",""}, {"window.scale.150","窗口 150%",""},
-    {"window.scale.200","窗口 200%",""}, {"window.scale.fit","窗口适合工作区",""}
+    {"window.scale.200","窗口 200%",""}, {"window.scale.fit","窗口适合工作区",""},
+    {"queue.sort.fileName.asc","文件名",""}, {"queue.sort.title.asc","媒体标题",""}, {"queue.sort.extension.asc","扩展名",""},
+    {"queue.sort.folder.asc","所在文件夹",""}, {"queue.sort.path.asc","完整路径",""}, {"queue.sort.fileSize.asc","文件大小",""},
+    {"queue.sort.modifiedTime.asc","修改时间",""}, {"queue.sort.createdTime.asc","创建时间",""}, {"queue.sort.duration.asc","时长",""},
+    {"queue.sort.resolution.asc","分辨率",""}, {"queue.sort.addedOrder.asc","添加顺序",""},
+    {"queue.sort.fileName.desc","文件名",""}, {"queue.sort.title.desc","媒体标题",""}, {"queue.sort.extension.desc","扩展名",""},
+    {"queue.sort.folder.desc","所在文件夹",""}, {"queue.sort.path.desc","完整路径",""}, {"queue.sort.fileSize.desc","文件大小",""},
+    {"queue.sort.modifiedTime.desc","修改时间",""}, {"queue.sort.createdTime.desc","创建时间",""}, {"queue.sort.duration.desc","时长",""},
+    {"queue.sort.resolution.desc","分辨率",""}, {"queue.sort.addedOrder.desc","添加顺序",""},
+    {"queue.sort.again","按上次条件重新排序",""}, {"queue.sort.reverse","反转当前顺序",""},
+    {"queue.sort.shuffle","随机打乱列表",""}, {"queue.sort.cancel","取消排序",""}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},
@@ -61,6 +71,20 @@ constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackLarge, PlayerActions::ForwardLarge}
 };
 constexpr std::array repeatActions{PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList};
+constexpr int sortFields = int(SortField::AddedOrder) + 1;
+static_assert(PlayerActions::SortFileNameDesc - PlayerActions::SortFileNameAsc == sortFields);
+static_assert(PlayerActions::SortAgain - PlayerActions::SortFileNameDesc == sortFields);
+
+PlayerActions::Id sortAction(PlaylistSort sort)
+{
+    const auto base = sort.direction == SortDirection::Ascending ? PlayerActions::SortFileNameAsc : PlayerActions::SortFileNameDesc;
+    return PlayerActions::Id(base + int(sort.field));
+}
+
+QString directionText(SortDirection direction)
+{
+    return direction == SortDirection::Ascending ? QStringLiteral("升序") : QStringLiteral("降序");
+}
 
 bool timelineNavigationKey(QKeyCombination key)
 {
@@ -79,12 +103,13 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
         auto *action = new QAction(QString::fromUtf8(definition.text), this);
         action->setObjectName(QString::fromLatin1(definition.id));
         action->setProperty("iconName", definition.icon);
-        action->setShortcutContext(Qt::WindowShortcut);
+        const auto sortCommand = i >= SortFileNameAsc && i <= CancelSort;
+        action->setShortcutContext(sortCommand ? Qt::WidgetShortcut : Qt::WindowShortcut);
         action->setAutoRepeat(false);
         action->setShortcutVisibleInContextMenu(true);
-        if (i != ClosePlaylist && !(i >= QueuePlay && i <= QueueDown)) window.addAction(action);
+        if (i != ClosePlaylist && !(i >= QueuePlay && i <= QueueDown) && !sortCommand) window.addAction(action);
         actions_[i] = action;
-        action->setProperty("scope", QStringLiteral("窗口"));
+        action->setProperty("scope", sortCommand ? QStringLiteral("队列") : QStringLiteral("窗口"));
         connect(action, &QAction::triggered, this, &PlayerActions::invoked);
     }
     get(Open)->setShortcuts(QKeySequence::Open);
@@ -131,6 +156,18 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     view(ShuffleToggle, {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R)});
     get(ShuffleToggle)->setCheckable(true);
     setPlaybackOrderState(RepeatMode::None, false);
+    auto *sort = new QActionGroup(this);
+    for (auto direction : {SortDirection::Ascending, SortDirection::Descending}) {
+        for (int field = 0; field < sortFields; ++field) {
+            const PlaylistSort choice{SortField(field), direction};
+            auto *action = get(sortAction(choice));
+            action->setCheckable(true);
+            action->setText(QStringLiteral("%1（%2）").arg(action->text(), directionText(direction)));
+            sort->addAction(action);
+            connect(action, &QAction::triggered, this, [this, choice] { emit playlistSortRequested(choice); });
+        }
+    }
+    get(CancelSort)->setEnabled(false);
     view(AudioNext,{QKeySequence(Qt::Key_J)});
     view(AudioDelayLess,{QKeySequence(Qt::SHIFT|Qt::Key_Comma),QKeySequence(Qt::SHIFT|Qt::Key_Less)},true);
     view(AudioDelayMore,{QKeySequence(Qt::SHIFT|Qt::Key_Period),QKeySequence(Qt::SHIFT|Qt::Key_Greater)},true);
@@ -191,6 +228,33 @@ void PlayerActions::addPlaybackOrderActions(QMenu &menu) const
     connect(cycle, &QAction::changed, repeat, updateTitle);
     updateTitle();
     menu.addAction(get(ShuffleToggle));
+}
+
+QString PlayerActions::sortLabel(std::optional<PlaylistSort> sort)
+{
+    if (!sort) return QStringLiteral("手动顺序");
+    return QStringLiteral("%1 · %2").arg(QString::fromUtf8(definitions[sortAction(*sort)].text), directionText(sort->direction));
+}
+
+QMenu *PlayerActions::playlistSortMenu(QWidget *parent) const
+{
+    auto *menu = new QMenu(QStringLiteral("列表排序"), parent);
+    menu->setObjectName("playlistSortMenu");
+    for (auto direction : {SortDirection::Ascending, SortDirection::Descending}) {
+        auto *group = menu->addMenu(directionText(direction));
+        for (int field = 0; field < sortFields; ++field) group->addAction(get(sortAction({SortField(field), direction})));
+    }
+    menu->addSeparator();
+    for (auto id : {SortAgain, ReverseQueue, ShuffleQueue, CancelSort}) menu->addAction(get(id));
+    return menu;
+}
+
+void PlayerActions::setPlaylistSortState(PlaylistSort last, int count)
+{
+    get(sortAction(last))->setChecked(true);
+    get(SortAgain)->setText(QStringLiteral("按上次条件重新排序（%1）").arg(sortLabel(last)));
+    for (int id = SortFileNameAsc; id <= SortAgain; ++id) actions_[id]->setEnabled(count > 0);
+    for (auto id : {ReverseQueue, ShuffleQueue}) get(id)->setEnabled(count > 1);
 }
 
 void PlayerActions::setPlaybackOrderState(RepeatMode mode, bool shuffleEnabled)

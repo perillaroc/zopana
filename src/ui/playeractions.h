@@ -1,5 +1,6 @@
 #pragma once
 
+#include "playlistsort.h"
 #include "repeatmode.h"
 
 #include <QObject>
@@ -7,6 +8,7 @@
 #include <QVariantMap>
 #include <QKeySequence>
 #include <array>
+#include <optional>
 
 class QAction;
 class QKeyEvent;
@@ -29,12 +31,20 @@ public:
               RateLess, RateMore, RateReset, RateHalf, RateThreeQuarter, Rate125, Rate150, Rate200, Rate300, Pitch,
               FrameForward, LoopA, LoopB, LoopClear, CaptureSource, CaptureViewport, CaptureFolder, MediaInfo, FileLocation, AlwaysOnTop, Settings, ClearHistory,
               SkipToggle, SkipIntro, SkipOutro, SkipSettings,
-              RotateNext, RotatePrevious, RotateReset, Scale50, Scale100, Scale150, Scale200, ScaleFit, Count };
+              RotateNext, RotatePrevious, RotateReset, Scale50, Scale100, Scale150, Scale200, ScaleFit,
+              SortFileNameAsc, SortTitleAsc, SortExtensionAsc, SortFolderAsc, SortPathAsc, SortSizeAsc, SortModifiedAsc,
+              SortCreatedAsc, SortDurationAsc, SortResolutionAsc, SortAddedAsc,
+              SortFileNameDesc, SortTitleDesc, SortExtensionDesc, SortFolderDesc, SortPathDesc, SortSizeDesc, SortModifiedDesc,
+              SortCreatedDesc, SortDurationDesc, SortResolutionDesc, SortAddedDesc,
+              SortAgain, ReverseQueue, ShuffleQueue, CancelSort, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     QAction *repeatModeAction(RepeatMode mode) const;
     void addPlaybackOrderActions(QMenu &menu) const;
     void setPlaybackOrderState(RepeatMode mode, bool shuffleEnabled);
+    QMenu *playlistSortMenu(QWidget *parent) const;
+    void setPlaylistSortState(PlaylistSort last, int count);
+    static QString sortLabel(std::optional<PlaylistSort> sort);
     void setMediaState(bool loaded, bool paused, bool replayable, bool hasVideo, bool retryable);
     void setFullscreen(bool fullscreen);
     void refreshIcons();
@@ -59,6 +69,7 @@ signals:
     void bindingsChanged();
     void seekStepsChanged();
     void seekRelativeRequested(int seconds);
+    void playlistSortRequested(PlaylistSort sort);
 
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;

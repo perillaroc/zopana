@@ -175,6 +175,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
             PlayerActions::BackMedium, PlayerActions::ForwardMedium, PlayerActions::BackLarge, PlayerActions::ForwardLarge,
             PlayerActions::SeekStart, PlayerActions::SeekEnd, PlayerActions::SeekGoto}) play->addAction(action(id));
     actions_->addPlaybackOrderActions(*play);
+    play->addMenu(actions_->playlistSortMenu(play));
     auto *picture = menu->addMenu(QStringLiteral("画面(&V)"));
     picture->setObjectName("pictureMenu");
     picture->addAction(action(PlayerActions::FeatureMode)); picture->addAction(action(PlayerActions::StandardMode));
@@ -797,6 +798,19 @@ void MainWindow::setupPlaylist()
     connect(action(PlayerActions::ShuffleToggle), &QAction::triggered, this, [this](bool checked) {
         playlist_->setPlaybackOrder(playlist_->repeatMode(), checked);
     });
+    connect(actions_, &PlayerActions::playlistSortRequested, playlist_, &PlaylistController::sortItems);
+    connect(action(PlayerActions::SortAgain), &QAction::triggered, this, [this] { playlist_->sortItems(playlist_->lastSort()); });
+    connect(action(PlayerActions::ReverseQueue), &QAction::triggered, playlist_, &PlaylistController::reverseItems);
+    connect(action(PlayerActions::ShuffleQueue), &QAction::triggered, playlist_, &PlaylistController::shuffleItems);
+    connect(action(PlayerActions::CancelSort), &QAction::triggered, playlist_, &PlaylistController::cancelSort);
+    connect(playlist_, &PlaylistController::sortChanged, this, [this] {
+        actions_->setPlaylistSortState(playlist_->lastSort(), playlist_->model().rowCount());
+        panel_->setSortOrder(playlist_->appliedSort());
+    });
+    connect(playlist_, &PlaylistController::sortProgress, panel_, &PlaylistPanel::setSortProgress);
+    connect(playlist_, &PlaylistController::sortProgress, this, [this](int, int total) {
+        actions_->get(PlayerActions::CancelSort)->setEnabled(total > 0);
+    });
     connect(playlist_, &PlaylistController::changed, this, [this] { updatePlaylistActions(); updatePresentation(); });
     connect(playlist_, &PlaylistController::selectItem, panel_, &PlaylistPanel::select);
     connect(playlist_, &PlaylistController::message, this, [this](const QString &text) { surface_->showOsd("queue", text, 3000); });
@@ -822,6 +836,7 @@ void MainWindow::updatePlaylistActions()
     actions_->get(PlayerActions::Previous)->setEnabled(playlist_->canPrevious());
     actions_->get(PlayerActions::Next)->setEnabled(playlist_->canNext());
     actions_->setPlaybackOrderState(playlist_->repeatMode(), playlist_->shuffleEnabled());
+    actions_->setPlaylistSortState(playlist_->lastSort(), model.rowCount());
     actions_->get(PlayerActions::QueuePlay)->setEnabled(!selected.isEmpty());
     actions_->get(PlayerActions::QueueRemove)->setEnabled(!selected.isEmpty());
     actions_->get(PlayerActions::QueueClear)->setEnabled(model.rowCount() > 0);
@@ -867,5 +882,8 @@ void MainWindow::ingestUrls(const QList<QUrl> &urls, bool replace, int row)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    scanner_->cancel(); playlistHost_->shutdown(); QMainWindow::closeEvent(event);
+    scanner_->cancel();
+    playlist_->cancelSort();
+    playlistHost_->shutdown();
+    QMainWindow::closeEvent(event);
 }

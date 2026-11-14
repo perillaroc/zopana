@@ -1,4 +1,5 @@
 #pragma once
+#include "metadataprobe.h"
 #include "playlistmodel.h"
 #include "player.h"
 #include "repeatmode.h"
@@ -19,6 +20,13 @@ public:
     bool shuffleEnabled() const { return shuffleEnabled_; }
     void setPlaybackOrder(RepeatMode repeatMode, bool shuffleEnabled);
     void cycleRepeatMode();
+    PlaylistSort lastSort() const { return lastSort_; }
+    std::optional<PlaylistSort> appliedSort() const { return appliedSort_; }
+    void setLastSort(PlaylistSort sort);
+    void sortItems(PlaylistSort sort);
+    void reverseItems();
+    void shuffleItems();
+    void cancelSort();
     void setCompletionHandler(CompletionHandler handler);
     void advanceAfterCompletion(const Player::PlaybackIdentity &playback);
     QList<quint64> addFiles(const QStringList &paths, bool replace, int row = -1, const QStringList &subtitles = {});
@@ -34,6 +42,9 @@ public:
 signals:
     void changed();
     void playbackOrderChanged();
+    void sortPreferenceChanged();
+    void sortChanged();
+    void sortProgress(int done, int total, bool verifying);
     void message(const QString &text);
     void selectItem(quint64 id);
 private:
@@ -47,8 +58,26 @@ private:
     void refillBag(const QSet<quint64> *excluded = nullptr);
     void resetShuffle();
     void resetAdvance();
+    void manualOrder();
+    void readSortItem();
+    void sortItemRead(quint64 request, const QString &path, const MetadataProbe::Result &result);
+    bool verifySortVersions(bool cached = false);
+    void sortVersionsChecked(quint64 request, const QVector<int> &changed, bool verified);
+    void applySort(PlaylistSort sort);
     PlaylistModel model_;
     Player &player_;
+    MetadataProbe probe_;
+    struct SortJob {
+        PlaylistSort sort;
+        QList<quint64> ids;
+        int done = 0;
+        quint64 probeRequest = 0;
+        bool checkingCache = false;
+        QSet<quint64> needsRefresh;
+    };
+    std::optional<SortJob> sortJob_;
+    PlaylistSort lastSort_;
+    std::optional<PlaylistSort> appliedSort_;
     RepeatMode repeatMode_ = RepeatMode::None;
     bool shuffleEnabled_ = false;
     int attemptsRemaining_ = 0;
@@ -56,6 +85,7 @@ private:
     bool skippedFailure_ = false;
     CompletionHandler completionHandler_;
     QRandomGenerator random_;
+    QRandomGenerator reorderRandom_;
     QList<quint64> bag_, history_;
     int historyPosition_ = -1;
     bool pendingHistoryEntry_ = false;

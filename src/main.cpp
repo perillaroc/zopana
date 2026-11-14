@@ -3,6 +3,7 @@
 #include "settingsstore.h"
 #include "historystore.h"
 #include "sessioncontroller.h"
+#include "metadataprobe.h"
 
 #include <QApplication>
 
@@ -12,9 +13,12 @@
 
 int main(int argc, char **argv)
 {
+    std::setlocale(LC_NUMERIC, "C");
+    if (argc == 2 && QByteArrayView(argv[1]) == MetadataProbe::workerArgument)
+        return MetadataProbe::runWorker();
+
     QApplication app(argc, argv);
     SettingsStore::setApplicationIdentity();
-    std::setlocale(LC_NUMERIC, "C");
     std::fprintf(stderr, "Qt runtime: %s\n", qVersion());
 
     SettingsStore settings;

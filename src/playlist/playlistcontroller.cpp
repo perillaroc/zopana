@@ -5,7 +5,8 @@
 
 PlaylistController::PlaylistController(Player &player, QObject *parent, std::optional<quint32> shuffleSeed)
     : QObject(parent), model_(this), player_(player),
-      random_(shuffleSeed ? QRandomGenerator(*shuffleSeed) : QRandomGenerator::securelySeeded())
+      random_(shuffleSeed ? QRandomGenerator(*shuffleSeed) : QRandomGenerator::securelySeeded()),
+      reorderRandom_(shuffleSeed ? QRandomGenerator(*shuffleSeed) : QRandomGenerator::securelySeeded())
 {
     connect(&player_, &Player::sessionChanged, this, &PlaylistController::session);
     connect(&player_, &Player::playbackCompleted, this, [this](const Player::PlaybackIdentity &playback) {
@@ -16,6 +17,12 @@ PlaylistController::PlaylistController(Player &player, QObject *parent, std::opt
         if (player_.itemId() == model_.currentId()) model_.setStatus(model_.currentId(), paused ? QStringLiteral("已暂停") : QStringLiteral("正在播放"));
     });
     connect(&model_, &QAbstractItemModel::rowsMoved, this, [this] { emit changed(); });
+    connect(&model_, &QAbstractItemModel::rowsAboutToBeInserted, this, &PlaylistController::manualOrder);
+    connect(&model_, &QAbstractItemModel::rowsAboutToBeRemoved, this, &PlaylistController::manualOrder);
+    connect(&model_, &QAbstractItemModel::rowsAboutToBeMoved, this, &PlaylistController::manualOrder);
+    connect(&model_, &QAbstractItemModel::modelAboutToBeReset, this, &PlaylistController::manualOrder);
+    connect(&probe_, &MetadataProbe::finished, this, &PlaylistController::sortItemRead);
+    connect(&probe_, &MetadataProbe::versionsChecked, this, &PlaylistController::sortVersionsChecked);
 }
 
 QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool replace, int row, const QStringList &subtitles)
@@ -61,6 +68,162 @@ void PlaylistController::cycleRepeatMode()
     case RepeatMode::One: setPlaybackOrder(RepeatMode::All, shuffleEnabled_); break;
     case RepeatMode::All: setPlaybackOrder(RepeatMode::None, shuffleEnabled_); break;
     }
+}
+
+void PlaylistController::setLastSort(PlaylistSort sort)
+{
+    if (lastSort_ == sort) return;
+    lastSort_ = sort;
+    emit sortPreferenceChanged();
+    emit sortChanged();
+}
+
+void PlaylistController::sortItems(PlaylistSort sort)
+{
+    if (!model_.rowCount()) return;
+    cancelSort();
+    setLastSort(sort);
+    if (!sort.needsFileInfo()) {
+        applySort(sort);
+        return;
+    }
+    sortJob_.emplace().sort = sort;
+    auto &ids = sortJob_->ids;
+    ids.reserve(model_.rowCount());
+    for (int row = 0; row < model_.rowCount(); ++row) ids.append(model_.idAt(row));
+    if (!verifySortVersions(true)) readSortItem();
+}
+
+void PlaylistController::readSortItem()
+{
+    auto &job = *sortJob_;
+    const int count = int(job.ids.size());
+    while (!job.needsRefresh.isEmpty() && job.done < count && !job.needsRefresh.contains(job.ids[job.done])) ++job.done;
+    if (job.done == count) {
+        verifySortVersions();
+        return;
+    }
+    const bool readMedia = job.sort.needsMedia();
+    const auto *item = model_.item(job.ids[job.done]);
+    Q_ASSERT(item);
+    const auto cached = item->metadata.state == PlaylistMetadata::State::Unrequested
+        ? std::nullopt : item->file;
+    const auto request = probe_.read(item->path, readMedia, cached);
+    sortJob_->probeRequest = request;
+    model_.setReadingMetadata(readMedia ? item->id : 0);
+    if (sortJob_ && sortJob_->probeRequest == request) emit sortProgress(sortJob_->done, count, false);
+}
+
+void PlaylistController::sortItemRead(quint64 request, const QString &path, const MetadataProbe::Result &result)
+{
+    if (!sortJob_ || sortJob_->probeRequest != request) return;
+    if (result.failedToStart) {
+        cancelSort();
+        emit message(QStringLiteral("无法启动排序信息读取，已保留当前顺序。"));
+        return;
+    }
+    const auto &job = *sortJob_;
+    const int count = int(job.ids.size());
+    const auto id = job.ids[job.done];
+    const auto *item = model_.item(id);
+    if (!item || item->path != path) {
+        cancelSort();
+        return;
+    }
+    const auto sort = job.sort;
+    auto media = result.media;
+    if (sort.needsMedia() && !result.file) {
+        media.emplace().state = PlaylistMetadata::State::Unknown;
+    }
+    model_.setMetadata(id, result.file.value_or(PlaylistFileInfo{}), media);
+    if (!sortJob_ || sortJob_->probeRequest != request) return;
+    ++sortJob_->done;
+    readSortItem();
+}
+
+bool PlaylistController::verifySortVersions(bool cached)
+{
+    const bool needsMedia = sortJob_->sort.needsMedia();
+    QVector<MetadataProbe::Check> files;
+    files.reserve(sortJob_->ids.size());
+    for (const auto id : sortJob_->ids) {
+        const auto *item = model_.item(id);
+        if (cached && (!item->file || !item->file->versioned()
+            || (needsMedia && item->metadata.state == PlaylistMetadata::State::Unrequested))) return false;
+        files.append({item->path, item->file});
+    }
+    // Batch the filesystem checks before comparing values collected across a long read pass.
+    const auto request = probe_.checkVersions(files);
+    sortJob_->probeRequest = request;
+    sortJob_->checkingCache = cached;
+    model_.setReadingMetadata(0);
+    if (sortJob_ && sortJob_->probeRequest == request) emit sortProgress(cached ? 0 : int(files.size()), int(files.size()), true);
+    return true;
+}
+
+void PlaylistController::sortVersionsChecked(quint64 request, const QVector<int> &changed, bool verified)
+{
+    if (!sortJob_ || sortJob_->probeRequest != request) return;
+    if (!verified) {
+        cancelSort();
+        emit message(QStringLiteral("无法核对排序信息，已保留当前顺序。"));
+        return;
+    }
+    if (sortJob_->checkingCache && !changed.isEmpty()) {
+        sortJob_->checkingCache = false;
+        for (const int index : changed) sortJob_->needsRefresh.insert(sortJob_->ids[index]);
+        readSortItem();
+        return;
+    }
+    const auto sort = sortJob_->sort;
+    for (const int index : changed) {
+        const auto id = sortJob_->ids[index];
+        // A read that already timed out keeps its Unknown state and can be retried next time.
+        if (model_.item(id)->file.value_or(PlaylistFileInfo{}).bytes >= 0) model_.setMetadata(id, {});
+        if (!sortJob_ || sortJob_->probeRequest != request) return;
+    }
+    cancelSort();
+    applySort(sort);
+}
+
+void PlaylistController::cancelSort()
+{
+    if (!sortJob_) return;
+    sortJob_.reset();
+    probe_.cancel();
+    model_.setReadingMetadata(0);
+    emit sortProgress(0, 0, false);
+}
+
+void PlaylistController::applySort(PlaylistSort sort)
+{
+    model_.sortItems(sort);
+    appliedSort_ = sort;
+    emit sortChanged();
+    emit changed();
+}
+
+void PlaylistController::manualOrder()
+{
+    cancelSort();
+    if (appliedSort_) {
+        appliedSort_.reset();
+        emit sortChanged();
+    }
+}
+
+void PlaylistController::reverseItems()
+{
+    manualOrder();
+    model_.reverseItems();
+    emit changed();
+}
+
+void PlaylistController::shuffleItems()
+{
+    manualOrder();
+    model_.shuffleItems(reorderRandom_);
+    emit changed();
 }
 
 void PlaylistController::setCompletionHandler(CompletionHandler handler)

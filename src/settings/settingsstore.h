@@ -1,13 +1,11 @@
 #pragma once
+#include "playlistsort.h"
 #include "repeatmode.h"
 #include "windowsizing.h"
 #include <QPointF>
 #include <QRect>
 #include <QString>
 #include <QVariantMap>
-
-enum class SortField { FileName, Title, Extension, Folder, Path, FileSize, ModifiedTime, CreatedTime, Duration, Resolution, AddedOrder };
-enum class SortDirection { Ascending, Descending };
 
 struct Preferences {
     static constexpr int minSeekStepSeconds = 1, maxSeekStepSeconds = 3600;

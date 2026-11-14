@@ -1,0 +1,6 @@
+add_executable(zopana_playlist_sort sort-probe.cpp)
+target_link_libraries(zopana_playlist_sort PRIVATE zopana_core Qt6::Test)
+target_compile_options(zopana_playlist_sort PRIVATE /utf-8)
+target_compile_definitions(zopana_playlist_sort PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+set_target_properties(zopana_playlist_sort PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+add_dependencies(zopana_playlist_sort zopana)

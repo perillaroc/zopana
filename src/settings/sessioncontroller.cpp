@@ -69,6 +69,7 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     connect(host_,&PlaylistHost::changed,this,&SessionController::scheduleSave);
     connect(&window_, &MainWindow::windowSizingChanged, this, &SessionController::scheduleSave);
     connect(playlist_,&PlaylistController::playbackOrderChanged,this,&SessionController::scheduleSave);
+    connect(playlist_,&PlaylistController::sortPreferenceChanged,this,&SessionController::scheduleSave);
     connect(mediaControls,&MediaControls::alwaysOnTopChanged,this,&SessionController::scheduleSave);
     connect(video_,&VideoWidget::viewChanged,this,&SessionController::scheduleSave);
     connect(&player_,&Player::preferenceTargetChanged,this,&SessionController::scheduleSave);
@@ -186,6 +187,8 @@ void SessionController::captureRuntime(Preferences &p) const
     p.lastVideoScale = window_.lastVideoScale();
     p.repeatMode=playlist_->repeatMode();
     p.shuffleEnabled=playlist_->shuffleEnabled();
+    p.sortField = playlist_->lastSort().field;
+    p.sortDirection = playlist_->lastSort().direction;
 }
 void SessionController::applySettings()
 {
@@ -199,6 +202,8 @@ void SessionController::applySettings()
 void SessionController::applyPlaybackSettings(const Preferences &p)
 {
     playlist_->setPlaybackOrder(p.repeatMode, p.shuffleEnabled);
+    playlist_->cancelSort();
+    playlist_->setLastSort({p.sortField, p.sortDirection});
     player_.setAudioPreferences(p.volume, p.muted);
     player_.setMediaProperty("speed", p.speed);
     player_.setMediaProperty("audio-pitch-correction", p.pitchCorrection);

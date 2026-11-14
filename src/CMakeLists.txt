@@ -9,6 +9,7 @@ add_library(zopana_core STATIC
     ui/theme.cpp ui/theme.h
     ui/playbackdialogs.cpp ui/playbackdialogs.h
     playlist/playlistmodel.cpp playlist/playlistmodel.h
+    playlist/metadataprobe.cpp playlist/metadataprobe.h playlist/playlistmetadata.h playlist/playlistsort.h
     playlist/playlistcontroller.cpp playlist/playlistcontroller.h playlist/repeatmode.h
     playlist/playlistpanel.cpp playlist/playlistpanel.h
     playlist/playlisthost.cpp playlist/playlisthost.h

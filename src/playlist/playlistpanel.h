@@ -1,6 +1,9 @@
 #pragma once
+#include "playlistsort.h"
+#include <QElapsedTimer>
 #include <QWidget>
 #include <QUrl>
+#include <optional>
 class QListView;
 class QLabel;
 class QProgressBar;
@@ -16,6 +19,8 @@ public:
     quint64 selectedId() const;
     void select(quint64 id);
     void setScanning(bool busy);
+    void setSortOrder(std::optional<PlaylistSort> sort);
+    void setSortProgress(int done, int total, bool verifying);
 signals:
     void playItem(quint64 id);
     void filesDropped(const QList<QUrl> &urls, int row);
@@ -23,6 +28,8 @@ signals:
 private:
     PlaylistModel &model_;
     QListView *view_;
-    QLabel *empty_, *count_;
-    QWidget *scan_;
+    QLabel *empty_, *count_, *sortOrder_;
+    QWidget *scan_, *sortProgressRow_;
+    QProgressBar *sortProgress_;
+    QElapsedTimer progressUpdate_;
 };

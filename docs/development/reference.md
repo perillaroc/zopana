@@ -22,6 +22,7 @@
 | 跳略秒数 | `skip/introSeconds`、`skip/outroSeconds` | 均为 `0`，接受 0–86400 的整数秒 |
 | 倍速与保持音调 | `playback/speed`、`playback/pitchCorrection` | `1`、`true` |
 | 循环和随机播放 | `playback/repeatMode`、`playback/shuffleEnabled` | `none`、`false`，循环枚举为 `none`、`one`、`all` |
+| 上次列表排序 | `playlist/sortField`、`playlist/sortDirection` | `fileName`、`ascending`；只保存条件，队列路径、行序和元数据均在内存中 |
 | 字幕显隐、音频和字幕延迟 | `tracks/subtitleVisible`、`tracks/audioDelay`、`tracks/subtitleDelay` | `true`、`0`、`0`，延迟单位为秒 |
 | 置顶 | `window/alwaysOnTop` | `false` |
 | 取景 | `video/viewScale`、`video/focusU`、`video/focusV` | `1`、`0.5`、`0.5`，中心按未旋转画面归一化 |
@@ -34,14 +35,16 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/main.cpp` | 创建 Qt 应用和播放器，启动主窗口并管理退出顺序。 |
+| `src/main.cpp` | 启动主窗口和播放器，或按内部工作模式读取列表元数据。 |
 | `src/ui/` | 主窗口、共享 QAction、控制栏、视频状态页、主题、快捷键帮助及媒体菜单。 |
 | `src/playback/` | libmpv 生命周期、异步命令、按文件处理的事件和轨道状态。 |
 | `src/video/` | 视频区输入和 OpenGL 渲染，计算适窗、指针锚点及拖动边界。 |
-| `src/playlist/` | 播放队列、播放顺序、停靠与独立列表，以及可取消的文件夹扫描。 |
+| `src/playlist/` | 播放队列、播放顺序、停靠与独立列表，以及可取消的文件夹扫描、列表排序和元数据探测。 |
 | `src/capture/` | 完整画面和当前取景截图、后台编码及截图版本校验。 |
 | `src/settings/` | INI 配置、快捷键编辑、窗口记忆、最近文件和断点续播。 |
 | `experiments/` | 可选的阶段验证工具和复现说明。 |
 | `packaging/` | Windows 便携包脚本、随包说明和第三方依赖来源。 |
 
 阶段 1 的偏好、设置和定位验证入口见仓库内 `experiments/playback-controls/stage-1/README.md`。
+
+按文件属性或容器信息排序时，`MetadataProbe` 通过 `QProcess` 启动当前程序，使用一对管道传递 JSON 行。一个排序任务逐项读取，只复用一个工作进程；每个容器使用独立的 libmpv 上下文，在解封装时获取信息并关闭音视频输出。取消、超时和退出会终止工作进程。下一次排序会重新核对规范路径、文件大小和修改时间后再复用内存结果。

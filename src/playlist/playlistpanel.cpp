@@ -23,6 +23,12 @@ class PlaylistView final : public QListView
 {
 public:
     std::function<void(const QList<QUrl> &, int)> externalDrop;
+    void rememberScrollPosition() { topItem_ = indexAt(QPoint(viewport()->width() / 2, 1)); }
+    void restoreScrollPosition()
+    {
+        if (topItem_.isValid()) scrollTo(topItem_, PositionAtTop);
+        topItem_ = {};
+    }
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override { if (event->mimeData()->hasUrls()) event->acceptProposedAction(); else QListView::dragEnterEvent(event); }
     void dragMoveEvent(QDragMoveEvent *event) override
@@ -54,6 +60,7 @@ private:
         return index.isValid() ? index.row() + (position.y() > visualRect(index).center().y() ? 1 : 0) : model()->rowCount();
     }
     int externalRow_ = -1;
+    QPersistentModelIndex topItem_;
 };
 
 class PlaylistDelegate final : public QStyledItemDelegate
@@ -91,6 +98,22 @@ PlaylistPanel::PlaylistPanel(PlaylistModel &model, PlayerActions &actions, QWidg
         playbackOrder->addWidget(button, 1);
     }
     layout->addLayout(playbackOrder);
+    auto *sorting = new QHBoxLayout;
+    auto *sortButton = new QToolButton;
+    sortButton->setObjectName("playlistSortButton");
+    sortButton->setText(QStringLiteral("排序"));
+    sortButton->setAccessibleName(QStringLiteral("列表排序"));
+    sortButton->setMinimumHeight(32);
+    sortButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    sortButton->setFocusPolicy(Qt::StrongFocus);
+    sortButton->setPopupMode(QToolButton::InstantPopup);
+    sortButton->setMenu(actions.playlistSortMenu(sortButton));
+    sorting->addWidget(sortButton);
+    sortOrder_ = new QLabel;
+    sortOrder_->setObjectName("playlistSortOrder");
+    sorting->addWidget(sortOrder_, 1);
+    layout->addLayout(sorting);
+    setSortOrder({});
     empty_ = new QLabel(QStringLiteral("播放列表为空\n添加文件或拖入媒体")); empty_->setObjectName("playlistEmpty");
     empty_->setAlignment(Qt::AlignCenter); empty_->setWordWrap(true); layout->addWidget(empty_);
     auto *view = new PlaylistView; view_ = view; view_->setObjectName("playlistView"); view_->setAccessibleName(QStringLiteral("播放列表"));
@@ -98,6 +121,8 @@ PlaylistPanel::PlaylistPanel(PlaylistModel &model, PlayerActions &actions, QWidg
     view_->setItemDelegate(new PlaylistDelegate(view_));
     view_->setDragDropMode(QAbstractItemView::InternalMove); view_->setDefaultDropAction(Qt::MoveAction); view_->setDragDropOverwriteMode(false);
     view_->setTextElideMode(Qt::ElideMiddle); view_->setDropIndicatorShown(true); layout->addWidget(view_, 1);
+    connect(&model, &QAbstractItemModel::layoutAboutToBeChanged, view, &PlaylistView::rememberScrollPosition);
+    connect(&model, &QAbstractItemModel::layoutChanged, view, &PlaylistView::restoreScrollPosition);
     view->externalDrop = [this](const auto &urls, int row) { emit filesDropped(urls, row); };
     connect(view_, &QListView::doubleClicked, this, [this](const QModelIndex &index) { emit playItem(model_.idAt(index.row())); });
     connect(view_->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { emit selectionChanged(); });
@@ -107,6 +132,7 @@ PlaylistPanel::PlaylistPanel(PlaylistModel &model, PlayerActions &actions, QWidg
                    PlayerActions::Add, PlayerActions::AddFolder, PlayerActions::PlaylistMode}) menu->addAction(actions.get(id));
     menu->addSeparator();
     actions.addPlaybackOrderActions(*menu);
+    menu->addMenu(actions.playlistSortMenu(menu));
     view_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(view_, &QWidget::customContextMenuRequested, this, [this, menu](QPoint point) {
         menu->popup(view_->viewport()->mapToGlobal(point.x() < 0 ? view_->visualRect(view_->currentIndex()).center() : point));
@@ -118,6 +144,17 @@ PlaylistPanel::PlaylistPanel(PlaylistModel &model, PlayerActions &actions, QWidg
     scan_ = new QWidget; auto *scanLayout = new QHBoxLayout(scan_); scanLayout->setContentsMargins(0, 0, 0, 0);
     auto *progress = new QProgressBar; progress->setRange(0, 0); progress->setAccessibleName(QStringLiteral("正在扫描文件夹")); scanLayout->addWidget(progress, 1);
     scanLayout->addWidget(makeButton(PlayerActions::CancelScan, "cancelScanButton", true)); layout->addWidget(scan_); scan_->hide();
+    sortProgressRow_ = new QWidget;
+    auto *sortProgressLayout = new QHBoxLayout(sortProgressRow_);
+    sortProgressLayout->setContentsMargins(0, 0, 0, 0);
+    sortProgress_ = new QProgressBar;
+    sortProgress_->setObjectName("playlistSortProgress");
+    sortProgress_->setAccessibleName(QStringLiteral("排序信息读取进度"));
+    sortProgress_->setFormat(QStringLiteral("读取 %v / %m"));
+    sortProgressLayout->addWidget(sortProgress_, 1);
+    sortProgressLayout->addWidget(makeButton(PlayerActions::CancelSort, "playlistCancelSortButton", true));
+    layout->addWidget(sortProgressRow_);
+    sortProgressRow_->hide();
     auto *footer = new QHBoxLayout; footer->addWidget(makeButton(PlayerActions::Add, "addFilesButton", true)); footer->addWidget(makeButton(PlayerActions::AddFolder, "addFolderButton", true)); layout->addLayout(footer);
     const auto update = [this] { count_->setText(QStringLiteral("播放列表 · %1 项").arg(model_.rowCount())); empty_->setVisible(model_.rowCount() == 0); emit selectionChanged(); };
     connect(&model, &QAbstractItemModel::rowsInserted, this, update); connect(&model, &QAbstractItemModel::rowsRemoved, this, update); connect(&model, &QAbstractItemModel::modelReset, this, update); update();
@@ -134,3 +171,27 @@ void PlaylistPanel::select(quint64 id)
     view_->selectionModel()->setCurrentIndex(model_.index(row), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows); view_->scrollTo(model_.index(row), QAbstractItemView::EnsureVisible);
 }
 void PlaylistPanel::setScanning(bool busy) { scan_->setVisible(busy); }
+
+void PlaylistPanel::setSortOrder(std::optional<PlaylistSort> sort)
+{
+    sortOrder_->setText(PlayerActions::sortLabel(sort));
+}
+
+void PlaylistPanel::setSortProgress(int done, int total, bool verifying)
+{
+    if (!total) {
+        sortProgressRow_->hide();
+        return;
+    }
+    const int maximum = verifying ? 0 : total;
+    if (sortProgressRow_->isHidden() || sortProgress_->maximum() != maximum || !done) {
+        sortProgress_->setRange(0, maximum);
+        sortProgress_->setAccessibleName(verifying ? QStringLiteral("正在核对文件版本") : QStringLiteral("排序信息读取进度"));
+        sortProgress_->setValue(0);
+        sortProgressRow_->show();
+    }
+    if (!verifying && (done == total || !progressUpdate_.isValid() || progressUpdate_.elapsed() >= 80)) {
+        sortProgress_->setValue(done);
+        progressUpdate_.start();
+    }
+}
