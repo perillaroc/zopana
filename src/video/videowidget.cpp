@@ -86,6 +86,15 @@ void VideoWidget::setVideoSize(QSize displaySize, int rotation)
     update();
 }
 
+void VideoWidget::setVideoTransform(std::optional<quint64> version)
+{
+    if (videoTransform_ == version) return;
+    videoTransform_ = version;
+    paintedTransform_.reset();
+    if (version) bufferHasFrame_ = false;
+    update();
+}
+
 QPointF VideoWidget::viewFocus() const
 {
     return rotatedFocus(view_.focus(), -rotation_);
@@ -418,12 +427,15 @@ void VideoWidget::paintGL()
 
     prepareVideoBuffer();
     if (!videoBuffer_) {
-        renderFrame(static_cast<int>(destination), pixels);
+        if (renderFrame(static_cast<int>(destination), pixels)) paintedTransform_ = videoTransform_;
         return;
     }
     const QSize source = videoBuffer_->size();
-    if (newFrame || !bufferHasFrame_)
+    if (newFrame || !bufferHasFrame_) {
         bufferHasFrame_ = renderFrame(static_cast<int>(videoBuffer_->handle()), source);
+        // libmpv invalidates the previous frame during VO reconfiguration.
+        if (bufferHasFrame_) paintedTransform_ = videoTransform_;
+    }
 
     gl->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination);
     gl->glDisable(GL_SCISSOR_TEST);
@@ -451,6 +463,8 @@ void VideoWidget::paintGL()
 void VideoWidget::releaseRenderer()
 {
     cancelGestures();
+    paintedTransform_.reset();
+    videoTransform_.reset();
     if (!renderer_)
         return;
 

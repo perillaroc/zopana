@@ -17,7 +17,8 @@ signals:
     void saved(const QString &path, bool workerThread);
     void failed(const QString &message);
 private:
-    void write(QImage image, quint64 generation, quint64 epoch, const QString &media, double position, const QString &kind);
+    void write(QImage image, quint64 generation, quint64 epoch, quint64 transformVersion,
+               const QString &media, double position, const QString &kind, int rotation = 0);
     Player &player_;
     VideoWidget &video_;
     QString directory_, lastSaved_;

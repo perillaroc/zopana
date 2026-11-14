@@ -266,7 +266,11 @@ public:
         QObject::connect(&engine,&Player::positionChanged,&host,[&](double value) { position=value; });
         auto make=[&] { view=new VideoWidget(engine.handle(),&host); view->setGeometry(host.rect()); QObject::connect(view,&VideoWidget::rendererReadyChanged,&engine,&Player::setRendererReady); view->show(); };
         const auto cleanup=qScopeGuard([&] { engine.shutdown(); delete view; view=nullptr; host.close(); });
-        QObject::connect(&engine,&Player::videoSizeChanged,&host,[&](QSize size) { if(view) view->setVideoSize(size); }); make(); host.show(); host.raise(); host.activateWindow();
+        QObject::connect(&engine,&Player::videoSizeChanged,&host,[&](QSize size) { if(view) view->setVideoSize(size,engine.videoRotation()); });
+        QObject::connect(&engine,&Player::videoTransformChanged,&host,[&] {
+            if (view) view->setVideoTransform(engine.videoTransformReady() ? std::optional{engine.videoTransformVersion()} : std::nullopt);
+        });
+        make(); host.show(); host.raise(); host.activateWindow();
         require("standalone recovery host active",QTest::qWaitForWindowActive(&host));
         require("recovery renderer ready",until([&] { return view->rendererReady(); })); engine.openFile(fixtures+QString::fromUtf8("/网格 multi.mkv"),42);
         require("recovery file loaded",until([&] { return engine.state()==Player::State::Loaded && engine.tracks().size()==5; }));
@@ -301,17 +305,28 @@ public:
         }));
         engine.selectTrack("audio",2,engine.generation()); engine.setMediaProperty("speed",1.5); engine.setMediaProperty("sub-scale",1.2);
         engine.setMediaProperty("sub-delay",.2); engine.setMediaProperty("audio-delay",.1); engine.setMediaProperty("sub-visibility",false);
-        engine.setMediaProperty("ab-loop-a",2.0); engine.setMediaProperty("ab-loop-b",4.0); QTest::qWait(200);
+        engine.setMediaProperty("ab-loop-a",2.0); engine.setMediaProperty("ab-loop-b",4.0);
+        engine.setMediaProperty("video-rotate",90);
+        require("rotation is visible before destroying the renderer", until([&] {
+            return engine.videoRotation() == 90 && engine.videoTransformReady() && view->canCaptureTransform(engine.videoTransformVersion());
+        }));
+        const QPointF focus(.32,.63);
+        view->restoreView(2,focus);
         const auto selected=engine.mediaProperty("sid").toLongLong(); QString fingerprint;
         for(const auto &track:engine.tracks()) if(track.type=="sub" && track.id==selected) fingerprint=track.fingerprint();
         const auto generation=engine.generation(), epoch=engine.renderEpoch(); QSignalSpy restored(&engine,&Player::restored);
         engine.setRendererReady(false); engine.setMediaProperty("speed",1.75); delete view; view=nullptr; make();
+        view->restoreView(2,focus);
         require("full renderer destruction and recreation restores",until([&] { return !restored.isEmpty() && engine.state()==Player::State::Loaded; })); QTest::qWait(100);
         check("recovery keeps generation and item but advances render epoch",engine.generation()==generation && engine.itemId()==42 && engine.renderEpoch()>epoch);
         check("recovery restores details and honors newest global intent",engine.mediaProperty("aid").toLongLong()==2 && engine.mediaProperty("speed").toDouble()==1.75 && std::abs(engine.mediaProperty("sub-delay").toDouble()-.2)<.001 && std::abs(engine.mediaProperty("audio-delay").toDouble()-.1)<.001 && std::abs(engine.mediaProperty("sub-scale").toDouble()-1.2)<.001 && !engine.mediaProperty("sub-visibility").toBool());
         bool selectedExternal=false; for(const auto &track:engine.tracks()) selectedExternal|=track.fingerprint()==fingerprint && track.id==engine.mediaProperty("sid").toLongLong();
         check("recovery matches fingerprint after numeric track IDs change",selectedExternal && engine.mediaProperty("sid").toLongLong()!=selected && engine.tracks().size()==7 && engine.loopActive());
         check("recovery retains paused position inside AB",std::abs(position-2.4)<.05);
+        require("recreated OpenGL view confirms the restored angle and original content point", until([&] {
+            return engine.videoRotation() == 90 && engine.videoTransformReady() && view->canCaptureTransform(engine.videoTransformVersion())
+                && view->zoomScale() == 2 && (view->viewFocus() - focus).manhattanLength() < .00001;
+        }));
         const auto missing=output+"/recovery-missing.srt"; QFile::remove(missing); require("copy temporary subtitle",QFile::copy(fixtures+"/external.srt",missing));
         engine.addSubtitle(missing); require("temporary subtitle selected",until([&] { for(const auto &track:engine.tracks()) if(mediaPathKey(track.externalPath)==mediaPathKey(missing) && track.id==engine.mediaProperty("sid").toLongLong()) return engine.tracks().size()==8; return false; }));
         require("remove temporary subtitle before recovery",QFile::remove(missing)); QSignalSpy notices(&engine,&Player::notice);

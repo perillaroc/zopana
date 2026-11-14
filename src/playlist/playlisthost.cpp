@@ -55,6 +55,19 @@ PlaylistHost::PlaylistHost(QWidget &main, QWidget &central, QSplitter &splitter,
     arrange();
 }
 QWidget *PlaylistHost::window() const { return window_; }
+int PlaylistHost::dockExtent() const { return detached_ || !visible_ ? 0 : dockWidth_ + splitter_.handleWidth(); }
+int PlaylistHost::dockThreshold() const { return qMax(900, 520 + dockWidth_ + splitter_.handleWidth()); }
+void PlaylistHost::beginVideoSizing(bool docked) { dockForVideoSize_ = docked; }
+void PlaylistHost::endVideoSizing()
+{
+    arrange();
+    if (dock_->isVisible()) splitter_.setSizes({splitter_.width() - dockWidth_ - splitter_.handleWidth(), dockWidth_});
+}
+void PlaylistHost::clearVideoSizing()
+{
+    dockForVideoSize_.reset();
+    arrange();
+}
 void PlaylistHost::restore(bool detached,bool visible,int width) { detached_=detached; visible_=visible; dockWidth_=qBound(260,width,2000); arrange(); emit changed(); }
 bool PlaylistHost::overlayVisible() const { return overlay_->isVisible(); }
 void PlaylistHost::shutdown() { window_->hide(); if (panel_) panel_->hide(); }
@@ -88,7 +101,7 @@ bool PlaylistHost::dismissOverlay() { if (!overlayVisible()) return false; setVi
 void PlaylistHost::arrange(bool activate)
 {
     if (!panel_) return;
-    const bool overlay = fullscreen_ || central_.width() < 900;
+    const bool overlay = fullscreen_ || !dockForVideoSize_.value_or(central_.width() >= 900);
     QWidget *target = detached_ ? window_ : overlay ? overlay_ : dock_;
     const bool moving = panel_->parentWidget() != target;
     const int scroll = panel_->view()->verticalScrollBar()->value();

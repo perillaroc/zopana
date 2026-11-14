@@ -32,8 +32,20 @@ try {
             Get-Content -LiteralPath $log -Tail 35 -Encoding utf8
             throw "Rotation probe failed at DPR $dpr ($LASTEXITCODE)"
         }
+        $summary = Get-Content -LiteralPath "$runPath/dpr-$percent/results.json" -Raw | ConvertFrom-Json
+        if (!$summary.passed) { throw "Rotation probe has no passing result at DPR $dpr" }
         $checks = @(Select-String -LiteralPath $log -Pattern '^PASS ').Count
         Write-Output "PASS DPR $dpr ($checks checks)"
+        $restartLog = Join-Path $runPath "restart-$percent.log"
+        & $exe "$runPath/media" "$runPath/dpr-$percent" $dpr --read 2>&1 | Out-File -LiteralPath $restartLog -Encoding utf8
+        if ($LASTEXITCODE) {
+            Get-Content -LiteralPath $restartLog -Tail 35 -Encoding utf8
+            throw "Rotation restart probe failed at DPR $dpr ($LASTEXITCODE)"
+        }
+        $restart = Get-Content -LiteralPath "$runPath/dpr-$percent/restart.json" -Raw | ConvertFrom-Json
+        if (!$restart.passed) { throw "Rotation restart probe has no passing result at DPR $dpr" }
+        $checks = @(Select-String -LiteralPath $restartLog -Pattern '^PASS ').Count
+        Write-Output "PASS restart DPR $dpr ($checks checks)"
     }
 } finally {
     $validationLock.ReleaseMutex()

@@ -41,6 +41,8 @@
 #include <QToolButton>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QWindow>
+#include <QScopedValueRollback>
 #include <QtMath>
 #include <windows.h>
 #include <windowsx.h>
@@ -48,6 +50,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace {
 int wholeSeconds(double value)
@@ -189,6 +192,37 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     context->setObjectName("videoContextMenu");
     for (auto id : {PlayerActions::PlayPause, PlayerActions::Stop, PlayerActions::SeekGoto, PlayerActions::Open, PlayerActions::FeatureMode,
                    PlayerActions::StandardMode, PlayerActions::ResetView, PlayerActions::Mute, PlayerActions::Playlist, PlayerActions::Fullscreen}) context->addAction(action(id));
+    for (auto *parent : {picture, context}) {
+        auto *rotation = parent->addMenu(QStringLiteral("额外旋转（0°）"));
+        rotation->setObjectName("videoRotationMenu");
+        for (auto id : {PlayerActions::RotateNext, PlayerActions::RotatePrevious, PlayerActions::RotateReset}) rotation->addAction(action(id));
+        rotationMenus_.append(rotation);
+    }
+    for (auto *parent : {view, context}) {
+        auto *sizing = parent->addMenu(QStringLiteral("窗口大小"));
+        sizing->setObjectName("videoWindowSizeMenu");
+        for (auto id : {PlayerActions::Scale50, PlayerActions::Scale100, PlayerActions::Scale150, PlayerActions::Scale200, PlayerActions::ScaleFit})
+            sizing->addAction(action(id));
+    }
+    const auto rotate = [this](int step) {
+        player_.setMediaProperty("video-rotate", player_.propertyTarget("video-rotate").toInt() + step);
+    };
+    connect(action(PlayerActions::RotateNext), &QAction::triggered, this, [rotate] { rotate(90); });
+    connect(action(PlayerActions::RotatePrevious), &QAction::triggered, this, [rotate] { rotate(-90); });
+    connect(action(PlayerActions::RotateReset), &QAction::triggered, this, [this] { player_.setMediaProperty("video-rotate", 0); });
+    for (int i = 0; i < 5; ++i) {
+        connect(action(PlayerActions::Id(PlayerActions::Scale50 + i)), &QAction::triggered, this, [this, i] {
+            setWindowSizing(i == 4 ? WindowSizePolicy::FitWorkArea : WindowSizePolicy::VideoScale, i == 4 ? lastVideoScale_ : .5 * (i + 1));
+            scheduleVideoResize(true);
+        });
+    }
+    videoResizeTimer_.setSingleShot(true);
+    connect(&videoResizeTimer_, &QTimer::timeout, this, &MainWindow::resizeForVideo);
+    playlistDockExtent_ = playlistHost_->dockExtent();
+    connect(playlistHost_, &PlaylistHost::changed, this, [this] {
+        const int extent = playlistHost_->dockExtent();
+        if (std::exchange(playlistDockExtent_, extent) != extent) scheduleVideoResize();
+    });
     video_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(video_, &QWidget::customContextMenuRequested, this, [this, context](QPoint point) {
         video_->cancelInput();
@@ -207,7 +241,9 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     connect(controls_, &ControlBar::seekRequested, &player_, &Player::seek);
     connect(controls_, &ControlBar::volumeRequested, &player_, &Player::setVolume);
     connect(&player_, &Player::mediaChanged, this, &MainWindow::updateMedia);
-    connect(&player_, &Player::fileOpening, this, [this] { controls_->cancelSeekPreview(); video_->cancelInput(); surface_->dismissOsd(); video_->setVideoSize({}); zoomLabel_->hide(); });
+    connect(&player_, &Player::fileOpening, this, [this] {
+        controls_->cancelSeekPreview(); video_->cancelInput(); surface_->dismissOsd(); zoomLabel_->hide();
+    });
     connect(&player_, &Player::detailsChanged, this, [this] {
         showMultiplier(rateLabel_, QStringLiteral("倍速"), state_ == Player::State::Loaded ? player_.mediaProperty("speed").toDouble() : 1);
         if (actions_->get(PlayerActions::SeekGoto)->isEnabled() != player_.canSeek()) updateTimeline();
@@ -236,11 +272,14 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     connect(&player_, &Player::subtitleLoaded, this, [this](const QString &path) { surface_->showOsd("subtitle", QStringLiteral("已加载字幕：%1").arg(QFileInfo(path).fileName()), 2000); });
     connect(&player_, &Player::videoSizeChanged, this, [this](QSize size) {
         if (state_ != Player::State::Loaded) return;
+        const bool resized = videoSize_ != size;
         videoSize_ = size;
         video_->setVideoSize(size, player_.videoRotation());
         showMultiplier(zoomLabel_, QStringLiteral("缩放"), size.isEmpty() ? 1 : video_->zoomScale());
         updatePresentation();
+        if (resized) scheduleVideoResize();
     });
+    connect(&player_, &Player::videoTransformChanged, this, &MainWindow::updateRotation);
     connect(&player_, &Player::commandError, this, [this](const QString &message) {
         surface_->showOsd("error", QStringLiteral("操作失败：%1").arg(message), 3000);
     });
@@ -250,6 +289,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     resize(QSize(1120, 720).boundedTo(available * .9).expandedTo(minimumSize()));
     actions_->setAudioAvailable(false); controls_->setAudioAvailable(false);
     updateMedia(Player::State::Idle, {}, {});
+    updateRotation();
     video_->setFocus();
 }
 
@@ -346,6 +386,7 @@ void MainWindow::showEvent(QShowEvent *event)
 {
     QMainWindow::showEvent(event);
     if (!isFullScreen()) enableResizeFrame();
+    watchWindowScreen();
 }
 
 void MainWindow::enableResizeFrame()
@@ -363,6 +404,12 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
 {
     if (eventType == "windows_generic_MSG") {
         const auto &msg = *static_cast<MSG *>(message);
+        if (msg.message == WM_ENTERSIZEMOVE) movingWindow_ = true;
+        if (msg.message == WM_EXITSIZEMOVE) {
+            movingWindow_ = false;
+            if (videoResizeDeferred_) scheduleVideoResize();
+        }
+        if (msg.message == WM_SIZING && !applyingVideoResize_) setWindowSizing(WindowSizePolicy::LastGeometry, lastVideoScale_);
         if (msg.message == WM_NCLBUTTONDOWN && msg.wParam == HTMAXBUTTON && maximize_ && maximize_->isVisible()) {
             maximizePressed_ = true;
             maximize_->setDown(true);
@@ -440,6 +487,97 @@ QRect MainWindow::windowedGeometry() const
     return isMaximized() || isFullScreen() || isMinimized() ? normalGeometry() : geometry();
 }
 
+void MainWindow::updateRotation()
+{
+    const bool ready = player_.videoTransformReady();
+    video_->setVideoTransform(ready ? std::optional{player_.videoTransformVersion()} : std::nullopt);
+    if (!ready) return;
+    const int degrees = player_.mediaProperty("video-rotate").toInt();
+    const auto title = QStringLiteral("额外旋转（%1°）").arg(degrees);
+    if (rotationMenus_.first()->title() == title) return;
+    surface_->showOsd("rotation", title);
+    for (auto *menu : rotationMenus_) menu->setTitle(title);
+}
+
+void MainWindow::setWindowSizing(WindowSizePolicy policy, double scale)
+{
+    if (sizePolicy_ == policy && lastVideoScale_ == scale) return;
+    sizePolicy_ = policy;
+    lastVideoScale_ = scale;
+    if (policy == WindowSizePolicy::LastGeometry) {
+        videoResizeTimer_.stop();
+        explicitResize_ = false;
+        videoResizeDeferred_ = false;
+        playlistHost_->clearVideoSizing();
+    } else {
+        scheduleVideoResize();
+    }
+    emit windowSizingChanged();
+}
+
+void MainWindow::watchWindowScreen()
+{
+    auto *handle = windowHandle();
+    if (!handle) return;
+    if (watchedWindow_ != handle) {
+        disconnect(screenChanged_);
+        watchedWindow_ = handle;
+        handle->installEventFilter(this);
+        screenChanged_ = connect(handle, &QWindow::screenChanged, this, [this] {
+            watchWindowScreen();
+            scheduleVideoResize();
+        });
+    }
+    if (sizingScreen_ != handle->screen()) {
+        disconnect(workAreaChanged_);
+        sizingScreen_ = handle->screen();
+        if (sizingScreen_) workAreaChanged_ = connect(sizingScreen_, &QScreen::availableGeometryChanged, this, [this] { scheduleVideoResize(); });
+    }
+}
+
+void MainWindow::scheduleVideoResize(bool explicitRequest)
+{
+    if (applyingVideoResize_ || videoSize_.isEmpty() || sizePolicy_ == WindowSizePolicy::LastGeometry) return;
+    explicitResize_ |= explicitRequest;
+    if (movingWindow_ && !explicitResize_) { videoResizeDeferred_ = true; return; }
+    videoResizeTimer_.start(explicitResize_ ? 0 : 40);
+}
+
+void MainWindow::resizeForVideo()
+{
+    const bool requested = std::exchange(explicitResize_, false);
+    if (videoSize_.isEmpty() || !isVisible() || sizePolicy_ == WindowSizePolicy::LastGeometry) return;
+    if (!requested && (movingWindow_ || isMinimized() || isFullScreen() || isMaximized())) { videoResizeDeferred_ = true; return; }
+    videoResizeDeferred_ = false;
+    QScopedValueRollback resizing(applyingVideoResize_, true);
+    auto *targetScreen = screen();
+    if (isFullScreen() || isMaximized() || isMinimized()) {
+        showNormal();
+        if (targetScreen && screen() != targetScreen) move(targetScreen->availableGeometry().center() - rect().center());
+    }
+    centralWidget()->layout()->activate();
+    const auto area = screen()->availableGeometry();
+    const double dpr = windowHandle()->devicePixelRatio();
+    const bool fit = sizePolicy_ == WindowSizePolicy::FitWorkArea;
+    const auto solved = solveVideoWindow(videoSize_, dpr, fit ? 0 : lastVideoScale_, area, frameGeometry(),
+        windowHandle()->frameMargins(), minimumSize(), topBar_->height() + controls_->height(),
+        playlistHost_->dockExtent(), playlistHost_->dockThreshold());
+    playlistHost_->beginVideoSizing(solved.docked);
+    setGeometry(solved.client);
+    centralWidget()->layout()->activate();
+    playlistHost_->endVideoSizing();
+    const auto viewport = video_->size();
+    const double actual = dpr * qMin(double(viewport.width()) / videoSize_.width(), double(viewport.height()) / videoSize_.height());
+    const bool limited = !fit && std::abs(actual - lastVideoScale_) * qMax(videoSize_.width(), videoSize_.height()) > 2;
+    if (limited) {
+        surface_->showOsd("window-size", QStringLiteral("请求 %1%，受窗口或工作区限制，实际 %2%")
+            .arg(qRound(lastVideoScale_ * 100)).arg(qRound(actual * 100)));
+    } else if (requested) {
+        surface_->showOsd("window-size", fit ? QStringLiteral("窗口已适合工作区") : QStringLiteral("窗口 %1%").arg(qRound(lastVideoScale_ * 100)));
+    }
+    if (requested) video_->setFocus();
+}
+
 void MainWindow::toggleFullscreen()
 {
     if (isFullScreen()) {
@@ -471,7 +609,9 @@ void MainWindow::changeEvent(QEvent *event)
         surface_->setFullscreen(fullscreen, fullscreen ? topBar_->height() : 0);
         playlistHost_->setFullscreen(fullscreen);
         topBar_->show(); controls_->show(); unsetCursor();
-        if (isFullScreen()) revealControls(); else hideTimer_.stop();
+        if (fullscreen) revealControls(); else hideTimer_.stop();
+        if (!fullscreen && !isMaximized() && !isMinimized() && videoResizeDeferred_)
+            scheduleVideoResize();
     }
     if (event->type() == QEvent::ActivationChange) {
         if (isActiveWindow()) revealControls();
@@ -493,7 +633,8 @@ void MainWindow::updateMedia(Player::State state, const QString &path, const QSt
         audioAvailable_ = false; actions_->setAudioAvailable(false); controls_->setAudioAvailable(false);
         controls_->cancelSeekPreview(); video_->cancelInput(); zoomLabel_->hide();
         videoSize_ = {};
-        if (state != Player::State::Loading) video_->setVideoSize({});
+        video_->setVideoTransform(std::nullopt);
+        video_->setVideoSize({});
     }
     if (state == Player::State::Loading || state == Player::State::Idle || state == Player::State::Error) {
         position_ = 0; duration_ = 0; durationSeconds_ = 0; paused_ = false;
@@ -589,6 +730,7 @@ void MainWindow::hideControls()
 
 bool MainWindow::eventFilter(QObject *object, QEvent *event)
 {
+    if (object == watchedWindow_ && event->type() == QEvent::DevicePixelRatioChange) scheduleVideoResize();
     auto *widget = qobject_cast<QWidget *>(object);
     if (topBar_ && isFullScreen() && widget && widget->window() == this) {
         switch (event->type()) {

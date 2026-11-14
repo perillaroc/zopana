@@ -122,6 +122,39 @@ SettingsDialog::SettingsDialog(const Preferences &preferences, PlayerActions &ac
     skipNote->setWordWrap(true);
     skipForm->addRow(skipNote);
 
+    video_ = new QWidget;
+    video_->setObjectName("videoSettingsPage");
+    tabs_->addTab(video_, QStringLiteral("画面与窗口"));
+    auto *videoForm = new QFormLayout(video_);
+    rotation_ = new QComboBox;
+    rotation_->setObjectName("videoRotationCombo");
+    for (int degrees : {0, 90, 180, 270}) rotation_->addItem(QStringLiteral("%1°").arg(degrees));
+    rotation_->setCurrentIndex(draft_.userRotationDeg / 90);
+    videoForm->addRow(QStringLiteral("额外旋转"), rotation_);
+    resetViewOnOpen_ = new QCheckBox(QStringLiteral("打开新文件时恢复适窗取景"));
+    resetViewOnOpen_->setObjectName("resetViewOnOpenCheck");
+    resetViewOnOpen_->setChecked(draft_.resetViewOnOpen);
+    videoForm->addRow(resetViewOnOpen_);
+    sizePolicy_ = new QComboBox;
+    sizePolicy_->setObjectName("windowSizePolicyCombo");
+    sizePolicy_->addItems({QStringLiteral("沿用普通窗口大小"), QStringLiteral("按视频比例开窗"), QStringLiteral("适合工作区")});
+    sizePolicy_->setCurrentIndex(int(draft_.sizePolicy));
+    videoForm->addRow(QStringLiteral("窗口大小策略"), sizePolicy_);
+    videoScale_ = new QComboBox;
+    videoScale_->setObjectName("windowVideoScaleCombo");
+    for (int percent : {50, 100, 150, 200}) videoScale_->addItem(QStringLiteral("%1%").arg(percent));
+    videoScale_->setCurrentIndex(qRound(draft_.lastVideoScale * 2) - 1);
+    videoScale_->setEnabled(draft_.sizePolicy == WindowSizePolicy::VideoScale);
+    videoForm->addRow(QStringLiteral("视频比例"), videoScale_);
+    connect(rotation_, &QComboBox::currentIndexChanged, this, [this](int index) { draft_.userRotationDeg = index * 90; edits_.userRotationDeg = true; });
+    connect(resetViewOnOpen_, &QCheckBox::toggled, this, [this](bool enabled) { draft_.resetViewOnOpen = enabled; edits_.resetViewOnOpen = true; });
+    connect(sizePolicy_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        draft_.sizePolicy = WindowSizePolicy(index);
+        edits_.sizePolicy = true;
+        videoScale_->setEnabled(draft_.sizePolicy == WindowSizePolicy::VideoScale);
+    });
+    connect(videoScale_, &QComboBox::currentIndexChanged, this, [this](int index) { draft_.lastVideoScale = (index + 1) * .5; edits_.lastVideoScale = true; });
+
     message_=new QLabel; message_->setObjectName("settingsMessage"); message_->setWordWrap(true); layout->addWidget(message_);
     auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel|QDialogButtonBox::Apply|QDialogButtonBox::RestoreDefaults); layout->addWidget(buttons);
     buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定")); buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消")); buttons->button(QDialogButtonBox::Apply)->setText(QStringLiteral("应用")); buttons->button(QDialogButtonBox::RestoreDefaults)->setText(QStringLiteral("恢复本页默认"));
@@ -162,6 +195,8 @@ void SettingsDialog::resetPage()
         edits_.seekLargeSeconds=true;
     } else if (tabs_->currentWidget() == skip_) {
         resetSkip();
+    } else if (tabs_->currentWidget() == video_) {
+        resetVideo();
     } else {
         resetShortcuts();
     }
@@ -178,6 +213,16 @@ void SettingsDialog::resetSkip()
     outroSeconds_->setValue(defaults.outroSeconds);
     edits_.skipEnabled = edits_.introEnabled = edits_.outroEnabled = true;
     edits_.introSeconds = edits_.outroSeconds = true;
+}
+
+void SettingsDialog::resetVideo()
+{
+    const auto defaults = SettingsStore::defaults();
+    rotation_->setCurrentIndex(defaults.userRotationDeg / 90);
+    resetViewOnOpen_->setChecked(defaults.resetViewOnOpen);
+    sizePolicy_->setCurrentIndex(int(defaults.sizePolicy));
+    videoScale_->setCurrentIndex(qRound(defaults.lastVideoScale * 2) - 1);
+    edits_.userRotationDeg = edits_.resetViewOnOpen = edits_.sizePolicy = edits_.lastVideoScale = true;
 }
 
 void SettingsDialog::resetShortcuts()
@@ -201,6 +246,7 @@ void SettingsDialog::resetAll()
     tabs_->setCurrentWidget(general_);
     resetPage();
     resetSkip();
+    resetVideo();
     resetShortcuts();
     message_->setText(QStringLiteral("全部设置已恢复默认，点击应用或确定后生效。"));
 }

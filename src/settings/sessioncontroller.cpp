@@ -67,6 +67,7 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     window.installEventFilter(this); host_->window()->installEventFilter(this); surface_->installEventFilter(this);
     auto *mediaControls=window.findChild<MediaControls *>();
     connect(host_,&PlaylistHost::changed,this,&SessionController::scheduleSave);
+    connect(&window_, &MainWindow::windowSizingChanged, this, &SessionController::scheduleSave);
     connect(playlist_,&PlaylistController::playbackOrderChanged,this,&SessionController::scheduleSave);
     connect(mediaControls,&MediaControls::alwaysOnTopChanged,this,&SessionController::scheduleSave);
     connect(video_,&VideoWidget::viewChanged,this,&SessionController::scheduleSave);
@@ -82,7 +83,10 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
         tryStart();
     });
     connect(actions_->get(PlayerActions::StandardMode),&QAction::toggled,this,&SessionController::scheduleSave);
-    connect(&player_,&Player::fileOpening,this,[this] { flushProgress(); resetStart(); });
+    connect(&player_,&Player::fileOpening,this,[this] {
+        flushProgress(); resetStart();
+        if (preferences_.resetViewOnOpen) video_->resetView();
+    });
     connect(&player_,&Player::stopping,this,[this] { flushProgress(); resetStart(); recordCurrent_=false; });
     connect(&player_,&Player::mediaChanged,this,[this](Player::State state,const QString &path,const QString &) {
         if(state==Player::State::Loading && !player_.lastLoadWasRecovery()) { currentPath_=path; prepareFile(); }
@@ -154,6 +158,7 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     host_->restore(preferences_.detached,preferences_.playlistVisible,preferences_.dockWidth);
     applyPlaybackSettings(preferences_);
     video_->restoreView(preferences_.viewScale, preferences_.viewFocus);
+    window_.setWindowSizing(preferences_.sizePolicy, preferences_.lastVideoScale);
     rebuildRecent(); restoring_=false;
     if(settingsNeedWrite_) settingsTimer_.start();
     const auto message=settings_.error().isEmpty()?history_.loadError():settings_.error(); if(!message.isEmpty()) QTimer::singleShot(0,this,[this,message] { surface_->showOsd("storage",message,5000); });
@@ -176,6 +181,9 @@ void SessionController::captureRuntime(Preferences &p) const
     p.subtitleDelay=player_.propertyTarget("sub-delay").toDouble();
     p.viewScale=video_->zoomScale();
     p.viewFocus=video_->viewFocus();
+    p.userRotationDeg = player_.propertyTarget("video-rotate").toInt();
+    p.sizePolicy = window_.sizePolicy();
+    p.lastVideoScale = window_.lastVideoScale();
     p.repeatMode=playlist_->repeatMode();
     p.shuffleEnabled=playlist_->shuffleEnabled();
 }
@@ -198,6 +206,7 @@ void SessionController::applyPlaybackSettings(const Preferences &p)
     player_.setMediaProperty("audio-delay", p.audioDelay);
     player_.setMediaProperty("sub-delay", p.subtitleDelay);
     player_.setMediaProperty("sub-scale", p.subtitleScale);
+    player_.setMediaProperty("video-rotate", p.userRotationDeg);
 }
 
 bool SessionController::applyDialogChanges(const Preferences &draft, const SettingsEdits &edits)
@@ -217,6 +226,11 @@ bool SessionController::applyDialogChanges(const Preferences &draft, const Setti
     if (edits.outroEnabled) p.outroEnabled = draft.outroEnabled;
     if (edits.introSeconds) p.introSeconds = draft.introSeconds;
     if (edits.outroSeconds) p.outroSeconds = draft.outroSeconds;
+    if (!edits.resetAll) captureRuntime(p);
+    if (edits.userRotationDeg) p.userRotationDeg = draft.userRotationDeg;
+    if (edits.resetViewOnOpen) p.resetViewOnOpen = draft.resetViewOnOpen;
+    if (edits.sizePolicy) p.sizePolicy = draft.sizePolicy;
+    if (edits.lastVideoScale) p.lastVideoScale = draft.lastVideoScale;
     for(const auto &id : edits.shortcuts) {
         const auto binding = draft.shortcuts.constFind(id);
         if(binding == draft.shortcuts.cend()) p.shortcuts.remove(id);
@@ -227,12 +241,12 @@ bool SessionController::applyDialogChanges(const Preferences &draft, const Setti
 
 bool SessionController::applyPreferences(Preferences p)
 {
+    captureRuntime(p);
     return commitPreferences(std::move(p), false);
 }
 
 bool SessionController::commitPreferences(Preferences p, bool resetAll)
 {
-    if(!resetAll) captureRuntime(p);
     if((settingsNeedWrite_ || p!=savedPreferences_) && !settings_.save(p)) { settingsError(settings_.error()); return false; }
     const bool wasRecording=preferences_.recordHistory;
     settingsTimer_.stop();
@@ -241,6 +255,9 @@ bool SessionController::commitPreferences(Preferences p, bool resetAll)
     settingsNeedWrite_=false; settingsErrorReported_=false;
     restoring_=true;
     applySettings();
+    window_.setWindowSizing(preferences_.sizePolicy, preferences_.lastVideoScale);
+    if (player_.propertyTarget("video-rotate").toInt() != preferences_.userRotationDeg)
+        player_.setMediaProperty("video-rotate", preferences_.userRotationDeg);
     if(wasRecording && !preferences_.recordHistory) {
         recordCurrent_ = false;
         discardResume();
@@ -292,9 +309,17 @@ void SessionController::saveWindows()
 }
 void SessionController::ensureVisibleWindows()
 {
-    QList<QRect> screens; for(auto *screen:QGuiApplication::screens()) screens.append(screen->availableGeometry());
-    const auto clamp=[&](QWidget *window,QSize minimum) { const auto requested=window->isMaximized() || window->isFullScreen() || window->isMinimized()?window->normalGeometry():window->geometry(); const auto rect=SettingsStore::visibleGeometry(requested,screens,minimum); if(!window->isFullScreen() && !window->isMaximized()) window->setGeometry(rect); return rect; };
-    preferences_.mainGeometry=clamp(&window_,window_.minimumSize()); preferences_.playlistGeometry=clamp(host_->window(),host_->window()->minimumSize());
+    QList<QRect> screens;
+    for (auto *screen : QGuiApplication::screens()) screens.append(screen->availableGeometry());
+    const auto clamp = [&](QWidget *window, QRect requested) {
+        const auto rect = SettingsStore::visibleGeometry(requested, screens, window->minimumSize());
+        if (!window->isFullScreen() && !window->isMaximized() && !window->isMinimized() && window->geometry() != rect)
+            window->setGeometry(rect);
+        return rect;
+    };
+    preferences_.mainGeometry = clamp(&window_, window_.windowedGeometry());
+    auto *list = host_->window();
+    preferences_.playlistGeometry = clamp(list, list->isMaximized() || list->isMinimized() ? list->normalGeometry() : list->geometry());
 }
 bool SessionController::eventFilter(QObject *object,QEvent *event)
 {

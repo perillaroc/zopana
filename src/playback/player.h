@@ -70,6 +70,8 @@ public:
     double duration() const { return duration_; }
     bool paused() const { return paused_; }
     int videoRotation() const { return videoRotation_; }
+    quint64 videoTransformVersion() const { return videoTransformVersion_; }
+    bool videoTransformReady() const { return videoOutputReady_ && state_ == State::Loaded && !recovering_ && rendererReady_; }
     void setInitialPaused(bool paused) { if (state_ == State::Loading && !recovering_) pauseTarget_ = paused; }
     void holdStart(bool held) { startHeld_ = held; setInitialPaused(held); }
     void setTrackLanguages(const QString &audio,const QString &subtitles);
@@ -90,7 +92,8 @@ signals:
     void detailsChanged();
     void preferenceTargetChanged();
     void notice(const QString &message);
-    void sourceImageReady(const QImage &image, quint64 generation, quint64 renderEpoch, const QString &path, double position);
+    void sourceImageReady(const QImage &image, quint64 generation, quint64 renderEpoch, quint64 transformVersion,
+                          int rotation, const QString &path, double position);
     void requestSubmitted(quint64 requestId, quint64 generation, quint64 renderEpoch, const QString &operation);
     void requestFinished(quint64 requestId, bool current, bool success);
     void restored(quint64 generation, quint64 renderEpoch);
@@ -111,6 +114,7 @@ signals:
     void seekSettled(double position);
     void subtitleLoaded(const QString &path);
     void videoSizeChanged(QSize size);
+    void videoTransformChanged();
     void commandError(const QString &message);
     void startPlaybackRequested();
     void startPositionResolved(const Player::PlaybackIdentity &playback, Player::StartPosition reason, bool succeeded);
@@ -120,7 +124,15 @@ private:
     void submitPendingLoad();
     enum class Command { Load, Seek, Pause, Volume, Mute, Stop, Subtitle, ResetLoop,
                          Property, FramePause, Frame, Screenshot, RestoreProperty, RestoreSubtitle, RestoreSeek, ReadProperty, FinishOutro };
-    struct Request { Command command; uint64_t generation, epoch; int64_t entry; QString subject; QVariant value; };
+    struct Request {
+        Command command;
+        uint64_t generation, epoch;
+        int64_t entry;
+        QString subject;
+        QVariant value;
+        quint64 transformVersion = 0;
+        int rotation = 0;
+    };
     bool submitControl(Command command, const char **args, const QString &subject = {}, const QVariant &value = {});
     void applyVolume();
     bool issueProperty(const QString &name, const QVariant &value, Command command = Command::Property);
@@ -130,6 +142,8 @@ private:
     void publishFileProperties();
     void updateTracks();
     void resetFileDetails();
+    void invalidateVideoOutput(int target);
+    void confirmVideoOutput();
     void flushSeek();
     void finishSeek();
     void clearSeek();
@@ -180,15 +194,18 @@ private:
     bool restoreRestarted_ = false;
     struct Recovery { double position = 0; QVariantMap values; QString audio, subtitle; QStringList external; } recovery_;
     QVariantMap properties_{{"speed",1.0},{"audio-pitch-correction",true},{"sub-visibility",true},{"sub-scale",1.0},
-                            {"audio-delay",0.0},{"sub-delay",0.0}};
+                            {"audio-delay",0.0},{"sub-delay",0.0},{"video-rotate",0}};
     QVariantMap targets_;
     QSet<QString> propertyInFlight_;
     QVector<MediaTrack> tracks_;
     QStringList initialSubtitles_;
     QString audioLanguages_,subtitleLanguages_;
     bool trackPreferencesPending_=false,skipResumeNext_=false,resumeAllowed_=true,automaticOpen_=false;
-    QSize videoSize_;
-    int videoRotation_ = 0;
+    QSize videoSize_, reportedVideoSize_;
+    int videoRotation_ = 0, reportedRotation_ = 0;
+    std::optional<int> rotationBase_, expectedRotation_;
+    quint64 videoTransformVersion_ = 0;
+    bool videoOutputReady_ = false;
     int64_t selectedEntry_ = 0; // ID returned by the latest loadfile command.
     int64_t eventEntry_ = 0;    // ID from START_FILE, also identifies FILE_LOADED.
     State eventState_ = State::Idle;

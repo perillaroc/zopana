@@ -76,8 +76,11 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(&player_, &Player::detailsChanged, this, queueRefresh);
     connect(&player_, &Player::mediaChanged, this, queueRefresh);
     connect(&player_, &Player::videoSizeChanged, this, queueRefresh);
+    connect(&player_, &Player::videoTransformChanged, this, queueRefresh);
     connect(&player_, &Player::seekableChanged, this, queueRefresh);
-    connect(&video_, &QOpenGLWidget::frameSwapped, this, [this] { if (video_.canCapture() != captureReady_) refresh(); });
+    connect(&video_, &QOpenGLWidget::frameSwapped, this, [this] {
+        if ((player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion())) != captureReady_) refresh();
+    });
     auto *audio = window.findChild<QMenu *>("audioMenu");
     audioTracks_ = audio->addMenu(QStringLiteral("音轨")); audioTracks_->setObjectName("audioTracksMenu");
     audio->addAction(action(PlayerActions::AudioNext)); audio->addSeparator();
@@ -150,8 +153,9 @@ void MediaControls::refresh()
     for (auto id : {PlayerActions::RateLess,PlayerActions::RateMore,PlayerActions::Pitch}) actions_.get(id)->setEnabled(loaded || player_.recovering());
     actions_.get(PlayerActions::Pitch)->setChecked(player_.mediaProperty("audio-pitch-correction").toBool());
     rateMenu_->setTitle(QStringLiteral("倍速 · %1×").arg(speed,0,'f',2));
-    captureReady_ = video_.canCapture();
-    for (auto id : {PlayerActions::CaptureSource,PlayerActions::CaptureViewport,PlayerActions::FrameForward}) actions_.get(id)->setEnabled(loaded && captureReady_);
+    captureReady_ = player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion());
+    for (auto id : {PlayerActions::CaptureSource,PlayerActions::CaptureViewport}) actions_.get(id)->setEnabled(loaded && captureReady_);
+    actions_.get(PlayerActions::FrameForward)->setEnabled(loaded && video_.canCapture());
     for (auto id : {PlayerActions::LoopA,PlayerActions::LoopB,PlayerActions::LoopClear}) actions_.get(id)->setEnabled(loaded && player_.seekable());
     actions_.get(PlayerActions::CaptureFolder)->setEnabled(!captures_->lastSaved().isEmpty());
     actions_.get(PlayerActions::MediaInfo)->setEnabled(!player_.path().isEmpty()); actions_.get(PlayerActions::FileLocation)->setEnabled(QFileInfo::exists(player_.path()));

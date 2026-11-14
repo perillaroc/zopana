@@ -30,6 +30,8 @@ def main():
         ('sar.mp4', 'scale=720:540,setsar=4/3', True),
         ('square.mp4', 'scale=722:722,setsar=1', False),
         ('wide-1080.mp4', 'scale=1920:1080,setsar=1', False),
+        ('wide-2160.mp4', 'scale=3840:2160,setsar=1', False),
+        ('small.mp4', 'scale=320:180,setsar=1', False),
     ):
         ffmpeg('-loop', '1', '-framerate', '25', '-i', base / 'grid.png',
                *(['-i', base / 'audio.m4a', '-map', '0:v:0', '-map', '1:a:0', '-c:a', 'copy'] if audio else ['-an']),

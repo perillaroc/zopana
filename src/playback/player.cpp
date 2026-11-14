@@ -49,7 +49,8 @@ constexpr Property fileProperties[] = {
     {"video-codec", MPV_FORMAT_NODE}, {"audio-codec-name", MPV_FORMAT_NODE},
     {"file-format", MPV_FORMAT_NODE}, {"container-fps", MPV_FORMAT_NODE}
 };
-constexpr const char *globalProperties[] = {"speed", "audio-pitch-correction", "sub-scale", "sub-visibility", "audio-delay", "sub-delay"};
+constexpr const char *globalProperties[] = {"speed", "audio-pitch-correction", "sub-scale", "sub-visibility", "audio-delay", "sub-delay", "video-rotate"};
+int normalizedRotation(int degrees) { return (degrees % 360 + 360) % 360; }
 bool globalProperty(const QString &name)
 {
     return std::ranges::any_of(globalProperties, [&name](const char *key) { return name == key; });
@@ -104,7 +105,7 @@ bool Player::initialize()
         {"video-align-x", "0"}, {"video-align-y", "0"},
         {"video-margin-ratio-left", "0"}, {"video-margin-ratio-right", "0"},
         {"video-margin-ratio-top", "0"}, {"video-margin-ratio-bottom", "0"},
-        {"video-zoom", "0"}, {"video-pan-x", "0"}, {"video-pan-y", "0"}
+        {"video-zoom", "0"}, {"video-pan-x", "0"}, {"video-pan-y", "0"}, {"video-rotate", "0"}
     };
     for (const auto &option : options) {
         if (!check(option[0], mpv_set_option_string(handle_, option[0], option[1])))
@@ -470,7 +471,12 @@ bool Player::submitControl(Command command, const char **args, const QString &su
     const uint64_t request = nextRequest_++;
     const int result = mpv_command_async(handle_, request, args);
     if (check(args[0], result)) {
-        requests_.insert(request, {command, generation_, renderEpoch_, command == Command::Load ? 0 : selectedEntry_, subject, value});
+        Request pending{command, generation_, renderEpoch_, command == Command::Load ? 0 : selectedEntry_, subject, value};
+        if (command == Command::Screenshot) {
+            pending.transformVersion = videoTransformVersion_;
+            pending.rotation = videoRotation_;
+        }
+        requests_.insert(request, pending);
         emit requestSubmitted(request, generation_, renderEpoch_, QString::fromUtf8(args[0]) + ' ' + subject);
         return true;
     }
@@ -616,16 +622,21 @@ void Player::handleReply(const mpv_event &event)
                 if (targets_.contains(request.subject) && !samePropertyValue(targets_[request.subject],request.value)) setMediaProperty(request.subject, targets_[request.subject]);
                 else if (event.error < 0) {
                     targets_.remove(request.subject);
+                    if (request.subject == "video-rotate") invalidateVideoOutput(propertyTarget("video-rotate").toInt());
                     if (global) emit preferenceTargetChanged();
                     emit detailsChanged();
                 }
                 else if (samePropertyValue(properties_.value(request.subject),request.value)) targets_.remove(request.subject);
             }
+            if (request.subject == "aid" && !propertyInFlight_.contains("aid") && targets_.contains("video-rotate"))
+                setMediaProperty("video-rotate", targets_.value("video-rotate"));
+            if (request.subject == "video-rotate") confirmVideoOutput();
         }
         if (request.command == Command::Subtitle && current && event.error >= 0) {
             readProperty("track-list"); readProperty("sid"); emit subtitleLoaded(request.subject);
         }
-        if (request.command == Command::Screenshot && current && event.error >= 0) {
+        if (request.command == Command::Screenshot && current && event.error >= 0 && videoTransformReady()
+            && request.transformVersion == videoTransformVersion_) {
             const auto &node = static_cast<mpv_event_command *>(event.data)->result;
             const int width = int(mapInteger(node,"w")), height = int(mapInteger(node,"h")), stride = int(mapInteger(node,"stride"));
             const mpv_byte_array *bytes = nullptr;
@@ -636,7 +647,8 @@ void Player::handleReply(const mpv_event &event)
                 if (image.isNull()) { emit commandError(QStringLiteral("无法分配截图内存")); submitPendingLoad(); return; }
                 const auto *source = static_cast<const uchar *>(bytes->data);
                 for (int y = 0; y < height; ++y) std::memcpy(image.scanLine(y),source + qptrdiff(y) * stride,size_t(width)*4);
-                emit sourceImageReady(image, generation_, renderEpoch_, request.subject, request.value.toDouble());
+                emit sourceImageReady(image, request.generation, request.epoch, request.transformVersion,
+                                      request.rotation, request.subject, request.value.toDouble());
             } else emit commandError(QStringLiteral("截图数据无效"));
         }
         if (request.command == Command::Volume) {
@@ -681,9 +693,18 @@ void Player::syncFileState()
 void Player::propertyChanged(const mpv_event &event)
 {
     const auto &property = *static_cast<mpv_event_property *>(event.data);
-    if (property.format == MPV_FORMAT_NONE || !property.data)
-        return;
     const QByteArrayView name(property.name);
+    if (property.format == MPV_FORMAT_NONE || !property.data) {
+        if (engineLoaded_ && event.reply_userdata == observationId_ && name == "video-out-params") {
+            reportedVideoSize_ = {};
+            if (videoOutputReady_) {
+                invalidateVideoOutput(propertyTarget("video-rotate").toInt());
+                videoSize_ = {};
+                emit videoSizeChanged(videoSize_);
+            }
+        }
+        return;
+    }
     if (name == "volume") {
         const double volume = *static_cast<double *>(property.data);
         reportedVolume_ = volume;
@@ -741,11 +762,11 @@ void Player::propertyChanged(const mpv_event &event)
         const auto &node = *static_cast<mpv_node *>(property.data);
         // dw/dh include pixel aspect ratio; rotate is the remaining VO rotation.
         QSize size(int(mapInteger(node, "dw")), int(mapInteger(node, "dh")));
-        videoRotation_ = int(mapInteger(node, "rotate"));
-        if (std::abs(videoRotation_ % 180) == 90)
+        reportedRotation_ = normalizedRotation(int(mapInteger(node, "rotate")));
+        if (reportedRotation_ % 180 == 90)
             size.transpose();
-        std::fprintf(stderr, "video display size: %dx%d\n", size.width(), size.height());
-        videoSize_ = size; emit videoSizeChanged(size);
+        reportedVideoSize_ = size;
+        confirmVideoOutput();
     } else if (name == "current-ao") {
         std::fprintf(stderr, "audio output: %s\n", *static_cast<char **>(property.data));
     } else if (name == "audio-out-params") {
@@ -762,10 +783,43 @@ void Player::resetFileDetails()
 {
     framePending_ = false;
     tracks_.clear(); videoSize_ = {}; videoRotation_ = 0; properties_.remove("track-list");
+    reportedVideoSize_ = {};
+    rotationBase_.reset();
+    expectedRotation_.reset();
+    videoOutputReady_ = false;
     for (const auto &name : {"aid","sid","ab-loop-a","ab-loop-b","video-params","audio-params","video-codec","audio-codec-name","file-format","container-fps"}) {
         properties_.remove(name); targets_.remove(name);
     }
     emit detailsChanged();
+}
+
+void Player::invalidateVideoOutput(int target)
+{
+    ++videoTransformVersion_;
+    if (rotationBase_) expectedRotation_ = normalizedRotation(*rotationBase_ + target);
+    if (!videoOutputReady_) return;
+    videoOutputReady_ = false;
+    emit videoTransformChanged();
+}
+
+void Player::confirmVideoOutput()
+{
+    if (reportedVideoSize_.isEmpty() || recovering_ || state_ != State::Loaded
+        || propertyInFlight_.contains("video-rotate")) return;
+    const int target = propertyTarget("video-rotate").toInt();
+    if (target != mediaProperty("video-rotate").toInt() || (expectedRotation_ && *expectedRotation_ != reportedRotation_)) return;
+
+    // The output angle includes the container orientation and the user adjustment.
+    expectedRotation_.reset();
+    rotationBase_ = normalizedRotation(reportedRotation_ - target);
+    if (videoOutputReady_ && videoSize_ == reportedVideoSize_ && videoRotation_ == reportedRotation_) return;
+    videoOutputReady_ = true;
+    ++videoTransformVersion_;
+    videoSize_ = reportedVideoSize_;
+    videoRotation_ = reportedRotation_;
+    std::fprintf(stderr, "video display size: %dx%d (%d degrees)\n", videoSize_.width(), videoSize_.height(), videoRotation_);
+    emit videoSizeChanged(videoSize_);
+    emit videoTransformChanged();
 }
 
 bool Player::issueProperty(const QString &name, const QVariant &value, Command command)
@@ -787,13 +841,29 @@ void Player::setMediaProperty(const QString &name, const QVariant &value)
         if (name == "sub-scale") number = std::clamp(number,.5,2.0);
         if (name == "audio-delay" || name == "sub-delay") number = std::clamp(number, -3600.0, 3600.0);
         target = number;
+    } else if (name == "video-rotate") {
+        bool valid = false;
+        const int degrees = value.toInt(&valid);
+        if (!valid || degrees % 90 != 0) return;
+        target = normalizedRotation(degrees);
     } else if (name != "aid" && name != "sid" && name != "ab-loop-a" && name != "ab-loop-b"
         && name != "sub-visibility" && name != "audio-pitch-correction") return;
     const auto previous = propertyTarget(name);
+    if (name == "video-rotate" && previous.toInt() == target.toInt() && !targets_.contains(name)) return;
     targets_[name] = target;
-    if (!propertyInFlight_.contains(name) && !recovering_) {
+    if (name == "video-rotate" && previous.toInt() != target.toInt()) invalidateVideoOutput(target.toInt());
+    // An audio track switch can reposition the demuxer. Let it settle before mpv refreshes a paused frame.
+    const bool switchingAudio = name == "video-rotate" && propertyInFlight_.contains("aid");
+    if (!propertyInFlight_.contains(name) && !recovering_ && !switchingAudio) {
         if (issueProperty(name,target)) propertyInFlight_.insert(name);
-        else { targets_.remove(name); emit detailsChanged(); }
+        else {
+            targets_.remove(name);
+            if (name == "video-rotate") {
+                invalidateVideoOutput(propertyTarget(name).toInt());
+                confirmVideoOutput();
+            }
+            emit detailsChanged();
+        }
     }
     if (global && previous != propertyTarget(name)) emit preferenceTargetChanged();
 }
@@ -846,7 +916,7 @@ bool Player::loopActive() const
 }
 void Player::captureSource()
 {
-    if (state_ != State::Loaded || videoSize_.isEmpty()) return;
+    if (!videoTransformReady()) return;
     const char *args[] = {"screenshot-raw","video","rgba",nullptr}; submitControl(Command::Screenshot,args,path_,position_);
 }
 void Player::readProperty(const QString &name)
@@ -866,6 +936,10 @@ void Player::applyProperty(const QString &name, const QVariant &value)
     properties_[name] = actual;
     if (!propertyInFlight_.contains(name) && samePropertyValue(targets_.value(name),actual)) targets_.remove(name);
     if (name == "track-list") updateTracks();
+    if (name == "video-rotate") {
+        if (previous.toInt() != propertyTarget(name).toInt()) invalidateVideoOutput(propertyTarget(name).toInt());
+        confirmVideoOutput();
+    }
     if (global && previous != propertyTarget(name)) emit preferenceTargetChanged();
     emit detailsChanged();
 }
@@ -943,14 +1017,14 @@ void Player::restoreStep()
     case 6: ++restoreStage_; issueProperty("pause",pauseTarget_ || startHeld_,Command::RestoreProperty); break;
     case 7:
         ++restoreStage_;
-        for (const auto &name : {"track-list","aid","sid","speed","sub-visibility","sub-scale","sub-delay","audio-delay","audio-pitch-correction","ab-loop-a","ab-loop-b"}) readProperty(name);
+        for (const auto &name : {"track-list","aid","sid","speed","sub-visibility","sub-scale","sub-delay","audio-delay","audio-pitch-correction","video-rotate","ab-loop-a","ab-loop-b"}) readProperty(name);
         break;
     default: {
         bool pending = false;
         for (const auto *name : globalProperties)
             if (targets_.contains(name) && !samePropertyValue(targets_[name],properties_.value(name))) { issueProperty(name,targets_[name],Command::RestoreProperty); pending = true; }
         if (pending) { restoreStage_ = 7; return; }
-        recovering_ = false; changeState(State::Loaded); publishFileProperties(); emit restored(generation_,renderEpoch_); break;
+        recovering_ = false; changeState(State::Loaded); confirmVideoOutput(); publishFileProperties(); emit restored(generation_,renderEpoch_); break;
     }
     }
 }

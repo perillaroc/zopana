@@ -20,6 +20,8 @@ struct SettingsEdits {
     bool seekSmallSeconds = false, seekMediumSeconds = false, seekLargeSeconds = false;
     bool skipEnabled = false, introEnabled = false, outroEnabled = false;
     bool introSeconds = false, outroSeconds = false;
+    bool userRotationDeg = false, resetViewOnOpen = false;
+    bool sizePolicy = false, lastVideoScale = false;
     bool resetAll = false;
 };
 
@@ -36,6 +38,7 @@ private:
     void resetAll();
     void resetShortcuts();
     void resetSkip();
+    void resetVideo();
     void populate();
     void select();
     void bind();
@@ -44,13 +47,15 @@ private:
     PlayerActions &actions_;
     std::function<bool(const Preferences &, const SettingsEdits &)> apply_;
     QTabWidget *tabs_;
-    QWidget *general_, *skip_;
+    QWidget *general_, *skip_, *video_;
     QLineEdit *capture_,*audio_,*sub_,*filter_;
     QCheckBox *history_;
     QComboBox *resume_;
     QSpinBox *seekSmall_, *seekMedium_, *seekLarge_;
     QCheckBox *skipEnabled_, *introEnabled_, *outroEnabled_;
     QSpinBox *introSeconds_, *outroSeconds_;
+    QComboBox *rotation_, *sizePolicy_, *videoScale_;
+    QCheckBox *resetViewOnOpen_;
     QTableWidget *table_;
     QKeySequenceEdit *first_,*second_;
     QLabel *message_;

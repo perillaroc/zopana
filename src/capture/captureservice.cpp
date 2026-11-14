@@ -9,45 +9,65 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 #include <QThread>
+#include <QTransform>
 #include <QtConcurrent/QtConcurrentRun>
 
-namespace { struct SaveResult { QString path, error; bool worker = false; }; }
+namespace {
+struct SaveResult { QSharedPointer<QTemporaryFile> image; QString name, error; bool worker = false; };
+}
 CaptureService::CaptureService(Player &player, VideoWidget &video, QObject *parent) : QObject(parent), player_(player), video_(video)
 {
     setObjectName("captureService");
     directory_ = QDir(QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)).filePath("zopana");
-    connect(&player_, &Player::sourceImageReady, this, [this](const QImage &image, quint64 generation, quint64 epoch, const QString &path, double position) {
-        write(image,generation,epoch,path,position,"source");
+    connect(&player_, &Player::sourceImageReady, this, [this](const QImage &image, quint64 generation, quint64 epoch,
+              quint64 transformVersion, int rotation, const QString &path, double position) {
+        write(image, generation, epoch, transformVersion, path, position, "source", rotation);
     });
 }
-void CaptureService::source() { if (video_.canCapture()) player_.captureSource(); }
+void CaptureService::source()
+{
+    if (player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion())) player_.captureSource();
+}
 void CaptureService::viewport()
 {
-    if (!video_.canCapture()) return;
-    write(video_.grabFramebuffer(),player_.generation(),player_.renderEpoch(),player_.path(),player_.positionTarget(),"viewport");
+    const auto version = player_.videoTransformVersion();
+    if (!player_.videoTransformReady() || !video_.canCaptureTransform(version)) return;
+    const auto image = video_.grabFramebuffer();
+    if (!video_.canCaptureTransform(version) || player_.videoTransformVersion() != version) return;
+    write(image, player_.generation(), player_.renderEpoch(), version, player_.path(), player_.positionTarget(), "viewport");
 }
-void CaptureService::write(QImage image, quint64 generation, quint64 epoch, const QString &media, double position, const QString &kind)
+void CaptureService::write(QImage image, quint64 generation, quint64 epoch, quint64 transformVersion,
+                           const QString &media, double position, const QString &kind, int rotation)
 {
     if (image.isNull()) { emit failed(QStringLiteral("当前没有可保存的画面")); return; }
     const QString directory = directory_;
     QString stem = QFileInfo(media).completeBaseName().left(80);
     stem.replace(QRegularExpression(QStringLiteral(R"([<>:"/\\|?*\x00-\x1f])")), "_");
-    const auto name = QStringLiteral("%1-%2s-%3-XXXXXX.png").arg(stem).arg(position,0,'f',3).arg(kind);
+    const auto name = QStringLiteral("%1-%2s-%3-").arg(stem).arg(position,0,'f',3).arg(kind);
     auto *guiThread = QThread::currentThread();
     auto *watcher = new QFutureWatcher<SaveResult>(this);
-    connect(watcher, &QFutureWatcher<SaveResult>::finished, this, [this,watcher,generation,epoch] {
+    connect(watcher, &QFutureWatcher<SaveResult>::finished, this, [this,watcher,generation,epoch,transformVersion] {
         const auto result = watcher->result(); watcher->deleteLater();
-        if (generation != player_.generation() || epoch != player_.renderEpoch()) return;
+        if (generation != player_.generation() || epoch != player_.renderEpoch() || transformVersion != player_.videoTransformVersion()) return;
         if (!result.error.isEmpty()) { emit failed(result.error); return; }
-        lastSaved_ = result.path; emit saved(result.path,result.worker);
+        const QFileInfo temp(result.image->fileName());
+        const auto path = temp.dir().filePath(result.name + temp.suffix() + ".png");
+        if (!result.image->rename(path)) {
+            emit failed(QStringLiteral("截图发布失败：%1").arg(result.image->errorString()));
+            return;
+        }
+        result.image->setAutoRemove(false);
+        lastSaved_ = path; emit saved(path,result.worker);
     });
-    watcher->setFuture(QtConcurrent::run([image = std::move(image),directory,name,guiThread] {
+    watcher->setFuture(QtConcurrent::run([image = std::move(image),directory,name,guiThread,rotation]() mutable {
         SaveResult result; result.worker = QThread::currentThread() != guiThread;
+        result.name = name;
         if (!QDir().mkpath(directory)) { result.error = QStringLiteral("无法创建截图目录：%1").arg(directory); return result; }
-        QTemporaryFile file(QDir(directory).filePath(name));
-        if (!file.open()) { result.error = QStringLiteral("无法写入截图：%1").arg(file.errorString()); return result; }
-        QImageWriter writer(&file,"PNG");
-        if (!writer.write(image) || !file.flush()) { result.error = QStringLiteral("截图保存失败：%1").arg(writer.errorString()); return result; }
-        result.path = file.fileName(); file.setAutoRemove(false); file.close(); return result;
+        auto file = QSharedPointer<QTemporaryFile>::create(QDir(directory).filePath(".capture.XXXXXXXXXXXX"));
+        if (!file->open()) { result.error = QStringLiteral("无法写入截图：%1").arg(file->errorString()); return result; }
+        if (rotation) image = image.transformed(QTransform().rotate(rotation));
+        QImageWriter writer(file.data(),"PNG");
+        if (!writer.write(image) || !file->flush()) { result.error = QStringLiteral("截图保存失败：%1").arg(writer.errorString()); return result; }
+        file->close(); result.image = std::move(file); return result;
     }));
 }

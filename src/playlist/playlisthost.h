@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QPointer>
+#include <optional>
 class QSplitter;
 class QWidget;
 class QVBoxLayout;
@@ -17,6 +18,11 @@ public:
     bool overlayVisible() const;
     QWidget *window() const;
     int dockWidth() const { return dockWidth_; }
+    int dockExtent() const;
+    int dockThreshold() const;
+    void beginVideoSizing(bool docked);
+    void endVideoSizing();
+    void clearVideoSizing();
     bool preferredVisible() const { return visible_; }
     void restore(bool detached,bool visible,int width);
     void setDetached(bool detached);
@@ -39,5 +45,6 @@ private:
     PlaylistWindow *window_;
     QPointer<QWidget> previousFocus_;
     bool detached_ = false, visible_ = false, fullscreen_ = false, fullscreenVisible_ = false;
+    std::optional<bool> dockForVideoSize_;
     int dockWidth_ = 320;
 };

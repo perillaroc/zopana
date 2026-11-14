@@ -310,13 +310,14 @@ public:
     void fullscreen()
     {
         auto *bar = widget<QWidget>("controlBar"); auto *context = video->context(); const int before = loads;
-        video->setFocus(); key(Qt::Key_F11); QTest::qWait(150);
-        QCursor::setPos(video->mapToGlobal(QPoint(video->width() / 2, 180))); QTest::qWait(100);
+        window.raise(); window.activateWindow(); video->setFocus();
+        require("fullscreen test window active", QTest::qWaitForWindowActive(&window));
+        video->setFocus(); key(Qt::Key_F11);
+        require("fullscreen shortcut entered fullscreen", until([&] { return window.isFullScreen(); }));
+        QCursor::setPos(video->mapToGlobal(video->rect().center())); QTest::qWait(100);
         const auto geometry = video->geometry(); const auto frame = video->grabFramebuffer();
         const auto barImage = bar->grab().toImage();
         check("fullscreen bar has an opaque palette background", barImage.pixelColor(2, 2) == bar->palette().color(QPalette::Button));
-        window.raise(); window.activateWindow(); video->setFocus();
-        require("fullscreen test window active", QTest::qWaitForWindowActive(&window));
         const bool hidden = until([&] { return !bar->isVisible(); }, 3600);
         check("fullscreen auto hides controls after inactivity", hidden,
             {{"active", window.isActiveWindow()}, {"focus", QApplication::focusWidget() ? QApplication::focusWidget()->objectName() : "none"},

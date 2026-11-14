@@ -25,6 +25,8 @@
 | 字幕显隐、音频和字幕延迟 | `tracks/subtitleVisible`、`tracks/audioDelay`、`tracks/subtitleDelay` | `true`、`0`、`0`，延迟单位为秒 |
 | 置顶 | `window/alwaysOnTop` | `false` |
 | 取景 | `video/viewScale`、`video/focusU`、`video/focusV` | `1`、`0.5`、`0.5`，中心按未旋转画面归一化 |
+| 旋转和换片取景 | `video/userRotationDeg`、`video/resetViewOnOpen` | `0`、`false`，额外角度接受 0、90、180、270 |
+| 视频比例窗口 | `window/sizePolicy`、`window/lastVideoScale` | `lastGeometry`、`1`，另有 `videoScale` 和 `fitWorkArea` 策略，比例接受 0.5、1、1.5、2 |
 
 ## 源码布局
 
@@ -37,7 +39,7 @@
 | `src/playback/` | libmpv 生命周期、异步命令、按文件处理的事件和轨道状态。 |
 | `src/video/` | 视频区输入和 OpenGL 渲染，计算适窗、指针锚点及拖动边界。 |
 | `src/playlist/` | 播放队列、播放顺序、停靠与独立列表，以及可取消的文件夹扫描。 |
-| `src/capture/` | 原始画面和当前取景截图、后台编码及避免覆盖已有文件。 |
+| `src/capture/` | 完整画面和当前取景截图、后台编码及截图版本校验。 |
 | `src/settings/` | INI 配置、快捷键编辑、窗口记忆、最近文件和断点续播。 |
 | `experiments/` | 可选的阶段验证工具和复现说明。 |
 | `packaging/` | Windows 便携包脚本、随包说明和第三方依赖来源。 |

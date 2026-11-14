@@ -49,7 +49,7 @@ $nativeDpr = 2
 
 只重跑配置和定位时，在同一命令末尾加 `-Checks Settings,Seek`。每组开头输出证据目录，成功时显示对应进程的 `PASS` 和检查项数。任何一组报错都会让总入口失败，可从最后输出的目录查看日志。`Settings` 只在该轮证据目录设置写保护并恢复其权限，强制终止的是该轮启动的检查进程。
 
-## 旋转与元数据小样
+## 旋转、窗口与元数据验证
 
 构建同一目录下的两个额外目标。准备 Python 3、FFprobe 和含 `libx264`、`libvpx-vp9` 的 FFmpeg。
 
@@ -61,4 +61,4 @@ $stage1 = './experiments/playback-controls/stage-1'
 & "$stage1/run-metadata.ps1" -BuildDir $build -FixtureDir $fixtures -QtRoot $qt
 ```
 
-旋转小样输出三档 DPR 的取景截图和尺寸数据，证据目录以 `rotation-` 开头。元数据小样在前台播放时验证无输出读取和超时回收，证据目录以 `metadata-` 开头。
+旋转探针在三档 DPR 打开实际播放器，检查旋转、窗口物理尺寸、字幕、截图和重新启动后的偏好，证据目录以 `rotation-` 开头。元数据小样在前台播放时验证无输出读取和超时回收，证据目录以 `metadata-` 开头。

@@ -46,11 +46,14 @@ constexpr Definition definitions[] = {
     {"rate.preset.050","0.5×",""}, {"rate.preset.075","0.75×",""}, {"rate.preset.125","1.25×",""},
     {"rate.preset.150","1.5×",""}, {"rate.preset.200","2.0×",""}, {"rate.preset.300","3.0×",""}, {"audio.pitchCorrection","保持音调",""},
     {"frame.forward","暂停并前进一帧","step-forward"}, {"loop.setA","设置 A 点",""}, {"loop.setB","设置 B 点",""}, {"loop.clear","清除 A–B",""},
-    {"capture.source","原始画面截图","camera"}, {"capture.viewport","当前取景截图","camera"}, {"capture.openFolder","打开截图文件夹","folder-open"},
+    {"capture.source","完整画面截图","camera"}, {"capture.viewport","当前取景截图","camera"}, {"capture.openFolder","打开截图文件夹","folder-open"},
     {"window.mediaInfo","媒体信息","info"}, {"file.location","打开文件位置","folder-open"}, {"window.alwaysOnTop","窗口置顶","pin"},
     {"window.settings","设置",""}, {"file.clearHistory","清除最近文件和进度",""},
     {"play.skip.toggle","启用跳略播放",""}, {"play.skip.intro","跳过片头",""},
-    {"play.skip.outro","跳过片尾",""}, {"play.skip.settings","跳略设置…",""}
+    {"play.skip.outro","跳过片尾",""}, {"play.skip.settings","跳略设置…",""},
+    {"view.rotate.next","顺时针旋转 90°",""}, {"view.rotate.previous","逆时针旋转 90°",""}, {"view.rotate.reset","复位额外旋转",""},
+    {"window.scale.050","窗口 50%",""}, {"window.scale.100","窗口 100%",""}, {"window.scale.150","窗口 150%",""},
+    {"window.scale.200","窗口 200%",""}, {"window.scale.fit","窗口适合工作区",""}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},
@@ -149,6 +152,14 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     view(SkipSettings, {QKeySequence(Qt::Key_Apostrophe)});
     for (auto id : {SkipToggle, SkipIntro, SkipOutro}) get(id)->setCheckable(true);
     for (auto id : {SkipToggle, SkipIntro, SkipOutro, SkipSettings}) get(id)->setEnabled(false);
+    view(RotateNext, {QKeySequence(Qt::ALT | Qt::Key_K)});
+    view(RotatePrevious, {QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_K)});
+    view(RotateReset, {QKeySequence(Qt::ALT | Qt::CTRL | Qt::Key_K)});
+    for (int i = 0; i < 5; ++i) {
+        const auto id = Id(Scale50 + i);
+        const auto key = Qt::Key(Qt::Key_1 + i);
+        view(id, {QKeySequence(key), QKeySequence(Qt::KeypadModifier | key)});
+    }
     get(Fullscreen)->setProperty("scope", QStringLiteral("窗口：F11；观看：Enter"));
     auto *mode = new QActionGroup(this);
     for (auto id : {FeatureMode, StandardMode}) { get(id)->setCheckable(true); mode->addAction(get(id)); }
@@ -418,6 +429,7 @@ void PlayerActions::setMediaState(bool loaded, bool paused, bool replayable, boo
     get(ResetView)->setEnabled(hasVideo);
     get(Stop)->setEnabled(loaded);
     for (auto id : {ZoomIn, ZoomOut}) get(id)->setEnabled(hasVideo);
+    for (auto id : {RotateNext, RotatePrevious, RotateReset, Scale50, Scale100, Scale150, Scale200, ScaleFit}) get(id)->setEnabled(hasVideo);
     get(ResetView)->setStatusTip(hasVideo ? QStringLiteral("恢复完整画面并居中") : QStringLiteral("当前没有可复位的视频画面"));
     get(Retry)->setEnabled(retryable);
     refreshIcons();

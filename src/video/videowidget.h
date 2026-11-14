@@ -7,6 +7,7 @@
 #include <QOpenGLWidget>
 #include <QTimer>
 #include <memory>
+#include <optional>
 
 class QOpenGLFramebufferObject;
 struct mpv_handle;
@@ -25,6 +26,7 @@ public:
     bool rendererReady() const { return renderer_ != nullptr; }
     void setInputMode(InputMode mode);
     void setVideoSize(QSize displaySize, int rotation = 0);
+    void setVideoTransform(std::optional<quint64> version);
     void restoreView(double scale, QPointF focus);
     void resetView();
     void zoomSteps(double steps);
@@ -33,6 +35,7 @@ public:
     bool cancelInput();
     bool gestureActive() const { return leftPressActive_; }
     bool canCapture() const { return renderer_ && hasFrame_ && view_.valid(); }
+    bool canCaptureTransform(quint64 version) const { return canCapture() && paintedTransform_ == version; }
 
 signals:
     void rendererReadyChanged(bool ready);
@@ -73,6 +76,7 @@ private:
     std::unique_ptr<QOpenGLFramebufferObject> videoBuffer_;
     QSize bufferForSize_;
     bool bufferHasFrame_ = false;
+    std::optional<quint64> videoTransform_, paintedTransform_;
 
     QSize displaySize_;
     int rotation_ = 0;

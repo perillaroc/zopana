@@ -1,5 +1,6 @@
 #pragma once
 #include "repeatmode.h"
+#include "windowsizing.h"
 #include <QPointF>
 #include <QRect>
 #include <QString>
@@ -7,7 +8,6 @@
 
 enum class SortField { FileName, Title, Extension, Folder, Path, FileSize, ModifiedTime, CreatedTime, Duration, Resolution, AddedOrder };
 enum class SortDirection { Ascending, Descending };
-enum class WindowSizePolicy { LastGeometry, VideoScale, FitWorkArea };
 
 struct Preferences {
     static constexpr int minSeekStepSeconds = 1, maxSeekStepSeconds = 3600;
