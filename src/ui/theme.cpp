@@ -75,6 +75,7 @@ QMenu::item { padding:7px 24px 7px 28px; border-radius:3px; }
 QMenu::item:disabled { color:palette(disabled,button-text); }
 QMenu::separator { height:1px; background:palette(mid); margin:5px; }
 QToolButton { color:palette(button-text); border:1px solid transparent; border-bottom-width:2px; border-radius:5px; padding:6px; }
+QToolButton[playlistOrderControl="true"] { border-color:palette(mid); }
 QToolButton:hover { background:palette(alternate-base); }
 QToolButton:pressed, QToolButton:checked { background:palette(mid); }
 QToolButton[keyboardFocus="true"]:focus { border-bottom-color:palette(highlight); }

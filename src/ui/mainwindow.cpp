@@ -48,7 +48,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <utility>
 
 namespace {
 int wholeSeconds(double value)
@@ -82,12 +81,6 @@ void showMultiplier(QLabel *label, const QString &caption, double value)
     label->setText(QStringLiteral("%1 %2×").arg(caption).arg(value, 0, 'f', 2));
     label->setVisible(value > 0 && std::abs(value - 1) >= .005);
 }
-
-constexpr std::pair<PlayerActions::Id, RepeatMode> repeatActions[] = {
-    {PlayerActions::OrderSequential, RepeatMode::None},
-    {PlayerActions::OrderSingle, RepeatMode::One},
-    {PlayerActions::OrderList, RepeatMode::All},
-};
 }
 
 MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), player_(player)
@@ -178,11 +171,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     for (auto id : {PlayerActions::PlayPause, PlayerActions::Stop, PlayerActions::Previous, PlayerActions::Next, PlayerActions::BackSmall, PlayerActions::ForwardSmall,
             PlayerActions::BackMedium, PlayerActions::ForwardMedium, PlayerActions::BackLarge, PlayerActions::ForwardLarge,
             PlayerActions::SeekStart, PlayerActions::SeekEnd, PlayerActions::SeekGoto}) play->addAction(action(id));
-    auto *repeat = play->addMenu(QStringLiteral("循环模式"));
-    for (const auto &entry : repeatActions) repeat->addAction(action(entry.first));
-    repeat->addSeparator();
-    repeat->addAction(action(PlayerActions::RepeatCycle));
-    play->addAction(action(PlayerActions::ShuffleToggle));
+    actions_->addPlaybackOrderActions(*play);
     auto *picture = menu->addMenu(QStringLiteral("画面(&V)"));
     picture->setObjectName("pictureMenu");
     picture->addAction(action(PlayerActions::FeatureMode)); picture->addAction(action(PlayerActions::StandardMode));
@@ -654,8 +643,8 @@ void MainWindow::setupPlaylist()
     connect(action(PlayerActions::QueueUp), &QAction::triggered, this, [this] { playlist_->model().moveSelected(panel_->selectedIds(), -1); });
     connect(action(PlayerActions::QueueDown), &QAction::triggered, this, [this] { playlist_->model().moveSelected(panel_->selectedIds(), 1); });
     connect(action(PlayerActions::QueueClear), &QAction::triggered, playlist_, &PlaylistController::clear);
-    for (auto [id, repeatMode] : repeatActions)
-        connect(action(id), &QAction::triggered, this, [this, repeatMode] {
+    for (auto repeatMode : {RepeatMode::None, RepeatMode::One, RepeatMode::All})
+        connect(actions_->repeatModeAction(repeatMode), &QAction::triggered, this, [this, repeatMode] {
             playlist_->setPlaybackOrder(repeatMode, playlist_->shuffleEnabled());
         });
     connect(action(PlayerActions::OrderRandom), &QAction::triggered, this, [this] {
@@ -689,8 +678,7 @@ void MainWindow::updatePlaylistActions()
     const auto selected = panel_->selectedIds(); const auto &model = playlist_->model();
     actions_->get(PlayerActions::Previous)->setEnabled(playlist_->canPrevious());
     actions_->get(PlayerActions::Next)->setEnabled(playlist_->canNext());
-    for (auto [id, repeatMode] : repeatActions) actions_->get(id)->setChecked(playlist_->repeatMode() == repeatMode);
-    actions_->get(PlayerActions::ShuffleToggle)->setChecked(playlist_->shuffleEnabled());
+    actions_->setPlaybackOrderState(playlist_->repeatMode(), playlist_->shuffleEnabled());
     actions_->get(PlayerActions::QueuePlay)->setEnabled(!selected.isEmpty());
     actions_->get(PlayerActions::QueueRemove)->setEnabled(!selected.isEmpty());
     actions_->get(PlayerActions::QueueClear)->setEnabled(model.rowCount() > 0);

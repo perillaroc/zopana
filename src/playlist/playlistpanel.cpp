@@ -83,7 +83,16 @@ PlaylistPanel::PlaylistPanel(PlaylistModel &model, PlayerActions &actions, QWidg
     };
     header->addWidget(makeButton(PlayerActions::PlaylistMode, "playlistModeButton", true));
     header->addWidget(makeButton(PlayerActions::Playlist, "hidePlaylistButton")); layout->addLayout(header);
-    empty_ = new QLabel(QStringLiteral("播放列表为空\n添加文件或拖入媒体")); empty_->setAlignment(Qt::AlignCenter); empty_->setWordWrap(true); layout->addWidget(empty_);
+    auto *playbackOrder = new QHBoxLayout;
+    auto *repeat = makeButton(PlayerActions::RepeatCycle, "playlistRepeatButton", true);
+    auto *shuffle = makeButton(PlayerActions::ShuffleToggle, "playlistShuffleButton", true);
+    for (auto *button : {repeat, shuffle}) {
+        button->setProperty("playlistOrderControl", true);
+        playbackOrder->addWidget(button, 1);
+    }
+    layout->addLayout(playbackOrder);
+    empty_ = new QLabel(QStringLiteral("播放列表为空\n添加文件或拖入媒体")); empty_->setObjectName("playlistEmpty");
+    empty_->setAlignment(Qt::AlignCenter); empty_->setWordWrap(true); layout->addWidget(empty_);
     auto *view = new PlaylistView; view_ = view; view_->setObjectName("playlistView"); view_->setAccessibleName(QStringLiteral("播放列表"));
     view_->setModel(&model); view_->setSelectionMode(QAbstractItemView::ExtendedSelection); view_->setUniformItemSizes(true);
     view_->setItemDelegate(new PlaylistDelegate(view_));
@@ -93,13 +102,19 @@ PlaylistPanel::PlaylistPanel(PlaylistModel &model, PlayerActions &actions, QWidg
     connect(view_, &QListView::doubleClicked, this, [this](const QModelIndex &index) { emit playItem(model_.idAt(index.row())); });
     connect(view_->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { emit selectionChanged(); });
     auto *menu = new QMenu(view_);
+    menu->setObjectName("playlistContextMenu");
     for (auto id : {PlayerActions::QueuePlay, PlayerActions::QueueUp, PlayerActions::QueueDown, PlayerActions::QueueRemove, PlayerActions::QueueClear,
                    PlayerActions::Add, PlayerActions::AddFolder, PlayerActions::PlaylistMode}) menu->addAction(actions.get(id));
-    auto *repeat = menu->addMenu(QStringLiteral("循环模式"));
-    for (auto id : {PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList}) repeat->addAction(actions.get(id));
-    menu->addAction(actions.get(PlayerActions::ShuffleToggle));
+    menu->addSeparator();
+    actions.addPlaybackOrderActions(*menu);
     view_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(view_, &QWidget::customContextMenuRequested, this, [this, menu](QPoint point) { menu->popup(view_->viewport()->mapToGlobal(point.x() < 0 ? view_->visualRect(view_->currentIndex()).center() : point)); });
+    connect(view_, &QWidget::customContextMenuRequested, this, [this, menu](QPoint point) {
+        menu->popup(view_->viewport()->mapToGlobal(point.x() < 0 ? view_->visualRect(view_->currentIndex()).center() : point));
+    });
+    empty_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(empty_, &QWidget::customContextMenuRequested, this, [this, menu](QPoint point) {
+        menu->popup(empty_->mapToGlobal(point));
+    });
     scan_ = new QWidget; auto *scanLayout = new QHBoxLayout(scan_); scanLayout->setContentsMargins(0, 0, 0, 0);
     auto *progress = new QProgressBar; progress->setRange(0, 0); progress->setAccessibleName(QStringLiteral("正在扫描文件夹")); scanLayout->addWidget(progress, 1);
     scanLayout->addWidget(makeButton(PlayerActions::CancelScan, "cancelScanButton", true)); layout->addWidget(scan_); scan_->hide();

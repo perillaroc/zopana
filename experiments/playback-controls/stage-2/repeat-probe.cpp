@@ -8,6 +8,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QContextMenuEvent>
 #include <QDir>
 #include <QDialog>
 #include <QElapsedTimer>
@@ -15,6 +16,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
 #include <QListView>
 #include <QMenu>
 #include <QSaveFile>
@@ -22,6 +24,7 @@
 #include <QTableWidget>
 #include <QTest>
 #include <QTimer>
+#include <QToolButton>
 
 #include <array>
 #include <cmath>
@@ -84,7 +87,158 @@ public:
         repeatChangeKeepsHistory();
     }
 
+    void controls()
+    {
+        auto *panel = window_.findChild<PlaylistPanel *>();
+        auto *host = window_.findChild<PlaylistHost *>();
+        auto *repeat = panel->findChild<QToolButton *>("playlistRepeatButton");
+        auto *shuffle = panel->findChild<QToolButton *>("playlistShuffleButton");
+        auto *mainMenu = window_.findChild<QMenu *>("playerMenu");
+        auto *play = window_.findChild<QMenu *>("playMenu");
+        auto *context = panel->findChild<QMenu *>("playlistContextMenu");
+        require(repeat && shuffle && mainMenu && play && context, "all playlist playback controls exist");
+        auto *mainRepeat = play->findChild<QMenu *>("repeatModeMenu");
+        auto *contextRepeat = context->findChild<QMenu *>("repeatModeMenu");
+        require(mainRepeat && contextRepeat && repeat->defaultAction() == action(PlayerActions::RepeatCycle)
+                    && shuffle->defaultAction() == action(PlayerActions::ShuffleToggle), "toolbar uses the shared playback actions");
+        for (auto *menu : {mainRepeat, contextRepeat}) {
+            const auto entries = menu->actions();
+            require(entries.size() == 5 && entries[0] == repeatAction(RepeatMode::None)
+                        && entries[1] == repeatAction(RepeatMode::One) && entries[2] == repeatAction(RepeatMode::All)
+                        && entries[3]->isSeparator() && entries[4] == repeat->defaultAction(), "both menus use the same repeat choices");
+        }
+        require(play->actions().contains(shuffle->defaultAction()) && context->actions().contains(shuffle->defaultAction()),
+                "both menus use the toolbar's shuffle action");
+
+        const auto state = [&](RepeatMode mode, bool enabled) {
+            checkMode(mode, enabled);
+            const auto modeText = repeatAction(mode)->text();
+            const auto shuffleText = enabled ? QStringLiteral("随机播放：开") : QStringLiteral("随机播放：关");
+            const auto title = QStringLiteral("循环模式（%1）").arg(modeText);
+            require(repeat->text() == modeText && shuffle->text() == shuffleText && shuffle->isChecked() == enabled
+                        && mainRepeat->title() == title && contextRepeat->title() == title,
+                    "toolbar labels and submenu titles reflect playback state");
+            require(repeat->isEnabled() && shuffle->isEnabled() && mainRepeat->isEnabled() && contextRepeat->isEnabled()
+                        && repeatAction(mode)->isEnabled() && !repeat->accessibleName().isEmpty()
+                        && repeat->accessibleDescription().contains(modeText) && shuffle->accessibleDescription().contains(shuffleText),
+                    "controls are enabled and accessible with their current state");
+        };
+        const auto openContext = [&](QWidget *target) {
+            const auto local = target->rect().center();
+            QContextMenuEvent event(QContextMenuEvent::Mouse, local, target->mapToGlobal(local));
+            QApplication::sendEvent(target, &event);
+            require(until([&] { return context->isVisible(); }), "playlist context menu opens from its visible content");
+        };
+        const auto screenshot = [&](QWidget *widget, const QString &name) {
+            require(widget->grab().save(output_.filePath(name + ".png")), "saved " + name);
+        };
+
+        host->setVisible(true, false);
+        require(until([&] { return panel->isVisible(); }), "docked empty playlist visible");
+        const auto emptyGeneration = player_.generation();
+        state(RepeatMode::None, false);
+        QTest::mouseClick(repeat, Qt::LeftButton);
+        state(RepeatMode::One, false);
+        QTest::mouseClick(shuffle, Qt::LeftButton);
+        state(RepeatMode::One, true);
+        auto *empty = panel->findChild<QLabel *>("playlistEmpty");
+        require(empty && empty->isVisible(), "empty playlist message visible");
+        openContext(empty);
+        clickMenu(context, shuffle->defaultAction());
+        state(RepeatMode::One, false);
+        require(queue_->model().rowCount() == 0 && player_.generation() == emptyGeneration, "empty controls submit no load");
+
+        const auto ids = queue_->addFiles({fixtures_.filePath("E1.mp4"), fixtures_.filePath("E2.mp4")}, true);
+        require(ids.size() == 2, "playlist populated");
+        waitPaused(ids.first());
+        panel->select(ids.last());
+        const auto generation = player_.generation();
+        const auto position = player_.position();
+
+        auto *menuButton = window_.findChild<QToolButton *>("moreButton");
+        require(menuButton && menuButton->menu() == mainMenu, "main menu button uses the playback menu's parent");
+        openMainRepeat(menuButton, mainMenu, play, mainRepeat);
+        screenshot(mainRepeat, "main-repeat-menu");
+        clickMenu(mainRepeat, repeatAction(RepeatMode::All));
+        state(RepeatMode::All, false);
+        mainMenu->popup(menuButton->mapToGlobal(QPoint(0, menuButton->height())));
+        openSubmenu(mainMenu, play);
+        clickMenu(play, shuffle->defaultAction());
+        state(RepeatMode::All, true);
+        video_->setFocus();
+        QTest::keyClick(video_, Qt::Key_R, Qt::ControlModifier | Qt::ShiftModifier);
+        state(RepeatMode::All, false);
+        screenshot(panel, "docked");
+
+        host->setDetached(true);
+        auto *floating = host->window();
+        floating->resize(floating->minimumSize());
+        require(until([&] { return floating->isVisible() && panel->window() == floating; }), "independent playlist visible");
+        requireControlsFit(panel, repeat, shuffle);
+        QTest::mouseClick(repeat, Qt::LeftButton);
+        state(RepeatMode::None, false);
+        QTest::mouseClick(shuffle, Qt::LeftButton);
+        state(RepeatMode::None, true);
+        screenshot(floating, "independent-minimum");
+        openContext(panel->view()->viewport());
+        openSubmenu(context, contextRepeat);
+        screenshot(contextRepeat, "context-repeat-menu");
+        clickMenu(contextRepeat, repeatAction(RepeatMode::One));
+        state(RepeatMode::One, true);
+
+        host->setDetached(false);
+        window_.resize(640, 400);
+        require(until([&] { return host->overlayVisible(); }), "narrow playlist overlay visible");
+        requireControlsFit(panel, repeat, shuffle);
+        QTest::mouseClick(shuffle, Qt::LeftButton);
+        state(RepeatMode::One, false);
+        screenshot(panel, "narrow-overlay");
+
+        window_.activateWindow();
+        require(until([&] { return window_.isActiveWindow(); }), "main window active for fullscreen");
+        action(PlayerActions::Fullscreen)->trigger();
+        require(until([&] { return window_.isFullScreen(); }), "fullscreen entered");
+        host->setVisible(true, false);
+        require(until([&] { return host->overlayVisible(); }), "fullscreen playlist overlay visible");
+        requireControlsFit(panel, repeat, shuffle);
+        QTest::mouseClick(repeat, Qt::LeftButton);
+        state(RepeatMode::All, false);
+        screenshot(panel, "fullscreen-overlay");
+        require(player_.generation() == generation && player_.itemId() == ids.first() && player_.paused()
+                    && player_.position() == position && panel->selectedId() == ids.last(),
+                "all controls and layouts preserve the paused item and selected row");
+    }
+
 private:
+    void clickMenu(QMenu *menu, QAction *entry)
+    {
+        const auto rect = menu->actionGeometry(entry);
+        require(menu->isVisible() && !rect.isEmpty() && entry->isEnabled(), "menu entry is available");
+        QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier, rect.center());
+    }
+
+    void openSubmenu(QMenu *parent, QMenu *child)
+    {
+        parent->setActiveAction(child->menuAction());
+        QTest::keyClick(parent, Qt::Key_Right);
+        require(until([&] { return child->isVisible(); }), "repeat submenu opens from its parent menu");
+    }
+
+    void openMainRepeat(QToolButton *button, QMenu *mainMenu, QMenu *play, QMenu *repeat)
+    {
+        mainMenu->popup(button->mapToGlobal(QPoint(0, button->height())));
+        openSubmenu(mainMenu, play);
+        openSubmenu(play, repeat);
+    }
+
+    void requireControlsFit(QWidget *panel, QToolButton *repeat, QToolButton *shuffle)
+    {
+        require(repeat->isVisible() && shuffle->isVisible() && panel->rect().contains(repeat->geometry())
+                    && panel->rect().contains(shuffle->geometry()) && !repeat->geometry().intersects(shuffle->geometry())
+                    && repeat->width() >= repeat->sizeHint().width() && shuffle->width() >= shuffle->sizeHint().width(),
+                "both text buttons fit in the playlist panel");
+    }
+
     void require(bool passed, const QString &name)
     {
         std::printf("%s %s\n", passed ? "PASS" : "FAIL", name.toUtf8().constData());
@@ -372,13 +526,15 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     app.setApplicationName("zopana repeat probe");
     const auto args = app.arguments();
-    if (args.size() != 3) return 2;
+    const bool controlsOnly = args.size() == 4 && args[3] == "--controls";
+    if (args.size() != 3 && !controlsOnly) return 2;
     const QDir output(args[2]);
     QJsonObject report;
     bool passed = false;
     try {
         Probe probe(QDir(args[1]), output, report);
-        probe.run();
+        if (controlsOnly) probe.controls();
+        else probe.run();
         passed = true;
     } catch (const std::exception &error) {
         report["failure"] = QString::fromUtf8(error.what());

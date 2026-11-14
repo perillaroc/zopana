@@ -7,6 +7,7 @@
 #include <QApplication>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
+#include <QMenu>
 #include <QSet>
 #include <QWidget>
 
@@ -54,6 +55,7 @@ constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackMedium, PlayerActions::ForwardMedium},
     {PlayerActions::BackLarge, PlayerActions::ForwardLarge}
 };
+constexpr std::array repeatActions{PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList};
 
 bool timelineNavigationKey(QKeyCombination key)
 {
@@ -118,12 +120,12 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     get(QueuePlay)->setShortcuts({QKeySequence(Qt::Key_Return), QKeySequence(Qt::Key_Enter)});
     get(QueueRemove)->setShortcut(QKeySequence(Qt::Key_Delete));
     get(QueueUp)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Up)); get(QueueDown)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Down));
-    auto *orders = new QActionGroup(this);
-    for (auto id : {OrderSequential, OrderSingle, OrderList}) { get(id)->setCheckable(true); orders->addAction(get(id)); }
-    get(OrderSequential)->setChecked(true);
+    auto *repeat = new QActionGroup(this);
+    for (auto id : repeatActions) { get(id)->setCheckable(true); repeat->addAction(get(id)); }
     view(RepeatCycle, {QKeySequence(Qt::CTRL | Qt::Key_R)});
     view(ShuffleToggle, {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R)});
     get(ShuffleToggle)->setCheckable(true);
+    setPlaybackOrderState(RepeatMode::None, false);
     view(AudioNext,{QKeySequence(Qt::Key_J)});
     view(AudioDelayLess,{QKeySequence(Qt::SHIFT|Qt::Key_Comma),QKeySequence(Qt::SHIFT|Qt::Key_Less)},true);
     view(AudioDelayMore,{QKeySequence(Qt::SHIFT|Qt::Key_Period),QKeySequence(Qt::SHIFT|Qt::Key_Greater)},true);
@@ -151,6 +153,40 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     qApp->installEventFilter(this);
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) { if (now != composing_) composing_.clear(); });
     refreshIcons();
+}
+
+QAction *PlayerActions::repeatModeAction(RepeatMode mode) const
+{
+    return get(repeatActions[static_cast<size_t>(mode)]);
+}
+
+void PlayerActions::addPlaybackOrderActions(QMenu &menu) const
+{
+    auto *repeat = menu.addMenu(QStringLiteral("循环模式"));
+    repeat->setObjectName("repeatModeMenu");
+    for (auto id : repeatActions) repeat->addAction(get(id));
+    repeat->addSeparator();
+    auto *cycle = get(RepeatCycle);
+    repeat->addAction(cycle);
+    const auto updateTitle = [repeat, cycle] {
+        repeat->setTitle(QStringLiteral("循环模式（%1）").arg(cycle->iconText()));
+    };
+    connect(cycle, &QAction::changed, repeat, updateTitle);
+    updateTitle();
+    menu.addAction(get(ShuffleToggle));
+}
+
+void PlayerActions::setPlaybackOrderState(RepeatMode mode, bool shuffleEnabled)
+{
+    auto *selected = repeatModeAction(mode);
+    selected->setChecked(true);
+    auto *cycle = get(RepeatCycle);
+    cycle->setIconText(selected->text());
+    cycle->setStatusTip(QStringLiteral("切换循环模式，当前为%1").arg(selected->text()));
+    auto *shuffle = get(ShuffleToggle);
+    shuffle->setChecked(shuffleEnabled);
+    shuffle->setIconText(shuffleEnabled ? QStringLiteral("随机播放：开") : QStringLiteral("随机播放：关"));
+    shuffle->setStatusTip(shuffle->iconText());
 }
 
 namespace {

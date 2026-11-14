@@ -1,5 +1,7 @@
 #pragma once
 
+#include "repeatmode.h"
+
 #include <QObject>
 #include <QPointer>
 #include <QVariantMap>
@@ -8,6 +10,7 @@
 
 class QAction;
 class QKeyEvent;
+class QMenu;
 class QWidget;
 
 class PlayerActions final : public QObject
@@ -27,6 +30,9 @@ public:
               FrameForward, LoopA, LoopB, LoopClear, CaptureSource, CaptureViewport, CaptureFolder, MediaInfo, FileLocation, AlwaysOnTop, Settings, ClearHistory, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
+    QAction *repeatModeAction(RepeatMode mode) const;
+    void addPlaybackOrderActions(QMenu &menu) const;
+    void setPlaybackOrderState(RepeatMode mode, bool shuffleEnabled);
     void setMediaState(bool loaded, bool paused, bool replayable, bool hasVideo, bool retryable);
     void setFullscreen(bool fullscreen);
     void refreshIcons();

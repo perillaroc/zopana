@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)] [string]$BuildDir,
     [Parameter(Mandatory)] [string]$FixtureDir,
     [string]$QtRoot = 'C:/lang/qt/6.11.3/msvc2022_64',
-    [ValidateScript({ $_ -gt 0 })] [double]$NativeDpr = 1
+    [ValidateScript({ $_ -gt 0 })] [double]$NativeDpr = 1,
+    [switch]$Controls
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,7 +32,9 @@ try {
     $env:QT_SCALE_FACTOR_ROUNDING_POLICY = 'PassThrough'
     $env:QT_SCALE_FACTOR = (1 / $NativeDpr).ToString('G17', [Globalization.CultureInfo]::InvariantCulture)
     $log = Join-Path $runPath 'probe.log'
-    & $exe $media $runPath 2>&1 | Out-File -LiteralPath $log -Encoding utf8
+    $probeArgs = @($media, $runPath)
+    if ($Controls) { $probeArgs += '--controls' }
+    & $exe @probeArgs 2>&1 | Out-File -LiteralPath $log -Encoding utf8
     if ($LASTEXITCODE) {
         Get-Content -LiteralPath $log -Tail 30 -Encoding utf8
         throw "Repeat probe failed ($LASTEXITCODE)"
