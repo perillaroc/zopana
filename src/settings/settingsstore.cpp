@@ -7,6 +7,47 @@
 #include <QTemporaryDir>
 #include <QStandardPaths>
 #include <cmath>
+#include <utility>
+
+namespace {
+constexpr qlonglong schemaVersion = 2;
+constexpr std::pair<RepeatMode, const char *> repeatModes[] = {
+    {RepeatMode::None, "none"}, {RepeatMode::One, "one"}, {RepeatMode::All, "all"}
+};
+constexpr std::pair<SortField, const char *> sortFields[] = {
+    {SortField::FileName, "fileName"}, {SortField::Title, "title"}, {SortField::Extension, "extension"},
+    {SortField::Folder, "folder"}, {SortField::Path, "path"}, {SortField::FileSize, "fileSize"},
+    {SortField::ModifiedTime, "modifiedTime"}, {SortField::CreatedTime, "createdTime"},
+    {SortField::Duration, "duration"}, {SortField::Resolution, "resolution"}, {SortField::AddedOrder, "addedOrder"}
+};
+constexpr std::pair<SortDirection, const char *> sortDirections[] = {
+    {SortDirection::Ascending, "ascending"}, {SortDirection::Descending, "descending"}
+};
+constexpr std::pair<WindowSizePolicy, const char *> sizePolicies[] = {
+    {WindowSizePolicy::LastGeometry, "lastGeometry"}, {WindowSizePolicy::VideoScale, "videoScale"},
+    {WindowSizePolicy::FitWorkArea, "fitWorkArea"}
+};
+
+template<class Enum, size_t N>
+Enum readEnum(const QSettings &settings, const char *key, Enum fallback, const std::pair<Enum, const char *> (&values)[N])
+{
+    const auto text = settings.value(key).toString();
+    for (const auto &[value, name] : values) if (text == name) return value;
+    return fallback;
+}
+
+template<class Enum, size_t N>
+void writeEnum(QSettings &settings, const char *key, Enum value, const std::pair<Enum, const char *> (&values)[N])
+{
+    for (const auto &[candidate, name] : values) {
+        if (candidate == value) {
+            settings.setValue(key, QString::fromLatin1(name));
+            return;
+        }
+    }
+    settings.setValue(key, QString::fromLatin1(values[0].second));
+}
+}
 
 SettingsStore::SettingsStore(QString directory) : directory_(directory.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) : directory) {}
 void SettingsStore::setApplicationIdentity()
@@ -21,23 +62,47 @@ Preferences SettingsStore::load()
 {
     Preferences p=defaults(); QSettings s(fileName(),QSettings::IniFormat); s.sync();
     const auto number=[&](const char *key,double fallback,double low,double high) { bool ok=false; const double n=s.value(key,fallback).toDouble(&ok); return ok && std::isfinite(n) && n>=low && n<=high ? n : fallback; };
-    const auto flag=[&](const char *key,bool fallback) { const auto v=s.value(key,fallback); const auto text=v.toString().toLower(); return text=="true" || text=="1" ? true : text=="false" || text=="0" ? false : fallback; };
+    const auto integer = [&](const char *key, int fallback, int low, int high) {
+        bool ok = false;
+        const int value = s.value(key).toString().toInt(&ok);
+        return ok && value >= low && value <= high ? value : fallback;
+    };
+    const auto flag=[&](const char *key,bool fallback) { const auto v=s.value(key,fallback); const auto text=v.toString().trimmed().toLower(); return text=="true" || text=="1" ? true : text=="false" || text=="0" ? false : fallback; };
     const auto path=s.value("capture/directory").toString(); if(QDir::isAbsolutePath(path)) p.captureDirectory=path;
     p.audioLanguages=s.value("tracks/audioLanguages").toString(); p.subtitleLanguages=s.value("tracks/subtitleLanguages").toString();
-    p.recordHistory=flag("history/enabled",p.recordHistory); p.resumePolicy=int(number("history/resumePolicy",0,0,2));
+    p.recordHistory=flag("history/enabled",p.recordHistory); p.resumePolicy=integer("history/resumePolicy",p.resumePolicy,0,2);
     p.subtitleScale=number("tracks/subtitleScale",1,.5,2); p.volume=number("audio/volume",100,0,100); p.muted=flag("audio/muted",false);
     p.speed = number("playback/speed", p.speed, .25, 3);
     p.pitchCorrection = flag("playback/pitchCorrection", p.pitchCorrection);
     p.subtitleVisible = flag("tracks/subtitleVisible", p.subtitleVisible);
     p.audioDelay = number("tracks/audioDelay", p.audioDelay, -3600, 3600);
     p.subtitleDelay = number("tracks/subtitleDelay", p.subtitleDelay, -3600, 3600);
+    p.seekSmallSeconds = integer("playback/seekSmallSeconds", p.seekSmallSeconds, 1, 3600);
+    p.seekMediumSeconds = integer("playback/seekMediumSeconds", p.seekMediumSeconds, 1, 3600);
+    p.seekLargeSeconds = integer("playback/seekLargeSeconds", p.seekLargeSeconds, 1, 3600);
+    p.skipEnabled = flag("skip/enabled", p.skipEnabled);
+    p.introEnabled = flag("skip/introEnabled", p.introEnabled);
+    p.outroEnabled = flag("skip/outroEnabled", p.outroEnabled);
+    p.introSeconds = integer("skip/introSeconds", p.introSeconds, 0, 86400);
+    p.outroSeconds = integer("skip/outroSeconds", p.outroSeconds, 0, 86400);
+    p.repeatMode = readEnum(s, "playback/repeatMode", p.repeatMode, repeatModes);
+    p.shuffleEnabled = flag("playback/shuffleEnabled", p.shuffleEnabled);
+    p.sortField = readEnum(s, "playlist/sortField", p.sortField, sortFields);
+    p.sortDirection = readEnum(s, "playlist/sortDirection", p.sortDirection, sortDirections);
     p.viewScale = number("video/viewScale", p.viewScale, 1, 8);
     p.viewFocus = {number("video/focusU", p.viewFocus.x(), 0, 1), number("video/focusV", p.viewFocus.y(), 0, 1)};
+    const int rotation = integer("video/userRotationDeg", p.userRotationDeg, 0, 270);
+    if (rotation % 90 == 0) p.userRotationDeg = rotation;
+    p.resetViewOnOpen = flag("video/resetViewOnOpen", p.resetViewOnOpen);
+    p.sizePolicy = readEnum(s, "window/sizePolicy", p.sizePolicy, sizePolicies);
+    const double scale = number("window/lastVideoScale", p.lastVideoScale, .5, 2);
+    if (scale == .5 || scale == 1 || scale == 1.5 || scale == 2) p.lastVideoScale = scale;
     p.alwaysOnTop = flag("window/alwaysOnTop", p.alwaysOnTop);
     p.standardMode=flag("input/standardMode",false); p.maximized=flag("window/maximized",false);
     p.mainGeometry=s.value("window/normalGeometry").toRect(); p.playlistGeometry=s.value("playlist/normalGeometry").toRect();
-    p.detached=flag("playlist/detached",false); p.playlistVisible=flag("playlist/visible",false); p.dockWidth=int(number("playlist/dockWidth",320,260,2000));
-    s.beginGroup("shortcuts"); for(const auto &key:s.childKeys()) p.shortcuts[key]=s.value(key).toStringList(); s.endGroup();
+    p.detached=flag("playlist/detached",false); p.playlistVisible=flag("playlist/visible",false); p.dockWidth=integer("playlist/dockWidth",p.dockWidth,260,2000);
+    s.beginGroup("shortcuts"); for(const auto &key:s.allKeys()) p.shortcuts[key]=s.value(key); s.endGroup();
+    needsWrite_ = QFile::exists(fileName()) && (s.value("schemaVersion").toString().toLongLong() < schemaVersion || s.status() == QSettings::FormatError);
     error_=s.status()==QSettings::NoError ? QString() : QStringLiteral("部分设置无法读取，已采用有效值或默认值。"); return p;
 }
 bool SettingsStore::save(const Preferences &p)
@@ -49,9 +114,13 @@ bool SettingsStore::save(const Preferences &p)
     if(!temporary.isValid()) { error_=QStringLiteral("无法创建临时设置文件：%1").arg(directory_); return false; }
     const auto temporaryPath=temporary.path()+"/settings.ini";
     QSettings original(fileName(),QSettings::IniFormat); original.sync();
+    if (original.status() == QSettings::AccessError) {
+        error_ = QStringLiteral("无法读取设置文件：%1").arg(fileName());
+        return false;
+    }
     QSettings s(temporaryPath,QSettings::IniFormat); s.setAtomicSyncRequired(true);
     for(const auto &key:original.allKeys()) s.setValue(key,original.value(key));
-    s.setValue("schemaVersion",qMax(1,s.value("schemaVersion",1).toInt()));
+    s.setValue("schemaVersion", qMax(schemaVersion, original.value("schemaVersion").toString().toLongLong()));
     s.setValue("capture/directory",p.captureDirectory); s.setValue("tracks/audioLanguages",p.audioLanguages); s.setValue("tracks/subtitleLanguages",p.subtitleLanguages);
     s.setValue("history/enabled",p.recordHistory); s.setValue("history/resumePolicy",p.resumePolicy); s.setValue("tracks/subtitleScale",p.subtitleScale);
     s.setValue("audio/volume",p.volume); s.setValue("audio/muted",p.muted); s.setValue("input/standardMode",p.standardMode);
@@ -60,9 +129,25 @@ bool SettingsStore::save(const Preferences &p)
     s.setValue("tracks/subtitleVisible", p.subtitleVisible);
     s.setValue("tracks/audioDelay", p.audioDelay);
     s.setValue("tracks/subtitleDelay", p.subtitleDelay);
+    s.setValue("playback/seekSmallSeconds", p.seekSmallSeconds);
+    s.setValue("playback/seekMediumSeconds", p.seekMediumSeconds);
+    s.setValue("playback/seekLargeSeconds", p.seekLargeSeconds);
+    s.setValue("skip/enabled", p.skipEnabled);
+    s.setValue("skip/introEnabled", p.introEnabled);
+    s.setValue("skip/outroEnabled", p.outroEnabled);
+    s.setValue("skip/introSeconds", p.introSeconds);
+    s.setValue("skip/outroSeconds", p.outroSeconds);
+    writeEnum(s, "playback/repeatMode", p.repeatMode, repeatModes);
+    s.setValue("playback/shuffleEnabled", p.shuffleEnabled);
+    writeEnum(s, "playlist/sortField", p.sortField, sortFields);
+    writeEnum(s, "playlist/sortDirection", p.sortDirection, sortDirections);
     s.setValue("video/viewScale", p.viewScale);
     s.setValue("video/focusU", p.viewFocus.x());
     s.setValue("video/focusV", p.viewFocus.y());
+    s.setValue("video/userRotationDeg", p.userRotationDeg);
+    s.setValue("video/resetViewOnOpen", p.resetViewOnOpen);
+    writeEnum(s, "window/sizePolicy", p.sizePolicy, sizePolicies);
+    s.setValue("window/lastVideoScale", p.lastVideoScale);
     s.setValue("window/alwaysOnTop", p.alwaysOnTop);
     s.setValue("window/normalGeometry",p.mainGeometry); s.setValue("window/maximized",p.maximized);
     s.setValue("playlist/normalGeometry",p.playlistGeometry); s.setValue("playlist/detached",p.detached); s.setValue("playlist/visible",p.playlistVisible); s.setValue("playlist/dockWidth",p.dockWidth);
@@ -72,7 +157,8 @@ bool SettingsStore::save(const Preferences &p)
     QFile encoded(temporaryPath); QSaveFile destination(fileName());
     const bool success=s.status()==QSettings::NoError && encoded.open(QIODevice::ReadOnly) && destination.open(QIODevice::WriteOnly);
     const auto bytes=success?encoded.readAll():QByteArray();
-    const bool saved=success && destination.write(bytes)==bytes.size() && destination.commit();
+    const bool saved=success && encoded.error()==QFileDevice::NoError && destination.write(bytes)==bytes.size() && destination.commit();
+    if (saved) needsWrite_ = false;
     error_=saved ? QString() : QStringLiteral("设置保存失败：%1").arg(fileName()); return saved;
 }
 QRect SettingsStore::visibleGeometry(QRect requested,const QList<QRect> &screens,QSize minimum)

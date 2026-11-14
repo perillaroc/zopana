@@ -9,7 +9,7 @@
 | 设置 | `QStandardPaths::AppConfigLocation/settings.ini` |
 | 播放历史 | `QStandardPaths::AppLocalDataLocation/history.json` |
 
-设置保留有效字段和未知字段，损坏值回退到默认值。历史 JSON 在工作线程原子替换。设置或历史保存失败时，播放器会提示，当前播放仍可继续。历史开关、清除记录和断点策略见[截图与设置](../guide/settings.md)。
+`settings.ini` 使用 schema 2。读取旧配置时，已有合法值照常生效，缺失或无效字段回退到默认值。成功写入时原子替换文件，保留未知字段、有效自定义快捷键和高于 2 的原有版本号。运行时偏好在最后一次变更约 700 ms 后合并保存，正常关闭时补存。历史 JSON 在工作线程原子替换。保存失败时播放器会提示，当前播放仍可继续。[历史开关和断点策略](../guide/settings.md)
 
 ## 源码布局
 

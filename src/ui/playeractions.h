@@ -37,6 +37,7 @@ public:
     static QString normalizedKey(const QString &key);
     QString bindingError(const QString &id,const QStringList &keys) const;
     QStringList conflicts(const QString &id,const QStringList &keys,const QVariantMap &overrides) const;
+    QVariantMap resolvedBindings(const QVariantMap &overrides, QStringList *ignored = nullptr) const;
     QStringList applyBindings(const QVariantMap &overrides);
 
 signals:
@@ -47,6 +48,7 @@ protected:
     bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
+    QStringList bindingConflicts(const QString &id, const QStringList &keys, const QVariantMap &bindings) const;
     bool watching() const;
     QWidget &window_, &video_, &surface_;
     std::array<QAction *, Count> actions_{};

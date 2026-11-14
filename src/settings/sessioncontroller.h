@@ -11,6 +11,7 @@ class PlaylistController;
 class PlaylistHost;
 class VideoSurface;
 class VideoWidget;
+struct SettingsEdits;
 class QMenu;
 class QLabel;
 class SessionController final : public QObject
@@ -19,7 +20,7 @@ class SessionController final : public QObject
 public:
     SessionController(Player &player,MainWindow &window,SettingsStore &settings,HistoryStore &history);
     const Preferences &preferences() const { return preferences_; }
-    bool applyPreferences(Preferences preferences, bool resetSubtitleScale = false);
+    bool applyPreferences(Preferences preferences);
     void clearHistory();
     void flushProgress(bool ended=false);
     void saveWindows();
@@ -32,13 +33,16 @@ protected:
 private:
     void captureRuntime(Preferences &preferences) const;
     void scheduleSave();
-    void applyDialogSettings();
+    void applySettings();
+    void applyPlaybackSettings(const Preferences &preferences);
+    bool applyDialogChanges(const Preferences &draft, const SettingsEdits &edits);
+    bool commitPreferences(Preferences preferences, bool resetAll);
     void rebuildRecent();
     void prepareFile();
     void tryResume();
     void dismissResume();
     void arrangePrompt();
-    void settingsError(const QString &message);
+    void settingsError(const QString &message, bool runtimeChanged = false);
     Player &player_;
     MainWindow &window_;
     SettingsStore &settings_;

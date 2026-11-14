@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
+#include <QSet>
 #include <QWidget>
 
 namespace {
@@ -146,7 +147,7 @@ QString PlayerActions::bindingError(const QString &id,const QStringList &keys) c
     QAction *action=nullptr; for(auto *a:actions_) if(a->objectName()==id) action=a;
     if(!action) return QStringLiteral("未知命令");
     if(action==get(Fullscreen) || action==get(Escape)) return QStringLiteral("F11、Enter 和 Esc 保留为全屏及退出兜底");
-    if(keys.size()>2) return QStringLiteral("每个命令最多两个组合键");
+    if(keys.size()>2 && keys!=defaults_.value(id).toStringList()) return QStringLiteral("每个命令最多两个组合键");
     for(const auto &text:keys) {
         const auto sequence=QKeySequence::fromString(text,QKeySequence::PortableText);
         if(sequence.count()!=1 || sequence.isEmpty()) return QStringLiteral("只支持单个有效组合键");
@@ -163,31 +164,84 @@ QString PlayerActions::bindingError(const QString &id,const QStringList &keys) c
 }
 QStringList PlayerActions::conflicts(const QString &id,const QStringList &keys,const QVariantMap &overrides) const
 {
+    return bindingConflicts(id, keys, resolvedBindings(overrides));
+}
+
+QStringList PlayerActions::bindingConflicts(const QString &id, const QStringList &keys, const QVariantMap &bindings) const
+{
+    if (keys.isEmpty()) return {};
     QAction *selected=nullptr; for(auto *a:actions_) if(a->objectName()==id) selected=a;
     if(!selected) return {};
+    QSet<QString> normalizedKeys;
+    for(const auto &key:keys) normalizedKeys.insert(normalizedKey(key));
     QStringList result; const auto scope=selected->property("scope").toString();
     for(auto *action:actions_) {
         if(action==selected) continue; const auto other=action->property("scope").toString();
         if((scope==QStringLiteral("观看") && other==QStringLiteral("队列")) || (scope==QStringLiteral("队列") && other==QStringLiteral("观看"))) continue;
-        const auto bindings=overrides.value(action->objectName(),defaults_.value(action->objectName())).toStringList(); bool matches=false;
-        for(const auto &key:keys) for(const auto &binding:bindings) matches|=normalized(QKeySequence::fromString(key,QKeySequence::PortableText))==normalized(QKeySequence::fromString(binding,QKeySequence::PortableText));
-        if(matches) result.append(action->objectName());
+        for(const auto &binding:bindings.value(action->objectName()).toStringList()) {
+            if(normalizedKeys.contains(normalizedKey(binding))) { result.append(action->objectName()); break; }
+        }
     }
     return result;
 }
+QVariantMap PlayerActions::resolvedBindings(const QVariantMap &overrides, QStringList *ignored) const
+{
+    // Protected shortcuts always win. Process non-default customizations first
+    // so legacy rows that repeat their defaults cannot displace them.
+    const auto fullscreen=get(Fullscreen)->objectName(), escape=get(Escape)->objectName();
+    QVariantMap bindings{{fullscreen,defaults_.value(fullscreen)},{escape,defaults_.value(escape)}};
+    const auto queuePlay=get(QueuePlay)->objectName();
+    bindings.insert(queuePlay, defaults_.value(queuePlay));
+    QVariantMap custom, overridesMatchingDefaults;
+    const auto report=[ignored](const QString &id) { if(ignored && !ignored->contains(id)) ignored->append(id); };
+    for(auto it=overrides.cbegin();it!=overrides.cend();++it) {
+        const auto id=it.key();
+        if(!defaults_.contains(id)) continue;
+        const auto type=it.value().metaType().id();
+        const auto keys=it.value().toStringList();
+        // QSettings serializes an empty QStringList as @Invalid() in INI files.
+        if((it.value().isValid() && type!=QMetaType::QString && type!=QMetaType::QStringList) || !bindingError(id,keys).isEmpty()
+            || !bindingConflicts(id,keys,bindings).isEmpty()) {
+            report(id);
+        } else if(keys!=defaults_.value(id).toStringList()) {
+            custom.insert(id,keys);
+        } else {
+            overridesMatchingDefaults.insert(id,keys);
+        }
+    }
+    bindings.remove(queuePlay);
+    for(auto it=custom.cbegin();it!=custom.cend();++it) {
+        if(bindingConflicts(it.key(),it.value().toStringList(),custom).isEmpty()) bindings.insert(it.key(),it.value());
+        else report(it.key());
+    }
+    for(auto it=overridesMatchingDefaults.cbegin(); it!=overridesMatchingDefaults.cend(); ++it) {
+        if(bindingConflicts(it.key(),it.value().toStringList(),bindings).isEmpty()) bindings.insert(it.key(),it.value());
+        else report(it.key());
+    }
+    for(auto *action:actions_) {
+        const auto id=action->objectName();
+        if(bindings.contains(id)) continue;
+        if(id==queuePlay) {
+            // The queue's default Enter/Return operates on list focus; the
+            // same keys enter fullscreen in the viewing area.
+            bindings.insert(id, defaults_.value(id));
+            continue;
+        }
+        const auto defaults=defaults_.value(id).toStringList();
+        auto keys=defaults;
+        keys.removeIf([&](const QString &key) { return !bindingConflicts(id,{key},bindings).isEmpty(); });
+        if(keys!=defaults) report(id);
+        bindings.insert(id,keys);
+    }
+    return bindings;
+}
+
 QStringList PlayerActions::applyBindings(const QVariantMap &overrides)
 {
-    QVariantMap accepted; QStringList ignored;
-    for(auto it=overrides.begin();it!=overrides.end();++it) {
-        if(!defaults_.contains(it.key())) continue;
-        const auto keys=it.value().toStringList();
-        if(!bindingError(it.key(),keys).isEmpty() || !conflicts(it.key(),keys,overrides).isEmpty()) { ignored.append(it.key()); continue; }
-        accepted[it.key()]=keys;
-    }
-    // Reject a binding if another rejected row would fall back onto the same key.
-    bool changed=true; while(changed) { changed=false; for(auto it=accepted.begin();it!=accepted.end();) { if(!conflicts(it.key(),it.value().toStringList(),accepted).isEmpty()) { ignored.append(it.key()); it=accepted.erase(it); changed=true; } else ++it; } }
+    QStringList ignored;
+    const auto bindings=resolvedBindings(overrides,&ignored);
     for(auto *action:actions_) {
-        QList<QKeySequence> keys; for(const auto &text:accepted.value(action->objectName(),defaults_.value(action->objectName())).toStringList()) { const auto sequence=QKeySequence::fromString(text,QKeySequence::PortableText); if(!keys.contains(sequence)) keys.append(sequence); }
+        QList<QKeySequence> keys; for(const auto &text:bindings.value(action->objectName()).toStringList()) { const auto sequence=QKeySequence::fromString(text,QKeySequence::PortableText); if(!keys.contains(sequence)) keys.append(sequence); }
         action->setShortcuts(keys);
     }
     refreshIcons(); emit bindingsChanged(); return ignored;
