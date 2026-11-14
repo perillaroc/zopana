@@ -44,6 +44,7 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     window.installEventFilter(this); host_->window()->installEventFilter(this); surface_->installEventFilter(this);
     auto *mediaControls=window.findChild<MediaControls *>();
     connect(host_,&PlaylistHost::changed,this,&SessionController::scheduleSave);
+    connect(playlist_,&PlaylistController::playbackOrderChanged,this,&SessionController::scheduleSave);
     connect(mediaControls,&MediaControls::alwaysOnTopChanged,this,&SessionController::scheduleSave);
     connect(video_,&VideoWidget::viewChanged,this,&SessionController::scheduleSave);
     connect(&player_,&Player::preferenceTargetChanged,this,&SessionController::scheduleSave);
@@ -56,9 +57,12 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     connect(&player_,&Player::mediaChanged,this,[this](Player::State state,const QString &path,const QString &) {
         if(state==Player::State::Loading && !player_.lastLoadWasRecovery()) { currentPath_=path; prepareFile(); }
         if(state==Player::State::Loaded && !player_.lastLoadWasRecovery()) { tryResume(); if(!awaitingResume_) flushProgress(); }
-        if(state==Player::State::Ended) { dismissResume(); flushProgress(true); recordCurrent_=false; }
         if(state==Player::State::Error) { dismissResume(); recordCurrent_=false; }
         if(state==Player::State::Idle && path.isEmpty()) currentPath_.clear();
+    });
+    playlist_->setCompletionHandler([session = QPointer(this), playlist = QPointer(playlist_)](const Player::PlaybackIdentity &playback) {
+        if (session) session->onPlaybackCompleted(playback);
+        else if (playlist) playlist->advanceAfterCompletion(playback);
     });
     connect(&player_,&Player::durationChanged,this,[this] { tryResume(); }); connect(&player_,&Player::seekableChanged,this,[this] { tryResume(); });
     connect(&player_,&Player::audioAvailableChanged,this,[this] { tryResume(); });
@@ -98,6 +102,8 @@ void SessionController::captureRuntime(Preferences &p) const
     p.subtitleDelay=player_.propertyTarget("sub-delay").toDouble();
     p.viewScale=video_->zoomScale();
     p.viewFocus=video_->viewFocus();
+    p.repeatMode=playlist_->repeatMode();
+    p.shuffleEnabled=playlist_->shuffleEnabled();
 }
 void SessionController::applySettings()
 {
@@ -109,6 +115,7 @@ void SessionController::applySettings()
 }
 void SessionController::applyPlaybackSettings(const Preferences &p)
 {
+    playlist_->setPlaybackOrder(p.repeatMode, p.shuffleEnabled);
     player_.setAudioPreferences(p.volume, p.muted);
     player_.setMediaProperty("speed", p.speed);
     player_.setMediaProperty("audio-pitch-correction", p.pitchCorrection);
@@ -234,11 +241,30 @@ void SessionController::rebuildRecent()
     recent_->setEnabled(index>0);
 }
 void SessionController::clearHistory() { recordCurrent_=false; if(!currentPath_.isEmpty()) suppressedPaths_.insert(mediaPathKey(currentPath_)); dismissResume(); history_.clear(); rebuildRecent(); surface_->showOsd("history",QStringLiteral("最近文件和播放进度已清除"),2500); }
-void SessionController::flushProgress(bool ended)
+void SessionController::flushProgress()
 {
-    if(!preferences_.recordHistory || !recordCurrent_ || awaitingResume_ || resumeSeek_ || currentPath_.isEmpty() || currentPath_!=player_.path()) return;
-    if(player_.state()!=Player::State::Loaded && player_.state()!=Player::State::Ended) return;
-    history_.remember(currentPath_,player_.position(),player_.duration(),ended);
+    if (player_.state() == Player::State::Loaded) recordProgress(false);
+}
+
+void SessionController::onPlaybackCompleted(const Player::PlaybackIdentity &playback)
+{
+    if (!playback.entry || playback != player_.playbackIdentity() || player_.state() != Player::State::Ended) return;
+    dismissResume();
+    const bool recorded = recordProgress(true);
+    recordCurrent_ = false;
+    if (!recorded) {
+        playlist_->advanceAfterCompletion(playback);
+        return;
+    }
+    history_.afterPendingWrite([playlist = QPointer(playlist_), playback] {
+        if (playlist) playlist->advanceAfterCompletion(playback);
+    });
+}
+
+bool SessionController::recordProgress(bool ended)
+{
+    if(!preferences_.recordHistory || !recordCurrent_ || awaitingResume_ || resumeSeek_ || currentPath_.isEmpty() || currentPath_!=player_.path()) return false;
+    return history_.remember(currentPath_,player_.position(),player_.duration(),ended);
 }
 void SessionController::prepareFile()
 {

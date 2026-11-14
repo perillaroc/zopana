@@ -1,10 +1,10 @@
 #pragma once
 #include "settingsstore.h"
 #include "historystore.h"
+#include "player.h"
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
-class Player;
 class MainWindow;
 class PlayerActions;
 class PlaylistController;
@@ -22,7 +22,7 @@ public:
     const Preferences &preferences() const { return preferences_; }
     bool applyPreferences(Preferences preferences);
     void clearHistory();
-    void flushProgress(bool ended=false);
+    void flushProgress();
     void saveWindows();
     void showSettings();
     void ensureVisibleWindows();
@@ -39,6 +39,8 @@ private:
     bool commitPreferences(Preferences preferences, bool resetAll);
     void rebuildRecent();
     void prepareFile();
+    void onPlaybackCompleted(const Player::PlaybackIdentity &playback);
+    bool recordProgress(bool ended);
     void tryResume();
     void dismissResume();
     void arrangePrompt();

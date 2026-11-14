@@ -501,7 +501,8 @@ void MainWindow::updateMedia(Player::State state, const QString &path, const QSt
     updateTimeline();
     updatePresentation();
     if (state == Player::State::Error) {
-        surface_->showOsd("error", QStringLiteral("无法打开文件：%1").arg(error), 3000); revealControls();
+        if (!player_.automaticOpen()) surface_->showOsd("error", QStringLiteral("无法打开文件：%1").arg(error), 3000);
+        revealControls();
     }
 }
 

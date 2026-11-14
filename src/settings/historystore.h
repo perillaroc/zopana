@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QFutureWatcher>
 #include <QTimer>
+#include <functional>
 #include <optional>
 
 struct HistoryEntry {
@@ -20,10 +21,11 @@ public:
     ~HistoryStore() override;
     const QList<HistoryEntry> &entries() const { return entries_; }
     std::optional<HistoryEntry> find(const QString &path) const;
-    void remember(const QString &path,double position,double duration,bool ended=false);
+    bool remember(const QString &path,double position,double duration,bool ended=false);
     void clear();
     void flush();
     void waitForSaved();
+    void afterPendingWrite(std::function<void()> continuation);
     QString fileName() const { return directory_+"/history.json"; }
     QString loadError() const { return loadError_; }
 signals:
@@ -38,4 +40,5 @@ private:
     QFutureWatcher<QString> writer_;
     QTimer timer_;
     bool dirty_=false,writing_=false,errorReported_=false;
+    std::function<void()> writeContinuation_;
 };

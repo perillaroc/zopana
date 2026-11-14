@@ -32,6 +32,8 @@
 #include <memory>
 #include <stdexcept>
 
+bool runPlaybackStageCase(const QString &mode, const QDir &fixtures, const QDir &output, QJsonObject &report);
+
 namespace {
 constexpr std::array modes{RepeatMode::None, RepeatMode::One, RepeatMode::All};
 constexpr std::array repeatActions{PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList};
@@ -526,15 +528,19 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     app.setApplicationName("zopana repeat probe");
     const auto args = app.arguments();
-    const bool controlsOnly = args.size() == 4 && args[3] == "--controls";
-    if (args.size() != 3 && !controlsOnly) return 2;
+    if (args.size() != 3 && args.size() != 4) return 2;
+    const auto mode = args.value(3);
     const QDir output(args[2]);
     QJsonObject report;
     bool passed = false;
     try {
-        Probe probe(QDir(args[1]), output, report);
-        if (controlsOnly) probe.controls();
-        else probe.run();
+        if (mode.isEmpty() || mode == "--controls") {
+            Probe probe(QDir(args[1]), output, report);
+            if (mode == "--controls") probe.controls();
+            else probe.run();
+        } else if (!runPlaybackStageCase(mode, QDir(args[1]), output, report)) {
+            return 2;
+        }
         passed = true;
     } catch (const std::exception &error) {
         report["failure"] = QString::fromUtf8(error.what());

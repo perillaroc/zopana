@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)] [string]$FixtureDir,
     [string]$QtRoot = 'C:/lang/qt/6.11.3/msvc2022_64',
     [ValidateScript({ $_ -gt 0 })] [double]$NativeDpr = 1,
-    [switch]$Controls
+    [switch]$Controls,
+    [switch]$FinishStage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,9 +17,27 @@ New-Item -ItemType Directory -Path $media | Out-Null
 foreach ($name in 'E1.mp4', 'E2.mp4', 'E10.mp4') {
     Copy-Item -LiteralPath (Join-Path $fixturePath $name) -Destination $media
 }
+if ($FinishStage) {
+    foreach ($name in 'bad1.mkv', 'bad2.mkv', 'bad3.mkv', '../zopana-ui-m2-v1/long-grid.mp4') {
+        Copy-Item -LiteralPath (Join-Path $fixturePath $name) -Destination $media
+    }
+}
 Get-FileHash -Algorithm SHA256 -LiteralPath (@($exe, "$buildPath/libmpv-2.dll") + (Get-ChildItem -LiteralPath $media -File).FullName) |
     ConvertTo-Json | Set-Content -LiteralPath "$runPath/hashes.json" -Encoding utf8
 Write-Output "Evidence: $runPath"
+
+function Invoke-RepeatProbe([string]$output, [string]$mode) {
+    $log = Join-Path $output 'probe.log'
+    $probeArgs = @($media, $output)
+    if ($mode) { $probeArgs += $mode }
+    & $exe @probeArgs 2>&1 | Out-File -LiteralPath $log -Encoding utf8
+    if ($LASTEXITCODE) {
+        Get-Content -LiteralPath $log -Tail 30 -Encoding utf8
+        throw "Repeat probe $mode failed ($LASTEXITCODE)"
+    }
+    $checks = @(Select-String -LiteralPath $log -Pattern '^PASS ').Count
+    Write-Output "PASS repeat $mode ($checks checks)"
+}
 
 $savedEnvironment = @{}
 foreach ($name in 'PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QT_SCALE_FACTOR_ROUNDING_POLICY', 'QT_SCALE_FACTOR') {
@@ -31,16 +50,16 @@ try {
     $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$QtRoot/plugins/platforms"
     $env:QT_SCALE_FACTOR_ROUNDING_POLICY = 'PassThrough'
     $env:QT_SCALE_FACTOR = (1 / $NativeDpr).ToString('G17', [Globalization.CultureInfo]::InvariantCulture)
-    $log = Join-Path $runPath 'probe.log'
-    $probeArgs = @($media, $runPath)
-    if ($Controls) { $probeArgs += '--controls' }
-    & $exe @probeArgs 2>&1 | Out-File -LiteralPath $log -Encoding utf8
-    if ($LASTEXITCODE) {
-        Get-Content -LiteralPath $log -Tail 30 -Encoding utf8
-        throw "Repeat probe failed ($LASTEXITCODE)"
+    if ($FinishStage) {
+        foreach ($mode in 'shuffle', 'completion', 'preferences-write', 'preferences-read') {
+            $output = Join-Path $runPath $mode
+            New-Item -ItemType Directory -Path $output | Out-Null
+            Invoke-RepeatProbe $output "--$mode"
+        }
+    } else {
+        $mode = if ($Controls) { '--controls' } else { '' }
+        Invoke-RepeatProbe $runPath $mode
     }
-    $checks = @(Select-String -LiteralPath $log -Pattern '^PASS ').Count
-    Write-Output "PASS repeat ($checks checks)"
 } finally {
     $validationLock.ReleaseMutex()
     $validationLock.Dispose()

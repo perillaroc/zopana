@@ -11,6 +11,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 bool HistoryEntry::matchesFile() const { const QFileInfo f(path); return f.isFile() && f.size()==size && f.lastModified().toMSecsSinceEpoch()==modified; }
 HistoryStore::HistoryStore(QString directory,QObject *parent) : QObject(parent),directory_(directory.isEmpty()?QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation):directory)
@@ -37,13 +38,14 @@ HistoryStore::HistoryStore(QString directory,QObject *parent) : QObject(parent),
 }
 HistoryStore::~HistoryStore() { waitForSaved(); }
 std::optional<HistoryEntry> HistoryStore::find(const QString &path) const { const auto key=mediaPathKey(path); for(const auto &entry:entries_) if(mediaPathKey(entry.path)==key) return entry; return {}; }
-void HistoryStore::remember(const QString &path,double position,double duration,bool ended)
+bool HistoryStore::remember(const QString &path,double position,double duration,bool ended)
 {
-    const QFileInfo f(path); if(!f.isFile() || !std::isfinite(position) || !std::isfinite(duration) || duration<=0) return;
+    const QFileInfo f(path); if(!f.isFile() || !std::isfinite(position) || !std::isfinite(duration) || duration<=0) return false;
     HistoryEntry e=find(path).value_or(HistoryEntry{}); const auto key=mediaPathKey(path);
     entries_.erase(std::remove_if(entries_.begin(),entries_.end(),[&](const auto &entry) { return mediaPathKey(entry.path)==key; }),entries_.end());
     e.path=f.canonicalFilePath(); if(e.path.isEmpty()) e.path=f.absoluteFilePath(); e.size=f.size(); e.modified=f.lastModified().toMSecsSinceEpoch(); e.played=QDateTime::currentMSecsSinceEpoch();
     e.position=ended?0:std::clamp(position,0.0,duration); e.duration=duration; entries_.prepend(e); if(entries_.size()>50) entries_.removeLast(); dirty_=true; timer_.start(); emit changed();
+    return true;
 }
 void HistoryStore::clear() { entries_.clear(); dirty_=true; timer_.stop(); emit changed(); flush(); }
 void HistoryStore::flush()
@@ -59,6 +61,20 @@ void HistoryStore::finished()
     if(!writing_) return; writing_=false; const auto message=writer_.result();
     if(!message.isEmpty()) { dirty_=true; if(!errorReported_) { errorReported_=true; emit error(message); } }
     else { errorReported_=false; emit saved(); if(dirty_) flush(); }
+    if (!writing_ && writeContinuation_) {
+        auto continuation = std::exchange(writeContinuation_, {});
+        continuation();
+    }
+}
+void HistoryStore::afterPendingWrite(std::function<void()> continuation)
+{
+    // A new completion supersedes the continuation for an older playback.
+    writeContinuation_ = std::move(continuation);
+    flush();
+    if (!writing_) {
+        auto ready = std::exchange(writeContinuation_, {});
+        ready();
+    }
 }
 void HistoryStore::waitForSaved()
 {

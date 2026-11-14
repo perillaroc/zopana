@@ -18,6 +18,12 @@ class Player final : public QObject
     Q_OBJECT
 public:
     enum class State { Idle, Loading, Loaded, Ended, Error };
+    enum class CompletionReason { NaturalEof };
+    struct PlaybackIdentity {
+        quint64 generation = 0, renderEpoch = 0, itemId = 0;
+        qint64 entry = 0;
+        bool operator==(const PlaybackIdentity &) const = default;
+    };
 
     explicit Player(QObject *parent = nullptr);
     ~Player() override;
@@ -28,6 +34,7 @@ public:
     quint64 itemId() const { return itemId_; }
     uint64_t generation() const { return generation_; }
     quint64 renderEpoch() const { return renderEpoch_; }
+    PlaybackIdentity playbackIdentity() const { return {generation_, renderEpoch_, itemId_, selectedEntry_}; }
     State state() const { return state_; }
     QString path() const { return path_; }
     bool recovering() const { return recovering_; }
@@ -82,6 +89,7 @@ signals:
     void requestFinished(quint64 requestId, bool current, bool success);
     void restored(quint64 generation, quint64 renderEpoch);
     void sessionChanged(quint64 generation, quint64 itemId, Player::State state, const QString &error);
+    void playbackCompleted(const Player::PlaybackIdentity &playback, Player::CompletionReason reason);
     void fileOpening();
     void stopping();
     void mediaChanged(Player::State state, const QString &path, const QString &error);
@@ -120,6 +128,7 @@ private:
     void syncFileState();
     void propertyChanged(const mpv_event &event);
     void changeState(State state, const QString &error = {});
+    void finishCurrentPlayback(PlaybackIdentity playback, CompletionReason reason);
 
     mpv_handle *handle_ = nullptr;
     bool closing_ = false;
@@ -127,6 +136,7 @@ private:
     bool loadPending_ = false;
     bool stopPending_ = false;
     bool resetLoopsPending_ = false;
+    bool completionConsumed_ = false;
     uint64_t generation_ = 0, nextRequest_ = 1;
     quint64 renderEpoch_ = 1, observationId_ = 0, nextObservation_ = 1;
     quint64 itemId_ = 0;

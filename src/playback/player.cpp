@@ -192,7 +192,10 @@ void Player::openFile(const QString &path, quint64 itemId, const QStringList &su
 
 void Player::queueLoad(bool recovery)
 {
-    if (!recovery) ++generation_;
+    if (!recovery) {
+        ++generation_;
+        completionConsumed_ = false;
+    }
     engineLoaded_ = false;
     resetFileDetails();
     clearSeek();
@@ -414,6 +417,18 @@ void Player::changeState(State state, const QString &error)
     emit sessionChanged(generation, item, state, error);
 }
 
+void Player::finishCurrentPlayback(PlaybackIdentity playback, CompletionReason reason)
+{
+    if (closing_ || completionConsumed_ || !playback.entry || playback != playbackIdentity()
+        || (state_ != State::Loaded && state_ != State::Loading)) return;
+
+    completionConsumed_ = true;
+    engineLoaded_ = false;
+    recovering_ = false;
+    changeState(State::Ended);
+    if (playback == playbackIdentity()) emit playbackCompleted(playback, reason);
+}
+
 void Player::drainEvents()
 {
     while (!closing_) {
@@ -568,6 +583,10 @@ void Player::handleReply(const mpv_event &event)
 void Player::syncFileState()
 {
     if (eventEntry_ != selectedEntry_ || !selectedEntry_) return;
+    if (eventState_ == State::Ended) {
+        finishCurrentPlayback(playbackIdentity(), CompletionReason::NaturalEof);
+        return;
+    }
     if (eventState_ == State::Loaded) {
         if (engineLoaded_) return;
         engineLoaded_ = true; observationId_ = nextObservation_++;
