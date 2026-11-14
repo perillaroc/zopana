@@ -95,8 +95,9 @@ PlaylistPanel::PlaylistPanel(PlaylistModel &model, PlayerActions &actions, QWidg
     auto *menu = new QMenu(view_);
     for (auto id : {PlayerActions::QueuePlay, PlayerActions::QueueUp, PlayerActions::QueueDown, PlayerActions::QueueRemove, PlayerActions::QueueClear,
                    PlayerActions::Add, PlayerActions::AddFolder, PlayerActions::PlaylistMode}) menu->addAction(actions.get(id));
-    auto *order = menu->addMenu(QStringLiteral("播放顺序"));
-    for (auto id : {PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList, PlayerActions::OrderRandom}) order->addAction(actions.get(id));
+    auto *repeat = menu->addMenu(QStringLiteral("循环模式"));
+    for (auto id : {PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList}) repeat->addAction(actions.get(id));
+    menu->addAction(actions.get(PlayerActions::ShuffleToggle));
     view_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(view_, &QWidget::customContextMenuRequested, this, [this, menu](QPoint point) { menu->popup(view_->viewport()->mapToGlobal(point.x() < 0 ? view_->visualRect(view_->currentIndex()).center() : point)); });
     scan_ = new QWidget; auto *scanLayout = new QHBoxLayout(scan_); scanLayout->setContentsMargins(0, 0, 0, 0);

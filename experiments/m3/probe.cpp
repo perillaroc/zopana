@@ -205,17 +205,17 @@ public:
         check("removing current stops and selects remaining item without autoplay", state == Player::State::Idle && queue->model().currentId() == 0 && panel->selectedId() == ids[1] && loads == before);
         action("queue.playSelected")->trigger(); waitLoaded(ids[1]);
         queue->clear(); check("clear stops without deleting files", queue->model().rowCount() == 0 && state == Player::State::Idle && QFile::exists(fixtures + "/E2.mp4"));
-        ids = replace(); queue->setOrder(PlaylistController::Order::SingleRepeat); const int baseline = loads;
+        ids = replace(); queue->setPlaybackOrder(RepeatMode::One, false); const int baseline = loads;
         eof(); require("single repeat reopens same item", until([&] { return loads > baseline && player.itemId() == ids[0]; }));
         queue->next(); waitLoaded(ids[1]); check("manual next ignores single repeat", queue->model().currentId() == ids[1]);
-        queue->setOrder(PlaylistController::Order::ListRepeat); queue->play(ids.last()); waitLoaded(ids.last());
+        queue->setPlaybackOrder(RepeatMode::All, false); queue->play(ids.last()); waitLoaded(ids.last());
         check("order actions reflect authoritative order", action("queue.order.list")->isChecked() && !action("queue.order.single")->isChecked());
         eof(); require("list repeat wraps from tail", until([&] { return player.itemId() == ids.first() && state == Player::State::Loaded; }));
-        queue->setOrder(PlaylistController::Order::Sequential); queue->play(ids.last()); waitLoaded(ids.last());
+        queue->setPlaybackOrder(RepeatMode::None, false); queue->play(ids.last()); waitLoaded(ids.last());
         eof(); require("sequential EOF at tail stops", until([&] { return state == Player::State::Ended; })); const int ended = loads; QTest::qWait(120);
         check("sequential tail does not auto replay", loads == ended);
         command({"set","speed","1"});
-        ids = replace(); queue->setOrder(PlaylistController::Order::Random); QSet<quint64> round{ids[0]};
+        ids = replace(); queue->setPlaybackOrder(RepeatMode::All, true); QSet<quint64> round{ids[0]};
         for (int i = 0; i < 2; ++i) { queue->next(); waitLoaded(queue->model().currentId()); round.insert(queue->model().currentId()); }
         check("random visits each item once per round", round.size() == 3);
         const auto last = queue->model().currentId(); queue->previous(); const auto previous = queue->model().currentId(); waitLoaded(previous);
@@ -224,7 +224,7 @@ public:
         const auto generation = player.generation(), current = player.itemId();
         player.sessionChanged(generation - 1, current, Player::State::Ended, {}); QTest::qWait(100);
         check("stale generation EOF cannot advance", player.itemId() == current && player.generation() == generation);
-        queue->setOrder(PlaylistController::Order::ListRepeat); ids = replace({"E1.mp4","bad1.mkv","bad2.mkv","bad3.mkv"});
+        queue->setPlaybackOrder(RepeatMode::All, false); ids = replace({"E1.mp4","bad1.mkv","bad2.mkv","bad3.mkv"});
         int failures = 0; const auto good = ids.first();
         const auto connection = QObject::connect(&player, &Player::sessionChanged, &window, [&](quint64, quint64 id, Player::State value, const QString &) {
             if (id == ids[1] && value == Player::State::Loading) queue->remove({good});
@@ -232,7 +232,7 @@ public:
         });
         eof(); require("all-bad loop stops after bounded traversal", until([&] { return failures == 3 && state == Player::State::Error; }));
         QTest::qWait(200); check("all-bad queue never spins", failures == 3 && queue->model().rowCount() == 3);
-        QObject::disconnect(connection); queue->setOrder(PlaylistController::Order::Sequential); command({"set","speed","1"});
+        QObject::disconnect(connection); queue->setPlaybackOrder(RepeatMode::None, false); command({"set","speed","1"});
         queue->addFiles({fixtures + "/bad1.mkv", fixtures + "/bad2.mkv"}, true);
         require("manual bad file stays at error", until([&] { return state == Player::State::Error; }));
         const auto bad = player.itemId(); QTest::qWait(100);

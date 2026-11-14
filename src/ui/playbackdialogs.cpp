@@ -68,12 +68,16 @@ void shortcuts(QWidget *parent, const PlayerActions &actions)
     table->setHorizontalHeaderLabels({QStringLiteral("操作"), QStringLiteral("快捷键"), QStringLiteral("作用域"), QStringLiteral("允许长按")});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers); table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setAccessibleName(QStringLiteral("当前快捷键")); table->verticalHeader()->hide();
+    const auto defaults = actions.defaultBindings();
     for (int i = 0; i < PlayerActions::Count; ++i) {
         auto *action = actions.get(PlayerActions::Id(i)); QStringList keys;
         for (const auto &key : action->shortcuts()) keys.append(key.toString(QKeySequence::NativeText));
-        const auto scope = PlayerActions::isRelativeSeek(PlayerActions::Id(i))
+        const auto id = PlayerActions::Id(i);
+        const auto scope = PlayerActions::isRelativeSeek(id)
             ? QStringLiteral("观看 / 进度条") : action->property("scope").toString();
-        const QStringList columns{action->text(), keys.isEmpty() ? QStringLiteral("菜单入口") : keys.join(" / "),
+        const bool menuOnly = id != PlayerActions::OrderRandom && defaults.value(action->objectName()).toStringList().isEmpty();
+        const auto unassigned = menuOnly ? QStringLiteral("菜单入口") : QStringLiteral("未分配");
+        const QStringList columns{action->text(), keys.isEmpty() ? unassigned : keys.join(" / "),
             scope, action->autoRepeat() ? QStringLiteral("是") : QStringLiteral("否")};
         for (int column = 0; column < columns.size(); ++column) table->setItem(i, column, new QTableWidgetItem(columns[column]));
     }

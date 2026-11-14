@@ -2,7 +2,6 @@
 #include <QFileInfo>
 #include <QRandomGenerator>
 #include <QTimer>
-#include <algorithm>
 
 PlaylistController::PlaylistController(Player &player, QObject *parent) : QObject(parent), model_(this), player_(player)
 {
@@ -30,15 +29,36 @@ QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool repla
     if (!ids.isEmpty() && (replace || wasEmpty)) start(ids.first(), false);
     emit changed(); return ids;
 }
-void PlaylistController::setOrder(Order order)
+void PlaylistController::setPlaybackOrder(RepeatMode repeatMode, bool shuffleEnabled)
 {
-    if (order_ == order) return;
-    order_ = order; history_.clear(); historyPosition_ = -1; bag_.clear(); roundSeen_.clear();
-    if (model_.currentId()) { history_.append(model_.currentId()); historyPosition_ = 0; roundSeen_.insert(model_.currentId()); }
-    prune(); emit changed();
+    if (repeatMode_ == repeatMode && shuffleEnabled_ == shuffleEnabled) return;
+    repeatMode_ = repeatMode;
+    if (shuffleEnabled_ != shuffleEnabled) {
+        shuffleEnabled_ = shuffleEnabled;
+        history_.clear();
+        historyPosition_ = -1;
+        bag_.clear();
+        roundSeen_.clear();
+        if (shuffleEnabled_) {
+            if (const auto current = model_.currentId()) rememberRandomItem(current);
+            prune();
+        }
+    }
+    emit changed();
 }
+
+void PlaylistController::cycleRepeatMode()
+{
+    switch (repeatMode_) {
+    case RepeatMode::None: setPlaybackOrder(RepeatMode::One, shuffleEnabled_); break;
+    case RepeatMode::One: setPlaybackOrder(RepeatMode::All, shuffleEnabled_); break;
+    case RepeatMode::All: setPlaybackOrder(RepeatMode::None, shuffleEnabled_); break;
+    }
+}
+
 void PlaylistController::prune()
 {
+    if (!shuffleEnabled_) return;
     for (int i = history_.size() - 1; i >= 0; --i) if (!model_.item(history_[i])) { history_.removeAt(i); if (i <= historyPosition_) --historyPosition_; }
     for (auto it = bag_.begin(); it != bag_.end();) if (!model_.item(*it)) it = bag_.erase(it); else ++it;
     for (int row = 0; row < model_.rowCount(); ++row) {
@@ -52,21 +72,51 @@ void PlaylistController::refillBag()
 }
 quint64 PlaylistController::nextId(bool automatic)
 {
-    const int count = model_.rowCount(), row = model_.rowOf(model_.currentId());
-    if (!count) return 0;
-    if (order_ == Order::Random) {
+    if (automatic && repeatMode_ == RepeatMode::One && model_.currentId()) return model_.currentId();
+    if (!canNext()) return 0;
+    if (shuffleEnabled_) {
         if (historyPosition_ + 1 < history_.size()) return history_[++historyPosition_];
-        if (bag_.isEmpty()) refillBag();
-        int selected = QRandomGenerator::global()->bounded(int(bag_.size()));
-        if (bag_.size() > 1 && bag_[selected] == model_.currentId()) selected = (selected + 1) % bag_.size();
-        const auto id = bag_.takeAt(selected); roundSeen_.insert(id); return id;
+        int currentIndex = -1;
+        if (bag_.isEmpty()) {
+            refillBag();
+            if (bag_.size() > 1) currentIndex = int(bag_.indexOf(model_.currentId()));
+        }
+        const int choices = int(bag_.size()) - (currentIndex >= 0 ? 1 : 0);
+        int selected = QRandomGenerator::global()->bounded(choices);
+        if (currentIndex >= 0 && selected >= currentIndex) ++selected;
+        const auto id = bag_.takeAt(selected);
+        roundSeen_.insert(id);
+        return id;
     }
-    if (automatic && order_ == Order::SingleRepeat && row >= 0) return model_.currentId();
-    if (row + 1 < count) return model_.idAt(row + 1);
-    return order_ == Order::ListRepeat ? model_.idAt(0) : 0;
+    const auto next = model_.idAt(model_.rowOf(model_.currentId()) + 1);
+    return next ? next : model_.idAt(0);
 }
-bool PlaylistController::canPrevious() const { return order_ == Order::Random ? historyPosition_ > 0 : model_.rowCount() > 0 && (model_.rowOf(model_.currentId()) > 0 || order_ == Order::ListRepeat); }
-bool PlaylistController::canNext() const { return model_.rowCount() > 0 && (order_ == Order::Random || order_ == Order::ListRepeat || model_.rowOf(model_.currentId()) + 1 < model_.rowCount()); }
+
+bool PlaylistController::canPrevious() const
+{
+    if (shuffleEnabled_) return historyPosition_ > 0;
+    return model_.rowCount() > 0 && (model_.rowOf(model_.currentId()) > 0 || repeatMode_ == RepeatMode::All);
+}
+
+bool PlaylistController::canNext() const
+{
+    if (model_.rowCount() == 0) return false;
+    if (repeatMode_ == RepeatMode::All) return true;
+    if (shuffleEnabled_) return historyPosition_ + 1 < history_.size() || !bag_.isEmpty();
+    return model_.rowOf(model_.currentId()) + 1 < model_.rowCount();
+}
+
+void PlaylistController::rememberRandomItem(quint64 id)
+{
+    while (history_.size() > historyPosition_ + 1) history_.removeLast();
+    if (historyPosition_ < 0 || history_[historyPosition_] != id) {
+        history_.append(id);
+        historyPosition_ = history_.size() - 1;
+    }
+    roundSeen_.insert(id);
+    bag_.removeAll(id);
+}
+
 void PlaylistController::start(quint64 id, bool automatic, bool record)
 {
     const auto *item = model_.item(id); if (!item) return;
@@ -74,26 +124,37 @@ void PlaylistController::start(quint64 id, bool automatic, bool record)
     const auto subtitles = item->subtitles;
     automatic_ = automatic;
     if (!automatic) failed_.clear();
-    if (order_ == Order::Random && record) {
-        if (historyPosition_ < 0 || history_.value(historyPosition_) != id) {
-            while (history_.size() > historyPosition_ + 1) history_.removeLast();
-            history_.append(id); historyPosition_ = history_.size() - 1;
-        }
-        roundSeen_.insert(id); bag_.removeAll(id);
-    }
+    if (shuffleEnabled_ && record) rememberRandomItem(id);
     const auto before = model_.currentId();
     if (before != id) model_.setStatus(before, {});
     model_.setCurrent(id); emit selectItem(id);
     player_.openFile(path, id, subtitles, automatic); emit changed();
 }
 void PlaylistController::play(quint64 id) { start(id, false); }
-void PlaylistController::replay() { start(model_.currentId() ? model_.currentId() : model_.idAt(0), false); }
-void PlaylistController::next() { const auto id = nextId(false); if (id) start(id, false, order_ != Order::Random || historyPosition_ == history_.size() - 1); }
+void PlaylistController::replay()
+{
+    const auto current = model_.currentId();
+    if (current) start(current, false, current != history_.value(historyPosition_));
+    else play(model_.idAt(0));
+}
+void PlaylistController::next() { advance(false); }
+
+void PlaylistController::advance(bool automatic)
+{
+    const auto target = nextId(automatic);
+    if (automatic && (!target || failed_.contains(target))) {
+        automatic_ = false;
+        emit message(failed_.isEmpty() ? QStringLiteral("播放列表已结束") : QStringLiteral("没有可继续播放的项目，已停止自动续播。"));
+        return;
+    }
+    if (target) start(target, automatic, target != history_.value(historyPosition_));
+}
+
 void PlaylistController::previous()
 {
     quint64 id = 0;
-    if (order_ == Order::Random) { if (historyPosition_ > 0) id = history_[--historyPosition_]; }
-    else { int row = model_.rowOf(model_.currentId()) - 1; if (row < 0 && order_ == Order::ListRepeat) row = model_.rowCount() - 1; id = model_.idAt(row); }
+    if (shuffleEnabled_) { if (historyPosition_ > 0) id = history_[--historyPosition_]; }
+    else { int row = model_.rowOf(model_.currentId()) - 1; if (row < 0 && repeatMode_ == RepeatMode::All) row = model_.rowCount() - 1; id = model_.idAt(row); }
     if (id) start(id, false, false);
 }
 void PlaylistController::session(quint64 generation, quint64 id, Player::State state, const QString &error)
@@ -114,9 +175,7 @@ void PlaylistController::session(quint64 generation, quint64 id, Player::State s
     if (state == Player::State::Error) { failed_.insert(id); emit message(QStringLiteral("跳过无法播放的文件：%1").arg(QFileInfo(model_.item(id)->path).fileName())); }
     QTimer::singleShot(0, this, [this, generation, id] {
         if (!automatic_ || player_.generation() != generation || model_.currentId() != id) return;
-        const auto target = nextId(true);
-        if (!target || failed_.contains(target)) { automatic_ = false; emit message(failed_.isEmpty() ? QStringLiteral("播放列表已结束") : QStringLiteral("没有可继续播放的项目，已停止自动续播。")); return; }
-        start(target, true);
+        advance(true);
     });
 }
 void PlaylistController::remove(const QList<quint64> &ids)

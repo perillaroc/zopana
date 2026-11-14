@@ -34,8 +34,9 @@ constexpr Definition definitions[] = {
     {"window.playlist", "播放列表", "list-video"}, {"window.playlistMode", "独立窗口", ""}, {"window.closePlaylist", "隐藏列表窗口", ""},
     {"queue.playSelected", "播放所选", "play"}, {"queue.removeSelected", "移除所选", ""},
     {"queue.moveUp", "上移", ""}, {"queue.moveDown", "下移", ""}, {"queue.clear", "清空列表", ""},
-    {"queue.order.sequential", "顺序播放", ""}, {"queue.order.single", "单曲循环", ""},
-    {"queue.order.list", "列表循环", ""}, {"queue.order.random", "随机播放", ""},
+    {"queue.order.sequential", "不循环", ""}, {"queue.order.single", "单个循环", ""},
+    {"queue.order.list", "全部循环", ""}, {"queue.order.random", "旧版随机播放（开启全部循环和随机）", ""},
+    {"queue.repeat.cycle", "切换循环模式", ""}, {"queue.shuffle.toggle", "随机播放", ""},
     {"audio.nextTrack","下一音轨",""}, {"audio.delayLess","音频提前 0.1 秒",""}, {"audio.delayMore","音频推迟 0.1 秒",""}, {"audio.delayReset","音频延迟归零",""},
     {"sub.load","加载外挂字幕…","captions"}, {"sub.toggle","显示字幕",""}, {"sub.nextTrack","下一字幕轨",""},
     {"sub.delayLess","字幕提前 0.1 秒",""}, {"sub.delayMore","字幕推迟 0.1 秒",""}, {"sub.delayReset","字幕延迟归零",""},
@@ -118,8 +119,11 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     get(QueueRemove)->setShortcut(QKeySequence(Qt::Key_Delete));
     get(QueueUp)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Up)); get(QueueDown)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Down));
     auto *orders = new QActionGroup(this);
-    for (auto id : {OrderSequential, OrderSingle, OrderList, OrderRandom}) { get(id)->setCheckable(true); orders->addAction(get(id)); }
+    for (auto id : {OrderSequential, OrderSingle, OrderList}) { get(id)->setCheckable(true); orders->addAction(get(id)); }
     get(OrderSequential)->setChecked(true);
+    view(RepeatCycle, {QKeySequence(Qt::CTRL | Qt::Key_R)});
+    view(ShuffleToggle, {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R)});
+    get(ShuffleToggle)->setCheckable(true);
     view(AudioNext,{QKeySequence(Qt::Key_J)});
     view(AudioDelayLess,{QKeySequence(Qt::SHIFT|Qt::Key_Comma),QKeySequence(Qt::SHIFT|Qt::Key_Less)},true);
     view(AudioDelayMore,{QKeySequence(Qt::SHIFT|Qt::Key_Period),QKeySequence(Qt::SHIFT|Qt::Key_Greater)},true);

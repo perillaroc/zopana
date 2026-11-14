@@ -48,6 +48,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace {
 int wholeSeconds(double value)
@@ -81,6 +82,12 @@ void showMultiplier(QLabel *label, const QString &caption, double value)
     label->setText(QStringLiteral("%1 %2×").arg(caption).arg(value, 0, 'f', 2));
     label->setVisible(value > 0 && std::abs(value - 1) >= .005);
 }
+
+constexpr std::pair<PlayerActions::Id, RepeatMode> repeatActions[] = {
+    {PlayerActions::OrderSequential, RepeatMode::None},
+    {PlayerActions::OrderSingle, RepeatMode::One},
+    {PlayerActions::OrderList, RepeatMode::All},
+};
 }
 
 MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), player_(player)
@@ -115,7 +122,8 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     connect(action(PlayerActions::PlayPause), &QAction::triggered, this, [this] {
         if (state_ == Player::State::Idle && !path_.isEmpty()) player_.skipNextResume();
         if (state_ == Player::State::Loaded) player_.togglePaused();
-        else if (playlist_->model().rowCount()) playlist_->play(playlist_->model().currentId() ? playlist_->model().currentId() : panel_->selectedId() ? panel_->selectedId() : playlist_->model().idAt(0));
+        else if (playlist_->model().currentId()) playlist_->replay();
+        else if (playlist_->model().rowCount()) playlist_->play(panel_->selectedId() ? panel_->selectedId() : playlist_->model().idAt(0));
         else if (!path_.isEmpty()) player_.openFile(path_);
     });
     connect(action(PlayerActions::ResetView), &QAction::triggered, video_, &VideoWidget::resetView);
@@ -170,8 +178,11 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     for (auto id : {PlayerActions::PlayPause, PlayerActions::Stop, PlayerActions::Previous, PlayerActions::Next, PlayerActions::BackSmall, PlayerActions::ForwardSmall,
             PlayerActions::BackMedium, PlayerActions::ForwardMedium, PlayerActions::BackLarge, PlayerActions::ForwardLarge,
             PlayerActions::SeekStart, PlayerActions::SeekEnd, PlayerActions::SeekGoto}) play->addAction(action(id));
-    auto *order = play->addMenu(QStringLiteral("播放顺序"));
-    for (auto id : {PlayerActions::OrderSequential, PlayerActions::OrderSingle, PlayerActions::OrderList, PlayerActions::OrderRandom}) order->addAction(action(id));
+    auto *repeat = play->addMenu(QStringLiteral("循环模式"));
+    for (const auto &entry : repeatActions) repeat->addAction(action(entry.first));
+    repeat->addSeparator();
+    repeat->addAction(action(PlayerActions::RepeatCycle));
+    play->addAction(action(PlayerActions::ShuffleToggle));
     auto *picture = menu->addMenu(QStringLiteral("画面(&V)"));
     picture->setObjectName("pictureMenu");
     picture->addAction(action(PlayerActions::FeatureMode)); picture->addAction(action(PlayerActions::StandardMode));
@@ -643,10 +654,17 @@ void MainWindow::setupPlaylist()
     connect(action(PlayerActions::QueueUp), &QAction::triggered, this, [this] { playlist_->model().moveSelected(panel_->selectedIds(), -1); });
     connect(action(PlayerActions::QueueDown), &QAction::triggered, this, [this] { playlist_->model().moveSelected(panel_->selectedIds(), 1); });
     connect(action(PlayerActions::QueueClear), &QAction::triggered, playlist_, &PlaylistController::clear);
-    for (auto [id, order] : {std::pair{PlayerActions::OrderSequential, PlaylistController::Order::Sequential},
-            {PlayerActions::OrderSingle, PlaylistController::Order::SingleRepeat}, {PlayerActions::OrderList, PlaylistController::Order::ListRepeat},
-            {PlayerActions::OrderRandom, PlaylistController::Order::Random}})
-        connect(action(id), &QAction::triggered, this, [this, order] { playlist_->setOrder(order); });
+    for (auto [id, repeatMode] : repeatActions)
+        connect(action(id), &QAction::triggered, this, [this, repeatMode] {
+            playlist_->setPlaybackOrder(repeatMode, playlist_->shuffleEnabled());
+        });
+    connect(action(PlayerActions::OrderRandom), &QAction::triggered, this, [this] {
+        playlist_->setPlaybackOrder(RepeatMode::All, true);
+    });
+    connect(action(PlayerActions::RepeatCycle), &QAction::triggered, playlist_, &PlaylistController::cycleRepeatMode);
+    connect(action(PlayerActions::ShuffleToggle), &QAction::triggered, this, [this](bool checked) {
+        playlist_->setPlaybackOrder(playlist_->repeatMode(), checked);
+    });
     connect(playlist_, &PlaylistController::changed, this, [this] { updatePlaylistActions(); updatePresentation(); });
     connect(playlist_, &PlaylistController::selectItem, panel_, &PlaylistPanel::select);
     connect(playlist_, &PlaylistController::message, this, [this](const QString &text) { surface_->showOsd("queue", text, 3000); });
@@ -671,9 +689,8 @@ void MainWindow::updatePlaylistActions()
     const auto selected = panel_->selectedIds(); const auto &model = playlist_->model();
     actions_->get(PlayerActions::Previous)->setEnabled(playlist_->canPrevious());
     actions_->get(PlayerActions::Next)->setEnabled(playlist_->canNext());
-    for (auto [id, order] : {std::pair{PlayerActions::OrderSequential, PlaylistController::Order::Sequential},
-            {PlayerActions::OrderSingle, PlaylistController::Order::SingleRepeat}, {PlayerActions::OrderList, PlaylistController::Order::ListRepeat},
-            {PlayerActions::OrderRandom, PlaylistController::Order::Random}}) actions_->get(id)->setChecked(playlist_->order() == order);
+    for (auto [id, repeatMode] : repeatActions) actions_->get(id)->setChecked(playlist_->repeatMode() == repeatMode);
+    actions_->get(PlayerActions::ShuffleToggle)->setChecked(playlist_->shuffleEnabled());
     actions_->get(PlayerActions::QueuePlay)->setEnabled(!selected.isEmpty());
     actions_->get(PlayerActions::QueueRemove)->setEnabled(!selected.isEmpty());
     actions_->get(PlayerActions::QueueClear)->setEnabled(model.rowCount() > 0);
