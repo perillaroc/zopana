@@ -27,7 +27,8 @@ public:
               AudioNext, AudioDelayLess, AudioDelayMore, AudioDelayReset,
               SubLoad, SubToggle, SubNext, SubDelayLess, SubDelayMore, SubDelayReset, SubScaleUp, SubScaleDown, SubScaleReset,
               RateLess, RateMore, RateReset, RateHalf, RateThreeQuarter, Rate125, Rate150, Rate200, Rate300, Pitch,
-              FrameForward, LoopA, LoopB, LoopClear, CaptureSource, CaptureViewport, CaptureFolder, MediaInfo, FileLocation, AlwaysOnTop, Settings, ClearHistory, Count };
+              FrameForward, LoopA, LoopB, LoopClear, CaptureSource, CaptureViewport, CaptureFolder, MediaInfo, FileLocation, AlwaysOnTop, Settings, ClearHistory,
+              SkipToggle, SkipIntro, SkipOutro, SkipSettings, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     QAction *repeatModeAction(RepeatMode mode) const;

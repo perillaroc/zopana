@@ -229,8 +229,7 @@ void PlaylistController::previous()
 
 void PlaylistController::advanceAfterCompletion(const Player::PlaybackIdentity &playback)
 {
-    if (!playback.entry || !playback.itemId || playback.itemId != model_.currentId() || playback != player_.playbackIdentity()
-        || player_.state() != Player::State::Ended || player_.loopActive()) return;
+    if (!player_.ownsCompletion(playback) || !playback.itemId || playback.itemId != model_.currentId() || player_.loopActive()) return;
     resetAdvance();
     attemptsRemaining_ = model_.rowCount();
     scheduleAdvance(playback, Player::State::Ended);
@@ -240,7 +239,8 @@ void PlaylistController::scheduleAdvance(Player::PlaybackIdentity playback, Play
 {
     // A stop or replacement can invalidate the item before the queued advance runs.
     QTimer::singleShot(0, this, [this, playback, state] {
-        if (playback != player_.playbackIdentity() || playback.itemId != model_.currentId() || player_.state() != state) return;
+        if (playback.itemId != model_.currentId() || player_.state() != state) return;
+        if (state == Player::State::Ended ? !player_.ownsCompletion(playback) : playback != player_.playbackIdentity()) return;
         if (state == Player::State::Error && repeatMode_ == RepeatMode::One) {
             resetAdvance();
             emit message(QStringLiteral("无法播放当前项目，已停止单个循环。"));

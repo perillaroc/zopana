@@ -82,6 +82,46 @@ SettingsDialog::SettingsDialog(const Preferences &preferences, PlayerActions &ac
     connect(reset,&QPushButton::clicked,this,[this,editable] { const auto id=editable(); if(!id.isEmpty()) { draft_.shortcuts.remove(id); edits_.shortcuts.insert(id); populate(); } });
     connect(table_,&QTableWidget::currentCellChanged,this,[this] { select(); }); connect(filter_,&QLineEdit::textChanged,this,[this] { populate(); });
     auto *note=new QLabel(QStringLiteral("点击录制框后按组合键，再设置绑定。F11/Enter 全屏、Esc 和 Tab 保持固定；取消不应用草稿。")); note->setWordWrap(true); keysLayout->addWidget(note);
+
+    skip_ = new QWidget;
+    skip_->setObjectName("skipSettingsPage");
+    tabs_->addTab(skip_, QStringLiteral("跳略播放"));
+    auto *skipForm = new QFormLayout(skip_);
+    const auto skipCheck = [this](const char *name, const QString &label, bool Preferences::*field, bool SettingsEdits::*edited) {
+        auto *check = new QCheckBox(label);
+        check->setObjectName(QString::fromLatin1(name));
+        check->setChecked(draft_.*field);
+        connect(check, &QCheckBox::toggled, this, [this, field, edited](bool enabled) {
+            draft_.*field = enabled;
+            edits_.*edited = true;
+        });
+        return check;
+    };
+    const auto skipSeconds = [this](const char *name, const QString &label, int Preferences::*field, bool SettingsEdits::*edited) {
+        auto *spin = new QSpinBox;
+        spin->setObjectName(QString::fromLatin1(name));
+        spin->setAccessibleName(label);
+        spin->setRange(0, Preferences::maxSkipSeconds);
+        spin->setSuffix(QStringLiteral(" 秒"));
+        spin->setValue(draft_.*field);
+        connect(spin, &QSpinBox::valueChanged, this, [this, field, edited](int seconds) {
+            draft_.*field = seconds;
+            edits_.*edited = true;
+        });
+        return spin;
+    };
+    skipEnabled_ = skipCheck("skipEnabledCheck", QStringLiteral("启用跳略播放"), &Preferences::skipEnabled, &SettingsEdits::skipEnabled);
+    introEnabled_ = skipCheck("introEnabledCheck", QStringLiteral("跳过片头"), &Preferences::introEnabled, &SettingsEdits::introEnabled);
+    outroEnabled_ = skipCheck("outroEnabledCheck", QStringLiteral("跳过片尾"), &Preferences::outroEnabled, &SettingsEdits::outroEnabled);
+    introSeconds_ = skipSeconds("introSecondsSpin", QStringLiteral("片头秒数"), &Preferences::introSeconds, &SettingsEdits::introSeconds);
+    outroSeconds_ = skipSeconds("outroSecondsSpin", QStringLiteral("片尾秒数"), &Preferences::outroSeconds, &SettingsEdits::outroSeconds);
+    skipForm->addRow(skipEnabled_);
+    skipForm->addRow(introEnabled_, introSeconds_);
+    skipForm->addRow(outroEnabled_, outroSeconds_);
+    auto *skipNote = new QLabel(QStringLiteral("秒数和启用规则在下次打开或重播时生效。关闭总开关立即生效。设为 0 秒时播放该段。"));
+    skipNote->setWordWrap(true);
+    skipForm->addRow(skipNote);
+
     message_=new QLabel; message_->setObjectName("settingsMessage"); message_->setWordWrap(true); layout->addWidget(message_);
     auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel|QDialogButtonBox::Apply|QDialogButtonBox::RestoreDefaults); layout->addWidget(buttons);
     buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定")); buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消")); buttons->button(QDialogButtonBox::Apply)->setText(QStringLiteral("应用")); buttons->button(QDialogButtonBox::RestoreDefaults)->setText(QStringLiteral("恢复本页默认"));
@@ -93,6 +133,11 @@ SettingsDialog::SettingsDialog(const Preferences &preferences, PlayerActions &ac
     connect(all, &QPushButton::clicked, this, &SettingsDialog::resetAll);
     connect(&actions_, &PlayerActions::seekStepsChanged, this, &SettingsDialog::populate);
     populate();
+}
+
+void SettingsDialog::showSkipPage()
+{
+    tabs_->setCurrentWidget(skip_);
 }
 
 void SettingsDialog::resetPage()
@@ -115,10 +160,24 @@ void SettingsDialog::resetPage()
         edits_.seekSmallSeconds=true;
         edits_.seekMediumSeconds=true;
         edits_.seekLargeSeconds=true;
+    } else if (tabs_->currentWidget() == skip_) {
+        resetSkip();
     } else {
         resetShortcuts();
     }
     message_->setText(QStringLiteral("本页已恢复默认，点击应用或确定后生效。"));
+}
+
+void SettingsDialog::resetSkip()
+{
+    const auto defaults = SettingsStore::defaults();
+    skipEnabled_->setChecked(defaults.skipEnabled);
+    introEnabled_->setChecked(defaults.introEnabled);
+    outroEnabled_->setChecked(defaults.outroEnabled);
+    introSeconds_->setValue(defaults.introSeconds);
+    outroSeconds_->setValue(defaults.outroSeconds);
+    edits_.skipEnabled = edits_.introEnabled = edits_.outroEnabled = true;
+    edits_.introSeconds = edits_.outroSeconds = true;
 }
 
 void SettingsDialog::resetShortcuts()
@@ -141,6 +200,7 @@ void SettingsDialog::resetAll()
     edits_.resetAll = true;
     tabs_->setCurrentWidget(general_);
     resetPage();
+    resetSkip();
     resetShortcuts();
     message_->setText(QStringLiteral("全部设置已恢复默认，点击应用或确定后生效。"));
 }

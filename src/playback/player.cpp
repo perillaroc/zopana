@@ -181,6 +181,7 @@ void Player::openFile(const QString &path, quint64 itemId, const QStringList &su
     }
     initialSubtitles_.append(subtitles); initialSubtitles_.removeDuplicates();
     pauseTarget_ = false;
+    startHeld_ = false;
     emit fileOpening();
     path_ = path;
     itemId_ = itemId;
@@ -194,7 +195,7 @@ void Player::queueLoad(bool recovery)
 {
     if (!recovery) {
         ++generation_;
-        completionConsumed_ = false;
+        completedPlayback_.reset();
     }
     engineLoaded_ = false;
     resetFileDetails();
@@ -238,7 +239,7 @@ void Player::submitPendingLoad()
         return;
     loadPending_ = false;
     const QByteArray path = path_.toUtf8();
-    const QByteArray options = QByteArray("pause=") + ((recovering_ || pauseTarget_) ? "yes" : "no")
+    const QByteArray options = QByteArray("pause=") + ((recovering_ || startHeld_ || pauseTarget_) ? "yes" : "no")
                              + ",start=" + QByteArray::number(position_, 'f', 3);
     const char *args[] = {"loadfile", path.constData(), "replace", "-1", options.constData(), nullptr};
     if (!submitControl(Command::Load, args)) {
@@ -257,7 +258,12 @@ void Player::setPaused(bool paused)
     submitControl(Command::Pause, args);
 }
 
-void Player::togglePaused() { if (state_ == State::Loaded || recovering_) setPaused(!pauseTarget_); }
+void Player::togglePaused()
+{
+    if (state_ != State::Loaded && !recovering_) return;
+    if (startHeld_) emit startPlaybackRequested();
+    else setPaused(!pauseTarget_);
+}
 
 void Player::stop(bool clearFile)
 {
@@ -265,7 +271,7 @@ void Player::stop(bool clearFile)
         return;
     emit stopping();
     ++generation_;
-    recovering_ = false; engineLoaded_ = false; lastLoadWasRecovery_ = false;
+    recovering_ = false; engineLoaded_ = false; lastLoadWasRecovery_ = false; startHeld_ = false;
     resetFileDetails();
     clearSeek();
     if (observationId_) mpv_unobserve_property(handle_, observationId_);
@@ -295,7 +301,9 @@ bool Player::canSeek() const
 
 void Player::clearSeek()
 {
-    seekTimer_.stop(); pendingSeek_.reset(); seekTarget_.reset();
+    seekTimer_.stop(); pendingSeek_.reset(); seekTarget_.reset(); submittedSeek_.reset();
+    initialSeek_.reset();
+    settlingSeek_ = false;
     seekBusy_ = seekReplied_ = seekRestarted_ = false;
 }
 
@@ -307,9 +315,52 @@ void Player::seek(double seconds)
     const double target = std::clamp(seconds, 0.0, maximum);
     const auto a = propertyTarget("ab-loop-a"), b = propertyTarget("ab-loop-b");
     if (a.toString() != "no" && b.toString() != "no" && a.isValid() && b.isValid() && (target < a.toDouble() || target > b.toDouble())) clearLoop();
+    settlingSeek_ = false;
+    if (startHeld_) initialSeek_ = InitialSeek{playbackIdentity(), StartPosition::User};
     seekTarget_ = pendingSeek_ = target;
     emit seekRequested(*seekTarget_);
     if (!seekTimer_.isActive()) seekTimer_.start();
+}
+
+bool Player::seekToStart(double seconds, StartPosition reason)
+{
+    if (!canSeek() || !std::isfinite(seconds) || seconds < 0 || seconds > lastPosition()) return false;
+    settlingSeek_ = false;
+    initialSeek_ = InitialSeek{playbackIdentity(), reason};
+    seekTarget_ = pendingSeek_ = seconds;
+    if (!seekTimer_.isActive()) seekTimer_.start();
+    return true;
+}
+
+void Player::cancelStartSeek()
+{
+    if (initialSeek_) clearSeek();
+}
+
+void Player::failSeek()
+{
+    const auto initial = initialSeek_;
+    clearSeek();
+    emit positionChanged(position_);
+    emit seekSettled(position_);
+    if (initial && initial->playback == playbackIdentity())
+        emit startPositionResolved(initial->playback, initial->reason, false);
+}
+
+bool Player::naturalProgress() const
+{
+    return state_ == State::Loaded && engineLoaded_ && !recovering_ && !startHeld_
+        && !paused_ && !pauseTarget_ && !seekTarget_ && !settlingSeek_ && !framePending_ && !loopActive();
+}
+
+bool Player::completeOutro(PlaybackIdentity playback)
+{
+    if (closing_ || completedPlayback_ || !playback.entry || playback != playbackIdentity() || !naturalProgress()) return false;
+    const char *args[] = {"stop", "keep-playlist", nullptr};
+    // The load barrier waits for this request before replacing the entry.
+    if (!submitControl(Command::FinishOutro, args)) return false;
+    finishCurrentPlayback(playback, CompletionReason::SkippedOutro);
+    return true;
 }
 
 void Player::seekRelative(double seconds)
@@ -325,16 +376,35 @@ void Player::flushSeek()
     const char *args[] = {"seek", target.constData(), "absolute+exact", nullptr};
     std::fprintf(stderr, "seek submitted: %s s\n", target.constData());
     seekReplied_ = seekRestarted_ = false;
+    submittedSeek_ = seconds;
     seekBusy_ = submitControl(Command::Seek, args);
-    if (!seekBusy_) clearSeek();
+    if (!seekBusy_) failSeek();
 }
 
 void Player::finishSeek()
 {
     if (!seekBusy_ || !seekReplied_ || !seekRestarted_) return;
+    const auto target = std::exchange(submittedSeek_, std::nullopt);
     seekBusy_ = false;
-    if (pendingSeek_) seekTimer_.start();
-    else seekTarget_.reset();
+    if (pendingSeek_) { seekTimer_.start(); return; }
+    // Position may arrive after PLAYBACK_RESTART. Keep it out of natural progress.
+    if (target && std::abs(position_ - *target) >= .15) {
+        settlingSeek_ = true;
+        if (!initialSeek_) seekTarget_.reset();
+        return;
+    }
+    seekTarget_.reset();
+    finishStartSeek();
+    emit seekSettled(position_);
+}
+
+void Player::finishStartSeek()
+{
+    if (!initialSeek_) return;
+    const auto seek = *initialSeek_;
+    initialSeek_.reset();
+    seekTarget_.reset();
+    if (seek.playback == playbackIdentity()) emit startPositionResolved(seek.playback, seek.reason, true);
 }
 
 void Player::setVolume(double volume)
@@ -419,14 +489,21 @@ void Player::changeState(State state, const QString &error)
 
 void Player::finishCurrentPlayback(PlaybackIdentity playback, CompletionReason reason)
 {
-    if (closing_ || completionConsumed_ || !playback.entry || playback != playbackIdentity()
+    if (closing_ || completedPlayback_ || !playback.entry || playback != playbackIdentity()
         || (state_ != State::Loaded && state_ != State::Loading)) return;
 
-    completionConsumed_ = true;
+    completedPlayback_ = playback;
     engineLoaded_ = false;
     recovering_ = false;
     changeState(State::Ended);
-    if (playback == playbackIdentity()) emit playbackCompleted(playback, reason);
+    if (ownsCompletion(playback)) emit playbackCompleted(playback, reason);
+}
+
+bool Player::ownsCompletion(const PlaybackIdentity &playback) const
+{
+    // A renderer rebuild after the end does not change the accepted completion.
+    return !closing_ && state_ == State::Ended && completedPlayback_ == playback
+        && generation_ == playback.generation && itemId_ == playback.itemId && selectedEntry_ == playback.entry;
 }
 
 void Player::drainEvents()
@@ -527,9 +604,11 @@ void Player::handleReply(const mpv_event &event)
         if (request.command == Command::FramePause && current) {
             if (event.error >= 0) readProperty("pause"); else framePending_ = false;
         }
-        if (request.command == Command::Seek && current) {
+        if (request.command == Command::Seek && current && seekBusy_) {
             seekReplied_ = true;
-            if (event.error < 0) { clearSeek(); emit positionChanged(position_); } else finishSeek();
+            if (event.error >= 0) finishSeek();
+            else if (pendingSeek_) { seekBusy_ = false; seekTimer_.start(); }
+            else failSeek();
         }
         if (request.command == Command::Property) {
             propertyInFlight_.remove(request.subject);
@@ -582,7 +661,7 @@ void Player::handleReply(const mpv_event &event)
 
 void Player::syncFileState()
 {
-    if (eventEntry_ != selectedEntry_ || !selectedEntry_) return;
+    if (eventEntry_ != selectedEntry_ || !selectedEntry_ || completedPlayback_) return;
     if (eventState_ == State::Ended) {
         finishCurrentPlayback(playbackIdentity(), CompletionReason::NaturalEof);
         return;
@@ -640,8 +719,19 @@ void Player::propertyChanged(const mpv_event &event)
         std::fprintf(stderr, "duration: %.3f s\n", seconds);
         emit durationChanged(seconds);
     } else if (name == "time-pos") {
+        const double before = position_;
         position_ = *static_cast<double *>(property.data);
+        const auto playback = playbackIdentity();
+        const bool advancing = naturalProgress();
         emit positionChanged(position_);
+        if (playback != playbackIdentity()) return;
+        finishSeek();
+        if (settlingSeek_ && (!initialSeek_ || (seekTarget_ && std::abs(position_ - *seekTarget_) < .15))) {
+            settlingSeek_ = false;
+            finishStartSeek();
+            emit seekSettled(position_);
+        }
+        if (advancing && position_ > before) emit playbackAdvanced(playback, before, position_);
     } else if (name == "pause") {
         paused_ = *static_cast<int *>(property.data) != 0;
         if (!recovering_) pauseTarget_ = paused_;
@@ -728,7 +818,7 @@ void Player::nextTrack(const QString &type)
 }
 void Player::frameStep()
 {
-    if (state_ != State::Loaded || videoSize_.isEmpty()) return;
+    if (state_ != State::Loaded || videoSize_.isEmpty() || startHeld_) return;
     if (framePending_) return;
     clearSeek(); pauseTarget_ = true; framePending_ = true;
     if (!issueProperty("pause",true,Command::FramePause)) framePending_ = false;
@@ -850,7 +940,7 @@ void Player::restoreStep()
         if (requests_.isEmpty()) QTimer::singleShot(0,this,&Player::restoreStep);
         break;
     }
-    case 6: ++restoreStage_; issueProperty("pause",pauseTarget_,Command::RestoreProperty); break;
+    case 6: ++restoreStage_; issueProperty("pause",pauseTarget_ || startHeld_,Command::RestoreProperty); break;
     case 7:
         ++restoreStage_;
         for (const auto &name : {"track-list","aid","sid","speed","sub-visibility","sub-scale","sub-delay","audio-delay","audio-pitch-correction","ab-loop-a","ab-loop-b"}) readProperty(name);

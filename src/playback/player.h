@@ -18,7 +18,8 @@ class Player final : public QObject
     Q_OBJECT
 public:
     enum class State { Idle, Loading, Loaded, Ended, Error };
-    enum class CompletionReason { NaturalEof };
+    enum class CompletionReason { NaturalEof, SkippedOutro };
+    enum class StartPosition { Resume, SkipIntro, Beginning, User };
     struct PlaybackIdentity {
         quint64 generation = 0, renderEpoch = 0, itemId = 0;
         qint64 entry = 0;
@@ -35,6 +36,7 @@ public:
     uint64_t generation() const { return generation_; }
     quint64 renderEpoch() const { return renderEpoch_; }
     PlaybackIdentity playbackIdentity() const { return {generation_, renderEpoch_, itemId_, selectedEntry_}; }
+    bool ownsCompletion(const PlaybackIdentity &playback) const;
     State state() const { return state_; }
     QString path() const { return path_; }
     bool recovering() const { return recovering_; }
@@ -56,7 +58,10 @@ public:
     void togglePaused();
     void stop(bool clearFile = false);
     void seek(double seconds);
+    bool seekToStart(double seconds, StartPosition reason);
+    void cancelStartSeek();
     void seekRelative(double seconds);
+    bool completeOutro(PlaybackIdentity playback);
     double lastPosition() const;
     bool seekable() const { return seekable_; }
     bool canSeek() const;
@@ -66,6 +71,7 @@ public:
     bool paused() const { return paused_; }
     int videoRotation() const { return videoRotation_; }
     void setInitialPaused(bool paused) { if (state_ == State::Loading && !recovering_) pauseTarget_ = paused; }
+    void holdStart(bool held) { startHeld_ = held; setInitialPaused(held); }
     void setTrackLanguages(const QString &audio,const QString &subtitles);
     void skipNextResume() { skipResumeNext_ = true; }
     bool resumeAllowed() const { return resumeAllowed_; }
@@ -96,20 +102,24 @@ signals:
     void durationChanged(double seconds);
     void positionChanged(double seconds);
     void pausedChanged(bool paused);
+    void playbackAdvanced(const Player::PlaybackIdentity &playback, double before, double position);
     void volumeChanged(double volume);
     void seekableChanged(bool seekable);
     void audioAvailableChanged(bool available);
     void mutedChanged(bool muted);
     void seekRequested(double seconds);
+    void seekSettled(double position);
     void subtitleLoaded(const QString &path);
     void videoSizeChanged(QSize size);
     void commandError(const QString &message);
+    void startPlaybackRequested();
+    void startPositionResolved(const Player::PlaybackIdentity &playback, Player::StartPosition reason, bool succeeded);
 
 private:
     void queueLoad(bool recovery = false);
     void submitPendingLoad();
     enum class Command { Load, Seek, Pause, Volume, Mute, Stop, Subtitle, ResetLoop,
-                         Property, FramePause, Frame, Screenshot, RestoreProperty, RestoreSubtitle, RestoreSeek, ReadProperty };
+                         Property, FramePause, Frame, Screenshot, RestoreProperty, RestoreSubtitle, RestoreSeek, ReadProperty, FinishOutro };
     struct Request { Command command; uint64_t generation, epoch; int64_t entry; QString subject; QVariant value; };
     bool submitControl(Command command, const char **args, const QString &subject = {}, const QVariant &value = {});
     void applyVolume();
@@ -123,6 +133,9 @@ private:
     void flushSeek();
     void finishSeek();
     void clearSeek();
+    void failSeek();
+    void finishStartSeek();
+    bool naturalProgress() const;
     void drainEvents();
     void handleReply(const mpv_event &event);
     void syncFileState();
@@ -136,13 +149,16 @@ private:
     bool loadPending_ = false;
     bool stopPending_ = false;
     bool resetLoopsPending_ = false;
-    bool completionConsumed_ = false;
+    std::optional<PlaybackIdentity> completedPlayback_;
     uint64_t generation_ = 0, nextRequest_ = 1;
     quint64 renderEpoch_ = 1, observationId_ = 0, nextObservation_ = 1;
     quint64 itemId_ = 0;
     QHash<uint64_t, Request> requests_;
     QTimer seekTimer_;
-    std::optional<double> seekTarget_, pendingSeek_;
+    std::optional<double> seekTarget_, pendingSeek_, submittedSeek_;
+    struct InitialSeek { PlaybackIdentity playback; StartPosition reason; };
+    std::optional<InitialSeek> initialSeek_;
+    bool settlingSeek_ = false;
     bool seekBusy_ = false, seekReplied_ = false, seekRestarted_ = false;
     bool seekable_ = false;
     double duration_ = 0, fps_ = 0, sampleRate_ = 0;
@@ -158,7 +174,7 @@ private:
     double position_ = 0;
     bool paused_ = false;
     bool pauseTarget_ = false, engineLoaded_ = false;
-    bool framePending_ = false;
+    bool framePending_ = false, startHeld_ = false;
     bool recovering_ = false, lastLoadWasRecovery_ = false;
     int restoreStage_ = 0;
     bool restoreRestarted_ = false;

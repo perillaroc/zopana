@@ -48,7 +48,9 @@ constexpr Definition definitions[] = {
     {"frame.forward","暂停并前进一帧","step-forward"}, {"loop.setA","设置 A 点",""}, {"loop.setB","设置 B 点",""}, {"loop.clear","清除 A–B",""},
     {"capture.source","原始画面截图","camera"}, {"capture.viewport","当前取景截图","camera"}, {"capture.openFolder","打开截图文件夹","folder-open"},
     {"window.mediaInfo","媒体信息","info"}, {"file.location","打开文件位置","folder-open"}, {"window.alwaysOnTop","窗口置顶","pin"},
-    {"window.settings","设置",""}, {"file.clearHistory","清除最近文件和进度",""}
+    {"window.settings","设置",""}, {"file.clearHistory","清除最近文件和进度",""},
+    {"play.skip.toggle","启用跳略播放",""}, {"play.skip.intro","跳过片头",""},
+    {"play.skip.outro","跳过片尾",""}, {"play.skip.settings","跳略设置…",""}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},
@@ -143,6 +145,10 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     view(MediaInfo,{QKeySequence(Qt::Key_I)}); view(AlwaysOnTop,{QKeySequence(Qt::Key_T)}); get(AlwaysOnTop)->setCheckable(true);
     get(Settings)->setShortcut(QKeySequence(Qt::Key_F5));
     get(Settings)->setEnabled(false); get(ClearHistory)->setEnabled(false);
+    view(SkipToggle, {QKeySequence(Qt::SHIFT | Qt::Key_Apostrophe)});
+    view(SkipSettings, {QKeySequence(Qt::Key_Apostrophe)});
+    for (auto id : {SkipToggle, SkipIntro, SkipOutro}) get(id)->setCheckable(true);
+    for (auto id : {SkipToggle, SkipIntro, SkipOutro, SkipSettings}) get(id)->setEnabled(false);
     get(Fullscreen)->setProperty("scope", QStringLiteral("窗口：F11；观看：Enter"));
     auto *mode = new QActionGroup(this);
     for (auto id : {FeatureMode, StandardMode}) { get(id)->setCheckable(true); mode->addAction(get(id)); }
@@ -196,6 +202,7 @@ QKeyCombination normalized(const QKeySequence &sequence)
     if(key==Qt::Key_Plus) { key=Qt::Key_Equal; modifiers|=Qt::ShiftModifier; }
     if(key==Qt::Key_Less) { key=Qt::Key_Comma; modifiers|=Qt::ShiftModifier; }
     if(key==Qt::Key_Greater) { key=Qt::Key_Period; modifiers|=Qt::ShiftModifier; }
+    if(key==Qt::Key_QuoteDbl) { key=Qt::Key_Apostrophe; modifiers|=Qt::ShiftModifier; }
     if(key==Qt::Key_Enter) key=Qt::Key_Return;
     return QKeyCombination(modifiers,key);
 }
@@ -389,11 +396,11 @@ bool PlayerActions::eventFilter(QObject *object, QEvent *event)
     if (event->type() == QEvent::ShortcutOverride) {
         auto *key = static_cast<QKeyEvent *>(event);
         const auto modifiers = key->modifiers() & ~Qt::KeypadModifier;
-        const QKeySequence pressed(QKeyCombination(modifiers, Qt::Key(key->key())));
+        const QKeySequence pressed = normalized(QKeySequence(QKeyCombination(modifiers, Qt::Key(key->key()))));
         bool viewKey = modifiers == Qt::NoModifier && (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter);
         for (auto *action : actions_) {
             if (action->property("scope").toString() != QStringLiteral("观看")) continue;
-            for (const auto &sequence : action->shortcuts()) viewKey |= sequence.matches(pressed) == QKeySequence::ExactMatch;
+            for (const auto &sequence : action->shortcuts()) viewKey |= QKeySequence(normalized(sequence)).matches(pressed) == QKeySequence::ExactMatch;
         }
         if (viewKey && !watching()) { key->accept(); return true; }
         if (key->key() == Qt::Key_Escape && (QApplication::activePopupWidget() || QApplication::activeModalWidget())) {

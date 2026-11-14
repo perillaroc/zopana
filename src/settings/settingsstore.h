@@ -11,6 +11,7 @@ enum class WindowSizePolicy { LastGeometry, VideoScale, FitWorkArea };
 
 struct Preferences {
     static constexpr int minSeekStepSeconds = 1, maxSeekStepSeconds = 3600;
+    static constexpr int maxSkipSeconds = 86400;
 
     QString captureDirectory, audioLanguages, subtitleLanguages;
     bool recordHistory = false;

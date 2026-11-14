@@ -21,6 +21,7 @@ public:
     void setAudioAvailable(bool available);
     void setLoop(const QVariant &a, const QVariant &b);
     bool cancelSeekPreview();
+    bool seekPreviewActive() const;
     void refreshIcons();
 
 signals:

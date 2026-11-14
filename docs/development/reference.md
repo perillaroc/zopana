@@ -18,6 +18,8 @@
 | 偏好 | 字段 | 默认值 |
 | --- | --- | --- |
 | 定位步长 | `playback/seekSmallSeconds`、`playback/seekMediumSeconds`、`playback/seekLargeSeconds` | 5、30、60，分别接受 1–3600 的整数秒 |
+| 跳略开关 | `skip/enabled`、`skip/introEnabled`、`skip/outroEnabled` | 均为 `false` |
+| 跳略秒数 | `skip/introSeconds`、`skip/outroSeconds` | 均为 `0`，接受 0–86400 的整数秒 |
 | 倍速与保持音调 | `playback/speed`、`playback/pitchCorrection` | `1`、`true` |
 | 循环和随机播放 | `playback/repeatMode`、`playback/shuffleEnabled` | `none`、`false`，循环枚举为 `none`、`one`、`all` |
 | 字幕显隐、音频和字幕延迟 | `tracks/subtitleVisible`、`tracks/audioDelay`、`tracks/subtitleDelay` | `true`、`0`、`0`，延迟单位为秒 |

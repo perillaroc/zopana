@@ -83,8 +83,8 @@ Preferences SettingsStore::load()
     p.skipEnabled = flag("skip/enabled", p.skipEnabled);
     p.introEnabled = flag("skip/introEnabled", p.introEnabled);
     p.outroEnabled = flag("skip/outroEnabled", p.outroEnabled);
-    p.introSeconds = integer("skip/introSeconds", p.introSeconds, 0, 86400);
-    p.outroSeconds = integer("skip/outroSeconds", p.outroSeconds, 0, 86400);
+    p.introSeconds = integer("skip/introSeconds", p.introSeconds, 0, Preferences::maxSkipSeconds);
+    p.outroSeconds = integer("skip/outroSeconds", p.outroSeconds, 0, Preferences::maxSkipSeconds);
     p.repeatMode = readEnum(s, "playback/repeatMode", p.repeatMode, repeatModes);
     p.shuffleEnabled = flag("playback/shuffleEnabled", p.shuffleEnabled);
     p.sortField = readEnum(s, "playlist/sortField", p.sortField, sortFields);

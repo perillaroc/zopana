@@ -1,6 +1,6 @@
 add_library(zopana_core STATIC
     ui/mainwindow.cpp ui/mainwindow.h
-    playback/player.cpp playback/player.h
+    playback/player.cpp playback/player.h playback/skippolicy.h
     video/viewgeometry.h
     video/videowidget.cpp video/videowidget.h
     ui/playeractions.cpp ui/playeractions.h

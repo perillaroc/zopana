@@ -306,6 +306,8 @@ bool ControlBar::cancelSeekPreview()
     showTime(seek_->reported); return true;
 }
 
+bool ControlBar::seekPreviewActive() const { return seek_->isSliderDown(); }
+
 void ControlBar::refreshIcons()
 {
     play_->setIcon(Theme::icon(actions_.get(PlayerActions::PlayPause)->property("iconName").toString(), palette(), true));
