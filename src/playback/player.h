@@ -56,21 +56,25 @@ public:
     double position() const { return position_; }
     double duration() const { return duration_; }
     bool paused() const { return paused_; }
+    int videoRotation() const { return videoRotation_; }
     void setInitialPaused(bool paused) { if (state_ == State::Loading && !recovering_) pauseTarget_ = paused; }
     void setTrackLanguages(const QString &audio,const QString &subtitles);
     void skipNextResume() { skipResumeNext_ = true; }
     bool resumeAllowed() const { return resumeAllowed_; }
     bool automaticOpen() const { return automaticOpen_; }
     void setVolume(double volume);
+    void setAudioPreferences(double volume, bool muted);
     void setMuted(bool muted);
     void toggleMuted() { setMuted(!muteTarget_); }
     void addSubtitle(const QString &path, bool select = true);
     bool muted() const { return reportedMute_; }
+    bool muteTarget() const { return muteTarget_; }
     double volumeTarget() const { return volumeTarget_; }
     void shutdown();
 
 signals:
     void detailsChanged();
+    void preferenceTargetChanged();
     void notice(const QString &message);
     void sourceImageReady(const QImage &image, quint64 generation, quint64 renderEpoch, const QString &path, double position);
     void requestSubmitted(quint64 requestId, quint64 generation, quint64 renderEpoch, const QString &operation);
@@ -99,6 +103,7 @@ private:
                          Property, FramePause, Frame, Screenshot, RestoreProperty, RestoreSubtitle, RestoreSeek, ReadProperty };
     struct Request { Command command; uint64_t generation, epoch; int64_t entry; QString subject; QVariant value; };
     bool submitControl(Command command, const char **args, const QString &subject = {}, const QVariant &value = {});
+    void applyVolume();
     bool issueProperty(const QString &name, const QVariant &value, Command command = Command::Property);
     void readProperty(const QString &name);
     void applyProperty(const QString &name, const QVariant &value);
@@ -121,7 +126,6 @@ private:
     bool loadPending_ = false;
     bool stopPending_ = false;
     bool resetLoopsPending_ = false;
-    bool resetDelaysPending_ = false;
     uint64_t generation_ = 0, nextRequest_ = 1;
     quint64 renderEpoch_ = 1, observationId_ = 0, nextObservation_ = 1;
     quint64 itemId_ = 0;
@@ -148,7 +152,8 @@ private:
     int restoreStage_ = 0;
     bool restoreRestarted_ = false;
     struct Recovery { double position = 0; QVariantMap values; QString audio, subtitle; QStringList external; } recovery_;
-    QVariantMap properties_{{"speed",1.0},{"audio-pitch-correction",true},{"sub-visibility",true},{"sub-scale",1.0}};
+    QVariantMap properties_{{"speed",1.0},{"audio-pitch-correction",true},{"sub-visibility",true},{"sub-scale",1.0},
+                            {"audio-delay",0.0},{"sub-delay",0.0}};
     QVariantMap targets_;
     QSet<QString> propertyInFlight_;
     QVector<MediaTrack> tracks_;
@@ -156,6 +161,7 @@ private:
     QString audioLanguages_,subtitleLanguages_;
     bool trackPreferencesPending_=false,skipResumeNext_=false,resumeAllowed_=true,automaticOpen_=false;
     QSize videoSize_;
+    int videoRotation_ = 0;
     int64_t selectedEntry_ = 0; // ID returned by the latest loadfile command.
     int64_t eventEntry_ = 0;    // ID from START_FILE, also identifies FILE_LOADED.
     State eventState_ = State::Idle;

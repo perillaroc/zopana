@@ -142,7 +142,7 @@ public:
         action("audio.delayReset")->trigger(); action("sub.delayReset")->trigger(); until([this] { return number("sub-delay")==0 && number("audio-delay")==0; });
         player.setMediaProperty("speed",2.0); until([this] { return number("speed")==2; }); player.setMediaProperty("audio-delay",.3); player.setMediaProperty("sub-delay",.4);
         until([this] { return std::abs(number("sub-delay")-.4)<.001; }); open("grid.mp4");
-        check("file change keeps session speed but clears delays",number("speed")==2 && number("sub-delay")==0 && number("audio-delay")==0);
+        check("file change keeps speed and global delays",number("speed")==2 && std::abs(number("sub-delay")-.4)<.001 && std::abs(number("audio-delay")-.3)<.001);
         player.setMediaProperty("speed",1.0); until([this] { return number("speed")==1; }); open(); seek(1.2);
         key(Qt::Key_D); require("frame command advances exactly one 25fps frame",until([this] { return std::abs(number("time-pos")-1.24)<.01 && flag("pause"); }));
         player.setPaused(false); until([this] { return !flag("pause"); }); player.frameStep(); require("frame step from playback ends paused",until([this] { return flag("pause"); }));

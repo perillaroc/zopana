@@ -32,6 +32,16 @@ void *getGlProcAddress(void *context, const char *name)
     return reinterpret_cast<void *>(static_cast<QOpenGLContext *>(context)->getProcAddress(name));
 }
 
+QPointF rotatedFocus(QPointF point, int degrees)
+{
+    switch ((degrees % 360 + 360) % 360) {
+    case 90: return {1 - point.y(), point.x()};
+    case 180: return {1 - point.x(), 1 - point.y()};
+    case 270: return {point.y(), 1 - point.x()};
+    default: return point;
+    }
+}
+
 } // namespace
 
 VideoWidget::VideoWidget(mpv_handle *handle, QWidget *parent)
@@ -59,16 +69,32 @@ void VideoWidget::setInputMode(InputMode mode)
     inputMode_ = mode;
 }
 
-void VideoWidget::setVideoSize(QSize displaySize)
+void VideoWidget::setVideoSize(QSize displaySize, int rotation)
 {
-    if (displaySize_ == displaySize)
+    if (displaySize_ == displaySize && rotation_ == rotation)
         return;
     cancelGestures();
+    const auto focus = viewFocus();
+    const bool rotationChanged = rotation_ != rotation;
+    rotation_ = rotation;
     displaySize_ = displaySize;
     bufferHasFrame_ = false;
     view_.setSizes(size(), displaySize_);
+    if (rotationChanged) view_.setFocus(view_.scale(), rotatedFocus(focus, rotation_));
     if (displaySize_.isEmpty())
         hasFrame_ = false;
+    update();
+}
+
+QPointF VideoWidget::viewFocus() const
+{
+    return rotatedFocus(view_.focus(), -rotation_);
+}
+
+void VideoWidget::restoreView(double scale, QPointF focus)
+{
+    cancelGestures();
+    view_.setFocus(scale, rotatedFocus(focus, rotation_));
     update();
 }
 
@@ -77,6 +103,7 @@ void VideoWidget::resetView()
     cancelGestures();
     view_.reset();
     emit zoomChanged(view_.scale());
+    emit viewChanged();
     update();
 }
 
@@ -185,6 +212,7 @@ void VideoWidget::advanceZoom()
     if (progress == 1)
         zoomTimer_.stop();
     emit zoomChanged(view_.scale());
+    emit viewChanged();
     update();
 }
 
@@ -227,10 +255,12 @@ bool VideoWidget::withinClickDistance(QPointF position) const
 
 void VideoWidget::dragTo(QPointF position)
 {
-    const auto previous = view_.topLeft();
-    view_.moveTo(dragOrigin_ + position - pressPosition_);
-    if (view_.topLeft() != previous)
-        update();
+    auto dragged = view_;
+    dragged.moveTo(dragOrigin_ + position - pressPosition_);
+    if (dragged.topLeft() == view_.topLeft()) return;
+    view_ = dragged;
+    emit viewChanged();
+    update();
 }
 
 void VideoWidget::mouseReleaseEvent(QMouseEvent *event)

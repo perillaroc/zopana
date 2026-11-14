@@ -65,7 +65,7 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(action(PlayerActions::CaptureFolder), &QAction::triggered, this, [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(captures_->lastSaved()).absolutePath())); });
     connect(action(PlayerActions::FileLocation), &QAction::triggered, this, [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(player_.path()).absolutePath())); });
     connect(action(PlayerActions::MediaInfo), &QAction::triggered, this, &MediaControls::showInformation);
-    connect(action(PlayerActions::AlwaysOnTop), &QAction::triggered, this, &MediaControls::toggleOnTop);
+    connect(action(PlayerActions::AlwaysOnTop), &QAction::triggered, this, &MediaControls::setAlwaysOnTop);
     connect(captures_, &CaptureService::saved, this, [this](const QString &path) { actions_.get(PlayerActions::CaptureFolder)->setEnabled(true); surface_.showCaptureSaved(path,actions_.get(PlayerActions::CaptureFolder)); });
     connect(captures_, &CaptureService::failed, this, [this](const QString &message) { surface_.showOsd("error",message,4000); });
     connect(&player_, &Player::notice, this, [this](const QString &message) { surface_.showOsd("media",message,2500); });
@@ -167,17 +167,25 @@ void MediaControls::loadSubtitle()
     const auto path = QFileDialog::getOpenFileName(owner(window_),QStringLiteral("加载外挂字幕"),{},QStringLiteral("字幕 (*.srt *.ass *.ssa *.vtt);;所有文件 (*)"));
     if (!path.isEmpty()) player_.addSubtitle(path);
 }
-void MediaControls::toggleOnTop()
+void MediaControls::setAlwaysOnTop(bool enabled)
 {
+    actions_.get(PlayerActions::AlwaysOnTop)->setChecked(enabled);
+    if (window_.windowFlags().testFlag(Qt::WindowStaysOnTopHint) == enabled) return;
+    if (!window_.isVisible()) {
+        window_.setWindowFlag(Qt::WindowStaysOnTopHint, enabled);
+        emit alwaysOnTopChanged();
+        return;
+    }
     const auto state = window_.windowState(); const auto normal = window_.normalGeometry(); QPointer<QWidget> focus = QApplication::focusWidget();
     // On Windows changing the native flags exits fullscreen. Leave it explicitly
     // first so showFullScreen() performs a real transition after the flags change.
     if (state.testFlag(Qt::WindowFullScreen)) window_.setWindowState(state & ~Qt::WindowFullScreen);
-    window_.setWindowFlag(Qt::WindowStaysOnTopHint,!window_.windowFlags().testFlag(Qt::WindowStaysOnTopHint));
+    window_.setWindowFlag(Qt::WindowStaysOnTopHint, enabled);
     if (state.testFlag(Qt::WindowFullScreen)) window_.showFullScreen();
     else if (state.testFlag(Qt::WindowMaximized)) window_.showMaximized();
     else { window_.setGeometry(normal); window_.showNormal(); }
     if (focus) focus->setFocus(); refresh();
+    emit alwaysOnTopChanged();
 }
 QVariantMap MediaControls::information() const
 {

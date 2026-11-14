@@ -239,7 +239,11 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     connect(&player_, &Player::seekRequested, this, [this](double target) { surface_->showOsd("seek", QStringLiteral("定位 %1").arg(PlaybackDialogs::timestamp(target))); });
     connect(&player_, &Player::subtitleLoaded, this, [this](const QString &path) { surface_->showOsd("subtitle", QStringLiteral("已加载字幕：%1").arg(QFileInfo(path).fileName()), 2000); });
     connect(&player_, &Player::videoSizeChanged, this, [this](QSize size) {
-        if (state_ == Player::State::Loaded) { videoSize_ = size; video_->setVideoSize(size); updatePresentation(); }
+        if (state_ != Player::State::Loaded) return;
+        videoSize_ = size;
+        video_->setVideoSize(size, player_.videoRotation());
+        showMultiplier(zoomLabel_, QStringLiteral("缩放"), size.isEmpty() ? 1 : video_->zoomScale());
+        updatePresentation();
     });
     connect(&player_, &Player::commandError, this, [this](const QString &message) {
         surface_->showOsd("error", QStringLiteral("操作失败：%1").arg(message), 3000);

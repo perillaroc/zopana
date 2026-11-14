@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace {
 bool check(const char *operation, int result)
@@ -43,15 +44,15 @@ constexpr Property fileProperties[] = {
     {"current-ao", MPV_FORMAT_STRING}, {"audio-out-params", MPV_FORMAT_NODE},
     {"seekable", MPV_FORMAT_FLAG}, {"estimated-vf-fps", MPV_FORMAT_DOUBLE},
     {"track-list", MPV_FORMAT_NODE}, {"aid", MPV_FORMAT_NODE}, {"sid", MPV_FORMAT_NODE},
-    {"sub-delay", MPV_FORMAT_NODE}, {"audio-delay", MPV_FORMAT_NODE},
     {"ab-loop-a", MPV_FORMAT_NODE}, {"ab-loop-b", MPV_FORMAT_NODE},
     {"video-params", MPV_FORMAT_NODE}, {"audio-params", MPV_FORMAT_NODE},
     {"video-codec", MPV_FORMAT_NODE}, {"audio-codec-name", MPV_FORMAT_NODE},
     {"file-format", MPV_FORMAT_NODE}, {"container-fps", MPV_FORMAT_NODE}
 };
+constexpr const char *globalProperties[] = {"speed", "audio-pitch-correction", "sub-scale", "sub-visibility", "audio-delay", "sub-delay"};
 bool globalProperty(const QString &name)
 {
-    return name == "speed" || name == "audio-pitch-correction" || name == "sub-scale" || name == "sub-visibility";
+    return std::ranges::any_of(globalProperties, [&name](const char *key) { return name == key; });
 }
 QByteArray propertyText(const QVariant &value)
 {
@@ -62,7 +63,9 @@ QByteArray propertyText(const QVariant &value)
 bool samePropertyValue(const QVariant &left, const QVariant &right)
 {
     bool aValid = false, bValid = false; const double a = left.toDouble(&aValid), b = right.toDouble(&bValid);
-    if (aValid && bValid) return std::abs(a-b) <= 1e-6 * std::max({1.0,std::abs(a),std::abs(b)});
+    // Some mpv options are floats. Allow their rounding while distinguishing
+    // adjacent millisecond delay values even at the ends of the range.
+    if (aValid && bValid) return std::abs(a-b) <= std::max(1e-6, std::numeric_limits<float>::epsilon() * std::max(std::abs(a), std::abs(b)));
     return left == right;
 }
 } // namespace
@@ -112,7 +115,7 @@ bool Player::initialize()
         || !check("observe mute", mpv_observe_property(handle_, 0, "mute", MPV_FORMAT_FLAG)))
         return false;
 
-    for (const auto &name : {"speed", "audio-pitch-correction", "sub-visibility", "sub-scale"})
+    for (const auto *name : globalProperties)
         mpv_observe_property(handle_, 0, name, MPV_FORMAT_NODE);
     std::fputs("libmpv view: video-zoom=0,video-pan-x=0,video-pan-y=0 (fixed)\n", stderr);
     mpv_get_property(handle_, "audio-buffer", MPV_FORMAT_DOUBLE, &audioBuffer_);
@@ -144,7 +147,7 @@ void Player::setRendererReady(bool ready)
     if (state_ != State::Loaded && state_ != State::Loading) return;
     if (!recovering_) {
         recovery_ = {}; recovery_.position = positionTarget();
-        for (const auto &name : {"speed", "audio-pitch-correction", "sub-visibility", "sub-scale", "sub-delay", "audio-delay", "ab-loop-a", "ab-loop-b"})
+        for (const auto &name : {"ab-loop-a", "ab-loop-b"})
             recovery_.values[name] = propertyTarget(name);
         for (const auto &track : tracks_) {
             if (track.external && !track.externalPath.isEmpty()) recovery_.external.append(track.externalPath);
@@ -177,7 +180,6 @@ void Player::openFile(const QString &path, quint64 itemId, const QStringList &su
             initialSubtitles_.append(sub.absoluteFilePath());
     }
     initialSubtitles_.append(subtitles); initialSubtitles_.removeDuplicates();
-    resetDelaysPending_ = true;
     pauseTarget_ = false;
     emit fileOpening();
     path_ = path;
@@ -215,11 +217,6 @@ void Player::submitPendingLoad()
         trackPreferencesPending_=false;
         issueProperty("alang",audioLanguages_,Command::ResetLoop); issueProperty("slang",subtitleLanguages_,Command::ResetLoop);
         issueProperty("aid","auto",Command::ResetLoop); issueProperty("sid","auto",Command::ResetLoop); return;
-    }
-    if (resetDelaysPending_) {
-        resetDelaysPending_ = false;
-        issueProperty("sub-delay", 0.0, Command::ResetLoop); issueProperty("audio-delay", 0.0, Command::ResetLoop);
-        return;
     }
     if (resetLoopsPending_) {
         resetLoopsPending_ = false;
@@ -335,12 +332,26 @@ void Player::finishSeek()
 
 void Player::setVolume(double volume)
 {
+    setAudioPreferences(volume, false);
+}
+
+void Player::setAudioPreferences(double volume, bool muted)
+{
     if (!std::isfinite(volume))
         return;
-    if (muteTarget_) setMuted(false);
+    if (muteTarget_ != muted) setMuted(muted);
     // Keep fractional wheel input between events, including while a previous
     // slider or wheel request is still waiting for its asynchronous reply.
-    volumeTarget_ = std::clamp(volume, 0.0, 100.0);
+    const double target = std::clamp(volume, 0.0, 100.0);
+    if (target == volumeTarget_ && target == reportedVolume_) return;
+    const double previous = volumeTarget_;
+    volumeTarget_ = target;
+    applyVolume();
+    if (previous != volumeTarget_) emit preferenceTargetChanged();
+}
+
+void Player::applyVolume()
+{
     if (volumeInFlight_)
         return;
     const QByteArray value = QByteArray::number(volumeTarget_, 'g', 15);
@@ -355,11 +366,14 @@ void Player::setVolume(double volume)
 
 void Player::setMuted(bool muted)
 {
+    const bool previous = muteTarget_;
     muteTarget_ = muted;
-    if (muteInFlight_) return;
-    const char *args[] = {"set", "mute", muted ? "yes" : "no", nullptr};
-    if (submitControl(Command::Mute, args)) muteInFlight_ = muted;
-    else { muteTarget_ = reportedMute_; emit mutedChanged(reportedMute_); }
+    if (!muteInFlight_) {
+        const char *args[] = {"set", "mute", muted ? "yes" : "no", nullptr};
+        if (submitControl(Command::Mute, args)) muteInFlight_ = muted;
+        else { muteTarget_ = reportedMute_; emit mutedChanged(reportedMute_); }
+    }
+    if (previous != muteTarget_) emit preferenceTargetChanged();
 }
 
 void Player::addSubtitle(const QString &path, bool select)
@@ -486,7 +500,11 @@ void Player::handleReply(const mpv_event &event)
         if (!check("command reply", event.error) && current)
             emit commandError(QString::fromUtf8(mpv_error_string(event.error)));
         if (request.command == Command::RestoreSeek && current && event.error < 0) restoreRestarted_ = true;
-        if (request.command == Command::RestoreProperty && current && event.error < 0) targets_.remove(request.subject);
+        if (request.command == Command::RestoreProperty && current && event.error < 0
+            && samePropertyValue(targets_.value(request.subject), request.value)) {
+            targets_.remove(request.subject);
+            if (globalProperty(request.subject)) emit preferenceTargetChanged();
+        }
         if (request.command == Command::FramePause && current) {
             if (event.error >= 0) readProperty("pause"); else framePending_ = false;
         }
@@ -497,8 +515,12 @@ void Player::handleReply(const mpv_event &event)
         if (request.command == Command::Property) {
             propertyInFlight_.remove(request.subject);
             if (current) {
-                if (event.error < 0) { targets_.remove(request.subject); emit detailsChanged(); }
-                else if (targets_.contains(request.subject) && !samePropertyValue(targets_[request.subject],request.value)) setMediaProperty(request.subject, targets_[request.subject]);
+                if (targets_.contains(request.subject) && !samePropertyValue(targets_[request.subject],request.value)) setMediaProperty(request.subject, targets_[request.subject]);
+                else if (event.error < 0) {
+                    targets_.remove(request.subject);
+                    if (global) emit preferenceTargetChanged();
+                    emit detailsChanged();
+                }
                 else if (samePropertyValue(properties_.value(request.subject),request.value)) targets_.remove(request.subject);
             }
         }
@@ -523,7 +545,7 @@ void Player::handleReply(const mpv_event &event)
             const bool newerTarget = volumeTarget_ != volumeInFlight_.value();
             volumeInFlight_.reset();
             if (newerTarget)
-                setVolume(volumeTarget_);
+                applyVolume();
             else if (event.error < 0) {
                 volumeTarget_ = reportedVolume_;
                 emit volumeChanged(reportedVolume_);
@@ -606,7 +628,8 @@ void Player::propertyChanged(const mpv_event &event)
         const auto &node = *static_cast<mpv_node *>(property.data);
         // dw/dh include pixel aspect ratio; rotate is the remaining VO rotation.
         QSize size(int(mapInteger(node, "dw")), int(mapInteger(node, "dh")));
-        if (mapInteger(node, "rotate") % 180 == 90)
+        videoRotation_ = int(mapInteger(node, "rotate"));
+        if (std::abs(videoRotation_ % 180) == 90)
             size.transpose();
         std::fprintf(stderr, "video display size: %dx%d\n", size.width(), size.height());
         videoSize_ = size; emit videoSizeChanged(size);
@@ -625,8 +648,8 @@ void Player::propertyChanged(const mpv_event &event)
 void Player::resetFileDetails()
 {
     framePending_ = false;
-    tracks_.clear(); videoSize_ = {}; properties_.remove("track-list");
-    for (const auto &name : {"aid","sid","sub-delay","audio-delay","ab-loop-a","ab-loop-b","video-params","audio-params","video-codec","audio-codec-name","file-format","container-fps"}) {
+    tracks_.clear(); videoSize_ = {}; videoRotation_ = 0; properties_.remove("track-list");
+    for (const auto &name : {"aid","sid","ab-loop-a","ab-loop-b","video-params","audio-params","video-codec","audio-codec-name","file-format","container-fps"}) {
         properties_.remove(name); targets_.remove(name);
     }
     emit detailsChanged();
@@ -641,20 +664,25 @@ bool Player::issueProperty(const QString &name, const QVariant &value, Command c
 
 void Player::setMediaProperty(const QString &name, const QVariant &value)
 {
-    if (!handle_ || closing_ || (!globalProperty(name) && state_ != State::Loaded)) return;
+    const bool global = globalProperty(name);
+    if (!handle_ || closing_ || (!global && state_ != State::Loaded)) return;
     QVariant target = value;
     if (name == "speed" || name == "sub-scale" || name == "audio-delay" || name == "sub-delay") {
         bool valid = false; double number = value.toDouble(&valid);
         if (!valid || !std::isfinite(number)) return;
         if (name == "speed") number = std::clamp(number,.25,3.0);
         if (name == "sub-scale") number = std::clamp(number,.5,2.0);
+        if (name == "audio-delay" || name == "sub-delay") number = std::clamp(number, -3600.0, 3600.0);
         target = number;
     } else if (name != "aid" && name != "sid" && name != "ab-loop-a" && name != "ab-loop-b"
         && name != "sub-visibility" && name != "audio-pitch-correction") return;
+    const auto previous = propertyTarget(name);
     targets_[name] = target;
-    if (propertyInFlight_.contains(name) || recovering_) return;
-    if (issueProperty(name,target)) propertyInFlight_.insert(name);
-    else { targets_.remove(name); emit detailsChanged(); }
+    if (!propertyInFlight_.contains(name) && !recovering_) {
+        if (issueProperty(name,target)) propertyInFlight_.insert(name);
+        else { targets_.remove(name); emit detailsChanged(); }
+    }
+    if (global && previous != propertyTarget(name)) emit preferenceTargetChanged();
 }
 void Player::adjustMediaProperty(const QString &name, double delta) { setMediaProperty(name,propertyTarget(name).toDouble()+delta); }
 void Player::setTrackLanguages(const QString &audio,const QString &subtitles) { audioLanguages_=audio; subtitleLanguages_=subtitles; }
@@ -720,9 +748,12 @@ void Player::applyProperty(const QString &name, const QVariant &value)
     // Track selection uses mpv's "no" spelling in commands; NODE feedback can
     // represent that same value as false. Keep one representation in snapshots.
     const QVariant actual = (name == "aid" || name == "sid") && value.metaType().id() == QMetaType::Bool && !value.toBool() ? QVariant("no") : value;
+    const bool global = globalProperty(name);
+    const auto previous = global ? propertyTarget(name) : QVariant();
     properties_[name] = actual;
     if (!propertyInFlight_.contains(name) && samePropertyValue(targets_.value(name),actual)) targets_.remove(name);
     if (name == "track-list") updateTracks();
+    if (global && previous != propertyTarget(name)) emit preferenceTargetChanged();
     emit detailsChanged();
 }
 void Player::updateTracks()
@@ -745,8 +776,8 @@ void Player::restoreStep()
     case 0:
         ++restoreStage_;
         issueProperty("ab-loop-a","no",Command::RestoreProperty); issueProperty("ab-loop-b","no",Command::RestoreProperty);
-        for (const auto &name : {"speed","audio-pitch-correction","sub-scale","sub-visibility","audio-delay","sub-delay"}) {
-            const auto value = globalProperty(name) ? propertyTarget(name) : recovery_.values.value(name);
+        for (const auto *name : globalProperties) {
+            const auto value = propertyTarget(name);
             if (value.isValid()) issueProperty(name,value,Command::RestoreProperty);
         }
         break;
@@ -803,7 +834,7 @@ void Player::restoreStep()
         break;
     default: {
         bool pending = false;
-        for (const auto &name : {"speed","audio-pitch-correction","sub-scale","sub-visibility"})
+        for (const auto *name : globalProperties)
             if (targets_.contains(name) && !samePropertyValue(targets_[name],properties_.value(name))) { issueProperty(name,targets_[name],Command::RestoreProperty); pending = true; }
         if (pending) { restoreStage_ = 7; return; }
         recovering_ = false; changeState(State::Loaded); publishFileProperties(); emit restored(generation_,renderEpoch_); break;

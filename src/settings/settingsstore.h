@@ -1,4 +1,5 @@
 #pragma once
+#include <QPointF>
 #include <QRect>
 #include <QString>
 #include <QVariantMap>
@@ -9,10 +10,17 @@ struct Preferences {
     int resumePolicy = 0; // Ask, always resume, start over.
     double subtitleScale = 1, volume = 100;
     bool muted = false, standardMode = false;
+    double speed = 1;
+    bool pitchCorrection = true, subtitleVisible = true;
+    double audioDelay = 0, subtitleDelay = 0;
+    double viewScale = 1;
+    QPointF viewFocus{0.5, 0.5};
     QRect mainGeometry, playlistGeometry;
-    bool maximized = false, detached = false, playlistVisible = false;
+    bool maximized = false, alwaysOnTop = false, detached = false, playlistVisible = false;
     int dockWidth = 320;
     QVariantMap shortcuts;
+
+    bool operator==(const Preferences &) const = default;
 };
 
 class SettingsStore

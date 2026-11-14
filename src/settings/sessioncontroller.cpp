@@ -2,6 +2,7 @@
 #include "settingsdialog.h"
 #include "player.h"
 #include "mainwindow.h"
+#include "mediacontrols.h"
 #include "playeractions.h"
 #include "playlistcontroller.h"
 #include "playlisthost.h"
@@ -21,7 +22,7 @@
 #include <cmath>
 
 SessionController::SessionController(Player &player,MainWindow &window,SettingsStore &settings,HistoryStore &history)
-    : QObject(&window),player_(player),window_(window),settings_(settings),history_(history),preferences_(settings.load())
+    : QObject(&window),player_(player),window_(window),settings_(settings),history_(history),preferences_(settings.load()),savedPreferences_(preferences_)
 {
     setObjectName("sessionController"); actions_=window.findChild<PlayerActions *>(); playlist_=window.findChild<PlaylistController *>(); host_=window.findChild<PlaylistHost *>(); surface_=window.findChild<VideoSurface *>(); video_=window.findChild<VideoWidget *>();
     recent_=new QMenu(QStringLiteral("最近文件"),&window); recent_->setObjectName("recentFilesMenu"); auto *file=window.findChild<QMenu *>("fileMenu"); file->insertMenu(actions_->get(PlayerActions::Quit),recent_); file->insertAction(actions_->get(PlayerActions::Quit),actions_->get(PlayerActions::ClearHistory));
@@ -39,12 +40,17 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     connect(&history_,&HistoryStore::changed,this,[this] { recentTimer_.start(0); }); connect(recent_,&QMenu::aboutToShow,this,&SessionController::rebuildRecent);
     connect(&history_,&HistoryStore::error,this,[this](const QString &message) { surface_->showOsd("storage",message,5000); });
     progressTimer_.setInterval(5000); connect(&progressTimer_,&QTimer::timeout,this,[this] { flushProgress(); }); progressTimer_.start();
-    windowTimer_.setSingleShot(true); windowTimer_.setInterval(700); connect(&windowTimer_,&QTimer::timeout,this,&SessionController::saveWindows);
+    settingsTimer_.setSingleShot(true); settingsTimer_.setInterval(700); connect(&settingsTimer_,&QTimer::timeout,this,&SessionController::saveWindows);
     window.installEventFilter(this); host_->window()->installEventFilter(this); surface_->installEventFilter(this);
-    connect(host_,&PlaylistHost::changed,this,[this] { if(!restoring_) windowTimer_.start(); });
-    connect(&player_,&Player::volumeChanged,this,[this] { if(!restoring_) windowTimer_.start(); }); connect(&player_,&Player::mutedChanged,this,[this] { if(!restoring_) windowTimer_.start(); });
-    connect(&player_,&Player::detailsChanged,this,[this] { tryResume(); if(!restoring_) windowTimer_.start(); });
-    connect(actions_,&PlayerActions::invoked,this,[this] { if(!restoring_) windowTimer_.start(); });
+    auto *mediaControls=window.findChild<MediaControls *>();
+    connect(host_,&PlaylistHost::changed,this,&SessionController::scheduleSave);
+    connect(mediaControls,&MediaControls::alwaysOnTopChanged,this,&SessionController::scheduleSave);
+    connect(video_,&VideoWidget::viewChanged,this,&SessionController::scheduleSave);
+    connect(&player_,&Player::preferenceTargetChanged,this,&SessionController::scheduleSave);
+    connect(&player_,&Player::volumeChanged,this,&SessionController::scheduleSave);
+    connect(&player_,&Player::mutedChanged,this,&SessionController::scheduleSave);
+    connect(&player_,&Player::detailsChanged,this,&SessionController::tryResume);
+    connect(actions_->get(PlayerActions::StandardMode),&QAction::toggled,this,&SessionController::scheduleSave);
     connect(&player_,&Player::fileOpening,this,[this] { flushProgress(); dismissResume(); recordCurrent_=preferences_.recordHistory; });
     connect(&player_,&Player::stopping,this,[this] { flushProgress(); dismissResume(); recordCurrent_=false; });
     connect(&player_,&Player::mediaChanged,this,[this](Player::State state,const QString &path,const QString &) {
@@ -61,14 +67,25 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     connect(&player_,&Player::positionChanged,this,[this](double position) { if(resumeSeek_ && std::abs(position-*resumeSeek_)<.15) { resumeSeek_.reset(); player_.setPaused(false); } });
     connect(&player_,&Player::seekRequested,this,[this](double) { if(choosing_) return; if(awaitingResume_ || resumeSeek_) { dismissResume(); player_.setPaused(false); } });
     connect(qApp,&QGuiApplication::screenRemoved,this,[this] { QTimer::singleShot(0,this,&SessionController::ensureVisibleWindows); });
-    applyRuntime();
+    settingsNeedWrite_=!settings_.error().isEmpty();
+    applyDialogSettings();
+    mediaControls->setAlwaysOnTop(preferences_.alwaysOnTop);
     if(preferences_.mainGeometry.isValid()) window_.setGeometry(preferences_.mainGeometry);
     if(preferences_.playlistGeometry.isValid()) host_->window()->setGeometry(preferences_.playlistGeometry);
     ensureVisibleWindows(); if(preferences_.maximized) window_.setWindowState(Qt::WindowMaximized);
-    host_->restore(preferences_.detached,preferences_.playlistVisible,preferences_.dockWidth); rebuildRecent(); restoring_=false;
+    host_->restore(preferences_.detached,preferences_.playlistVisible,preferences_.dockWidth);
+    player_.setAudioPreferences(preferences_.volume, preferences_.muted);
+    player_.setMediaProperty("speed", preferences_.speed);
+    player_.setMediaProperty("audio-pitch-correction", preferences_.pitchCorrection);
+    player_.setMediaProperty("sub-visibility", preferences_.subtitleVisible);
+    player_.setMediaProperty("audio-delay", preferences_.audioDelay);
+    player_.setMediaProperty("sub-delay", preferences_.subtitleDelay);
+    player_.setMediaProperty("sub-scale", preferences_.subtitleScale);
+    video_->restoreView(preferences_.viewScale, preferences_.viewFocus);
+    rebuildRecent(); restoring_=false;
     const auto message=settings_.error().isEmpty()?history_.loadError():settings_.error(); if(!message.isEmpty()) QTimer::singleShot(0,this,[this,message] { surface_->showOsd("storage",message,5000); });
 }
-void SessionController::captureWindows(Preferences &p) const
+void SessionController::captureRuntime(Preferences &p) const
 {
     if(!window_.isMinimized()) {
         p.maximized=window_.restoreMaximized();
@@ -76,31 +93,57 @@ void SessionController::captureWindows(Preferences &p) const
     }
     auto *list=host_->window(); const auto normal=list->normalGeometry(); p.playlistGeometry=list->isMinimized() || list->isMaximized()?normal:list->geometry();
     p.detached=host_->detached(); p.playlistVisible=host_->preferredVisible(); p.dockWidth=host_->dockWidth();
-    p.volume=player_.volumeTarget(); p.muted=player_.muted(); p.standardMode=actions_->get(PlayerActions::StandardMode)->isChecked();
+    p.alwaysOnTop=window_.windowFlags().testFlag(Qt::WindowStaysOnTopHint);
+    p.volume=player_.volumeTarget(); p.muted=player_.muteTarget(); p.standardMode=actions_->get(PlayerActions::StandardMode)->isChecked();
     p.subtitleScale=player_.propertyTarget("sub-scale").toDouble();
+    p.speed=player_.propertyTarget("speed").toDouble();
+    p.pitchCorrection=player_.propertyTarget("audio-pitch-correction").toBool();
+    p.subtitleVisible=player_.propertyTarget("sub-visibility").toBool();
+    p.audioDelay=player_.propertyTarget("audio-delay").toDouble();
+    p.subtitleDelay=player_.propertyTarget("sub-delay").toDouble();
+    p.viewScale=video_->zoomScale();
+    p.viewFocus=video_->viewFocus();
 }
-void SessionController::applyRuntime()
+void SessionController::applyDialogSettings()
 {
     window_.findChild<CaptureService *>()->setDirectory(preferences_.captureDirectory); player_.setTrackLanguages(preferences_.audioLanguages,preferences_.subtitleLanguages);
-    player_.setMediaProperty("sub-scale",preferences_.subtitleScale); player_.setVolume(preferences_.volume); player_.setMuted(preferences_.muted);
     video_->setInputMode(preferences_.standardMode?VideoWidget::InputMode::Standard:VideoWidget::InputMode::Feature);
     actions_->get(preferences_.standardMode?PlayerActions::StandardMode:PlayerActions::FeatureMode)->setChecked(true);
     const auto ignored=actions_->applyBindings(preferences_.shortcuts); if(!ignored.isEmpty()) QTimer::singleShot(0,this,[this] { surface_->showOsd("settings",QStringLiteral("部分快捷键无效或冲突，已保留有效绑定和默认值。"),5000); });
 }
-bool SessionController::applyPreferences(Preferences p)
+bool SessionController::applyPreferences(Preferences p, bool resetSubtitleScale)
 {
-    // Layout and live audio values are not edited by this dialog.
-    const double scale=p.subtitleScale; captureWindows(p); p.subtitleScale=scale;
-    if(!settings_.save(p)) { settingsError(settings_.error()); return false; }
-    const bool wasRecording=preferences_.recordHistory; preferences_=std::move(p); settingsErrorReported_=false;
+    captureRuntime(p);
+    if(resetSubtitleScale) p.subtitleScale=SettingsStore::defaults().subtitleScale;
+    if((settingsNeedWrite_ || p!=savedPreferences_) && !settings_.save(p)) { settingsError(settings_.error()); return false; }
+    const bool wasRecording=preferences_.recordHistory; preferences_=std::move(p); savedPreferences_=preferences_;
+    settingsNeedWrite_=false; settingsErrorReported_=false;
     if(wasRecording && !preferences_.recordHistory) { recordCurrent_=false; dismissResume(); }
     else if(!wasRecording && preferences_.recordHistory && !currentPath_.isEmpty() && !suppressedPaths_.contains(mediaPathKey(currentPath_))) recordCurrent_=true;
-    applyRuntime(); return true;
+    applyDialogSettings();
+    if(resetSubtitleScale) player_.setMediaProperty("sub-scale", preferences_.subtitleScale);
+    return true;
 }
 void SessionController::settingsError(const QString &message) { if(!settingsErrorReported_) { settingsErrorReported_=true; surface_->showOsd("storage",message,5000); } }
+void SessionController::scheduleSave()
+{
+    if(restoring_) return;
+    auto current=preferences_;
+    captureRuntime(current);
+    if(current==preferences_) return;
+    preferences_=std::move(current);
+    settingsTimer_.start();
+}
 void SessionController::saveWindows()
 {
-    if(restoring_) return; captureWindows(preferences_); if(!settings_.save(preferences_)) settingsError(settings_.error()); else settingsErrorReported_=false;
+    if(restoring_) return;
+    settingsTimer_.stop();
+    captureRuntime(preferences_);
+    if(!settingsNeedWrite_ && preferences_==savedPreferences_) return;
+    if(!settings_.save(preferences_)) { settingsError(settings_.error()); return; }
+    savedPreferences_=preferences_;
+    settingsNeedWrite_=false;
+    settingsErrorReported_=false;
 }
 void SessionController::ensureVisibleWindows()
 {
@@ -112,13 +155,14 @@ bool SessionController::eventFilter(QObject *object,QEvent *event)
 {
     if(object==surface_ && event->type()==QEvent::Resize) arrangePrompt();
     if(object==&window_ && event->type()==QEvent::Close) { flushProgress(); saveWindows(); history_.waitForSaved(); }
-    if(!restoring_ && (object==&window_ || object==host_->window()) && (event->type()==QEvent::Move || event->type()==QEvent::Resize || event->type()==QEvent::WindowStateChange)) windowTimer_.start();
+    if((object==&window_ || object==host_->window()) && (event->type()==QEvent::Move || event->type()==QEvent::Resize || event->type()==QEvent::WindowStateChange)) scheduleSave();
     return QObject::eventFilter(object,event);
 }
 void SessionController::showSettings()
 {
     if(settingsDialog_) { settingsDialog_->raise(); settingsDialog_->activateWindow(); return; }
-    captureWindows(preferences_); SettingsDialog dialog(preferences_,*actions_,[this](const auto &p) { return applyPreferences(p); },[this] { clearHistory(); },QApplication::activeWindow()?QApplication::activeWindow():&window_);
+    scheduleSave();
+    SettingsDialog dialog(preferences_,*actions_,[this](const auto &p,bool resetSubtitleScale) { return applyPreferences(p,resetSubtitleScale); },[this] { clearHistory(); },QApplication::activeWindow()?QApplication::activeWindow():&window_);
     settingsDialog_=&dialog; dialog.exec(); settingsDialog_.clear();
 }
 void SessionController::rebuildRecent()

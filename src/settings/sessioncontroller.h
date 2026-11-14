@@ -19,7 +19,7 @@ class SessionController final : public QObject
 public:
     SessionController(Player &player,MainWindow &window,SettingsStore &settings,HistoryStore &history);
     const Preferences &preferences() const { return preferences_; }
-    bool applyPreferences(Preferences preferences);
+    bool applyPreferences(Preferences preferences, bool resetSubtitleScale = false);
     void clearHistory();
     void flushProgress(bool ended=false);
     void saveWindows();
@@ -30,8 +30,9 @@ public:
 protected:
     bool eventFilter(QObject *object,QEvent *event) override;
 private:
-    void captureWindows(Preferences &preferences) const;
-    void applyRuntime();
+    void captureRuntime(Preferences &preferences) const;
+    void scheduleSave();
+    void applyDialogSettings();
     void rebuildRecent();
     void prepareFile();
     void tryResume();
@@ -43,6 +44,7 @@ private:
     SettingsStore &settings_;
     HistoryStore &history_;
     Preferences preferences_;
+    Preferences savedPreferences_;
     PlayerActions *actions_;
     PlaylistController *playlist_;
     PlaylistHost *host_;
@@ -51,11 +53,12 @@ private:
     QMenu *recent_;
     QWidget *prompt_;
     QLabel *promptText_;
-    QTimer progressTimer_,windowTimer_,resumeTimer_,recentTimer_;
+    QTimer progressTimer_,settingsTimer_,resumeTimer_,recentTimer_;
     std::optional<HistoryEntry> resumeEntry_;
     std::optional<double> resumeSeek_;
     QString currentPath_;
     QSet<QString> suppressedPaths_;
     bool recordCurrent_=false,awaitingResume_=false,restoring_=true,settingsErrorReported_=false,choosing_=false;
+    bool settingsNeedWrite_=false;
     QPointer<QWidget> settingsDialog_;
 };

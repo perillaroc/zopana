@@ -12,7 +12,7 @@ class QLabel;
 class SettingsDialog final : public QDialog
 {
 public:
-    SettingsDialog(Preferences preferences,PlayerActions &actions,std::function<bool(const Preferences &)> apply,std::function<void()> clear,QWidget *parent);
+    SettingsDialog(Preferences preferences,PlayerActions &actions,std::function<bool(const Preferences &,bool resetSubtitleScale)> apply,std::function<void()> clear,QWidget *parent);
 private:
     void apply(bool close);
     void populate();
@@ -20,7 +20,8 @@ private:
     void bind();
     Preferences draft_;
     PlayerActions &actions_;
-    std::function<bool(const Preferences &)> apply_;
+    std::function<bool(const Preferences &,bool resetSubtitleScale)> apply_;
+    bool resetSubtitleScale_ = false;
     QLineEdit *capture_,*audio_,*sub_,*filter_;
     QCheckBox *history_;
     QComboBox *resume_;

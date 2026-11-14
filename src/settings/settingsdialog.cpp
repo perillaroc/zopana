@@ -19,7 +19,7 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
-SettingsDialog::SettingsDialog(Preferences preferences,PlayerActions &actions,std::function<bool(const Preferences &)> apply,std::function<void()> clear,QWidget *parent)
+SettingsDialog::SettingsDialog(Preferences preferences,PlayerActions &actions,std::function<bool(const Preferences &,bool resetSubtitleScale)> apply,std::function<void()> clear,QWidget *parent)
     : QDialog(parent),draft_(std::move(preferences)),actions_(actions),apply_(std::move(apply))
 {
     setObjectName("settingsDialog"); setWindowTitle(QStringLiteral("设置")); resize(760,620);
@@ -56,7 +56,7 @@ SettingsDialog::SettingsDialog(Preferences preferences,PlayerActions &actions,st
     buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定")); buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消")); buttons->button(QDialogButtonBox::Apply)->setText(QStringLiteral("应用")); buttons->button(QDialogButtonBox::RestoreDefaults)->setText(QStringLiteral("恢复默认"));
     connect(buttons,&QDialogButtonBox::accepted,this,[this] { this->apply(true); }); connect(buttons,&QDialogButtonBox::rejected,this,&QDialog::reject);
     connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,this,[this] { this->apply(false); });
-    connect(buttons->button(QDialogButtonBox::RestoreDefaults),&QPushButton::clicked,this,[this] { const auto p=SettingsStore::defaults(); capture_->setText(p.captureDirectory); audio_->clear(); sub_->clear(); history_->setChecked(p.recordHistory); resume_->setCurrentIndex(p.resumePolicy); draft_.subtitleScale=p.subtitleScale; for(const auto &id:actions_.defaultBindings().keys()) draft_.shortcuts.remove(id); populate(); message_->setText(QStringLiteral("已在草稿中恢复默认；应用或确定后生效。")); });
+    connect(buttons->button(QDialogButtonBox::RestoreDefaults),&QPushButton::clicked,this,[this] { const auto p=SettingsStore::defaults(); capture_->setText(p.captureDirectory); audio_->clear(); sub_->clear(); history_->setChecked(p.recordHistory); resume_->setCurrentIndex(p.resumePolicy); resetSubtitleScale_=true; for(const auto &id:actions_.defaultBindings().keys()) draft_.shortcuts.remove(id); populate(); message_->setText(QStringLiteral("已在草稿中恢复默认；应用或确定后生效。")); });
     populate();
 }
 void SettingsDialog::populate()
@@ -100,6 +100,7 @@ void SettingsDialog::apply(bool close)
     const QRegularExpression languages(QStringLiteral("^(?:[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?)(?:,(?:[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?))*$"));
     for(auto *edit:{audio_,sub_}) if(!edit->text().trimmed().isEmpty() && !languages.match(edit->text().trimmed()).hasMatch()) { message_->setText(QStringLiteral("语言请使用逗号分隔的语言代码，例如 eng,zho。")); return; }
     draft_.captureDirectory=capture_->text().trimmed(); draft_.audioLanguages=audio_->text().trimmed(); draft_.subtitleLanguages=sub_->text().trimmed(); draft_.recordHistory=history_->isChecked(); draft_.resumePolicy=resume_->currentIndex();
-    if(!apply_(draft_)) { message_->setText(QStringLiteral("保存失败，设置尚未应用。")); return; }
+    if(!apply_(draft_,resetSubtitleScale_)) { message_->setText(QStringLiteral("保存失败，设置尚未应用。")); return; }
+    resetSubtitleScale_=false;
     message_->setText(QStringLiteral("设置已应用。")); if(close) accept();
 }

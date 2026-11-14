@@ -11,6 +11,7 @@ class ViewGeometry
 public:
     bool valid() const { return !viewport_.isEmpty() && !display_.isEmpty(); }
     double scale() const { return scale_; }
+    QPointF focus() const { return focus_; }
     QPointF topLeft() const { return topLeft_; }
 
     QSizeF frameSize() const
@@ -24,28 +25,21 @@ public:
 
     void setSizes(QSizeF viewport, QSizeF display)
     {
-        QPointF focus(0.5, 0.5);
-        if (valid()) {
-            const auto frame = frameSize();
-            focus = {(viewport_.width() / 2 - topLeft_.x()) / frame.width(),
-                     (viewport_.height() / 2 - topLeft_.y()) / frame.height()};
-        }
         viewport_ = viewport;
         display_ = display;
-        if (!valid()) {
-            scale_ = 1;
-            topLeft_ = {};
-            return;
-        }
-        const auto frame = frameSize();
-        moveTo({viewport.width() / 2 - focus.x() * frame.width(),
-                viewport.height() / 2 - focus.y() * frame.height()});
+        placeAtFocus();
+    }
+
+    void setFocus(double scale, QPointF focus)
+    {
+        scale_ = std::clamp(scale, 1.0, 8.0);
+        focus_ = focus;
+        placeAtFocus();
     }
 
     void reset()
     {
-        scale_ = 1;
-        moveTo({});
+        setFocus(1, {0.5, 0.5});
     }
 
     void zoomAt(QPointF pointer, double newScale)
@@ -66,6 +60,15 @@ public:
     {
         if (!valid())
             return;
+        placeFrame(position);
+        const auto frame = frameSize();
+        focus_ = {(viewport_.width() / 2 - topLeft_.x()) / frame.width(),
+                  (viewport_.height() / 2 - topLeft_.y()) / frame.height()};
+    }
+
+private:
+    void placeFrame(QPointF position)
+    {
         const auto frame = frameSize();
         auto limit = [](double origin, double viewport, double length) {
             return length > viewport ? std::clamp(origin, viewport - length, 0.0)
@@ -75,9 +78,22 @@ public:
                     limit(position.y(), viewport_.height(), frame.height())};
     }
 
-private:
+    void placeAtFocus()
+    {
+        // Layout can temporarily center or constrain an axis. Keep the
+        // chosen content point for a later viewport or video that can show it.
+        if (!valid()) {
+            topLeft_ = {};
+            return;
+        }
+        const auto frame = frameSize();
+        placeFrame({viewport_.width() / 2 - focus_.x() * frame.width(),
+                    viewport_.height() / 2 - focus_.y() * frame.height()});
+    }
+
     QSizeF viewport_;
     QSizeF display_;
     double scale_ = 1;
+    QPointF focus_{0.5, 0.5};
     QPointF topLeft_;
 };

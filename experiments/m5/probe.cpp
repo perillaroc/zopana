@@ -194,7 +194,8 @@ void roundtrip(Report &r,const QString &fixtures,bool reading,bool closeInFullsc
         r.require("restart audio state restored",until([&] { return player.volumeTarget()==37 && player.muted(); }));
         r.check("restart restores mode and subtitle scale",actions->get(PlayerActions::StandardMode)->isChecked() && std::abs(player.propertyTarget("sub-scale").toDouble()-1.3)<.001);
         r.check("restart restores detached visible list without minimization",host->detached() && host->preferredVisible() && !host->window()->isMinimized());
-        r.check("restart does not restore fullscreen or zoom",!window.isFullScreen() && !window.isMinimized() && video->zoomScale()==1 && player.propertyTarget("speed").toDouble()==1);
+        r.check("restart opens without fullscreen, minimization, or a media file",!window.isFullScreen() && !window.isMinimized() && player.path().isEmpty());
+        r.check("restart restores speed and view scale",std::abs(video->zoomScale()-std::pow(1.15,5))<.001 && player.propertyTarget("speed").toDouble()==2);
         r.require("restart opens maximized",window.isMaximized());
         r.check("restart restores shortcut overrides",actions->get(PlayerActions::PlayPause)->shortcut()==QKeySequence("Ctrl+P"));
         const auto *menu=window.findChild<QMenu *>("recentFilesMenu");
@@ -210,7 +211,9 @@ void roundtrip(Report &r,const QString &fixtures,bool reading,bool closeInFullsc
         const auto normal=window.geometry(); window.resize(640,400); QTest::qWait(80); auto *bar=window.findChild<QWidget *>("controlBar"); r.check("startup card fits narrow window above controls",card->y()>=0 && card->geometry().bottom()<bar->y()); window.grab().save(r.output+"/startup-640.png"); window.setGeometry(normal); window.showMaximized();
     } else {
         for(int i=0;i<8;++i) { const auto path=r.output+QString("/persist/recent-%1.mkv").arg(i); write(path,"restart recent fixture"); history.remember(path,0,16); }
-        player.openFile(fixtures+"/grid.mp4"); r.require("restart writer media ready",until([&] { return player.state()==Player::State::Loaded && video->canCapture(); })); player.setPaused(true); video->zoomSteps(5); player.setMediaProperty("speed",2.0); host->window()->showMinimized();
+        player.openFile(fixtures+"/grid.mp4"); r.require("restart writer media ready",until([&] { return player.state()==Player::State::Loaded && video->canCapture(); })); player.setPaused(true); video->zoomSteps(5); player.setMediaProperty("speed",2.0);
+        r.require("writer view scale reaches target",until([&] { return std::abs(video->zoomScale()-std::pow(1.15,5))<.000001; }));
+        host->window()->showMinimized();
         r.check("original window has the configured size",window.size()==normalSize,{{"width",window.width()},{"height",window.height()}});
         QTest::mouseClick(maximize,Qt::LeftButton);
         r.require("writer window maximizes",until([&] { return window.isMaximized(); }));

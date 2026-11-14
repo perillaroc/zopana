@@ -24,10 +24,12 @@ public:
 
     bool rendererReady() const { return renderer_ != nullptr; }
     void setInputMode(InputMode mode);
-    void setVideoSize(QSize displaySize);
+    void setVideoSize(QSize displaySize, int rotation = 0);
+    void restoreView(double scale, QPointF focus);
     void resetView();
     void zoomSteps(double steps);
     double zoomScale() const { return view_.scale(); }
+    QPointF viewFocus() const;
     bool cancelInput();
     bool gestureActive() const { return leftPressActive_; }
     bool canCapture() const { return renderer_ && hasFrame_ && view_.valid(); }
@@ -38,6 +40,7 @@ signals:
     void playbackToggleRequested();
     void fullscreenRequested();
     void zoomChanged(double scale);
+    void viewChanged();
 
 protected:
     void initializeGL() override;
@@ -72,6 +75,7 @@ private:
     bool bufferHasFrame_ = false;
 
     QSize displaySize_;
+    int rotation_ = 0;
     ViewGeometry view_;
     ViewGeometry zoomStart_;
     QTimer zoomTimer_;

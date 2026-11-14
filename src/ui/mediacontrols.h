@@ -17,12 +17,14 @@ class MediaControls final : public QObject
 public:
     MediaControls(Player &player, PlayerActions &actions, VideoWidget &video, VideoSurface &surface, ControlBar &bar, QMainWindow &window);
     void refresh();
+    void setAlwaysOnTop(bool enabled);
     QVariantMap information() const;
+signals:
+    void alwaysOnTopChanged();
 private:
     void tracksMenu(QMenu *menu, const QString &type);
     void loadSubtitle();
     void showInformation();
-    void toggleOnTop();
     QDoubleSpinBox *numberControl(QMenu *menu, const QString &property, const QString &name, double minimum, double maximum, const QString &description);
     Player &player_;
     PlayerActions &actions_;
