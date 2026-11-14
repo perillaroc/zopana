@@ -11,7 +11,7 @@ $expected = ((Get-Content .\zopana-windows-x64.zip.sha256 -Raw).Trim() -split '\
 & .\check-clean-windows.ps1 -Archive .\zopana-windows-x64.zip -ExpectedSha256 $expected
 ```
 
-逐项操作播放器并在终端确认结果。脚本输出目录中的 `result.json` 记录系统、ZIP 和 EXE 的哈希、各项结果及退出状态。`modules.csv` 记录实际加载的 DLL。交回这两个文件及失败时的 `player.log`。`-InspectOnly` 可单独检查归档及文件，`-StartupOnly` 只验证启动、DLL 和退出。完整独立环境验收的结果标记为 `INDEPENDENT_PASS`。
+逐项操作播放器并在终端确认结果。脚本输出目录中的 `result.json` 记录 ZIP 和各项结果，`modules.csv` 记录实际加载的 DLL，`metadata-worker.jsonl` 记录同一 EXE 从中文路径读取的元数据。交回这些文件及失败时的 `player.log`。`-InspectOnly` 校验归档和逐文件清单；`-StartupOnly -Fixture <有声视频>` 还会验证启动、DLL、退出和元数据入口。宿主机启动结果标记为 `HOST_STARTUP_ONLY`；完整独立环境验收标记为 `INDEPENDENT_PASS`。启动使用验收目录内单独的配置与历史位置。
 
 如环境具备第二块物理屏幕和中文输入法，再补做以下检查并记录屏幕分辨率、各自的 Windows 缩放和设备类型。
 

@@ -21,13 +21,20 @@
 | 跳略开关 | `skip/enabled`、`skip/introEnabled`、`skip/outroEnabled` | 均为 `false` |
 | 跳略秒数 | `skip/introSeconds`、`skip/outroSeconds` | 均为 `0`，接受 0–86400 的整数秒 |
 | 倍速与保持音调 | `playback/speed`、`playback/pitchCorrection` | `1`、`true` |
+| 音量与静音 | `audio/volume`、`audio/muted` | `100`（百分比 0–100）、`false` |
 | 循环和随机播放 | `playback/repeatMode`、`playback/shuffleEnabled` | `none`、`false`，循环枚举为 `none`、`one`、`all` |
 | 上次列表排序 | `playlist/sortField`、`playlist/sortDirection` | `fileName`、`ascending`；只保存条件，队列路径、行序和元数据均在内存中 |
 | 字幕显隐、音频和字幕延迟 | `tracks/subtitleVisible`、`tracks/audioDelay`、`tracks/subtitleDelay` | `true`、`0`、`0`，延迟单位为秒 |
-| 置顶 | `window/alwaysOnTop` | `false` |
+| 字幕字体和轨道语言 | `tracks/subtitleScale`、`tracks/audioLanguages`、`tracks/subtitleLanguages` | `1`（范围 0.5–2）、两个空字符串；语言为逗号分隔的代码 |
+| 普通窗口几何、最大化和置顶 | `window/normalGeometry`、`window/maximized`、`window/alwaysOnTop` | 空矩形（由应用放置）、`false`、`false` |
+| 列表布局与几何 | `playlist/detached`、`playlist/visible`、`playlist/dockWidth`、`playlist/normalGeometry` | `false`、`false`、320 逻辑像素、空矩形 |
 | 取景 | `video/viewScale`、`video/focusU`、`video/focusV` | `1`、`0.5`、`0.5`，中心按未旋转画面归一化 |
 | 旋转和换片取景 | `video/userRotationDeg`、`video/resetViewOnOpen` | `0`、`false`，额外角度接受 0、90、180、270 |
 | 视频比例窗口 | `window/sizePolicy`、`window/lastVideoScale` | `lastGeometry`、`1`，另有 `videoScale` 和 `fitWorkArea` 策略，比例接受 0.5、1、1.5、2 |
+| 鼠标模式 | `input/standardMode` | `false`（缩放拖动） |
+| 快捷键 | `shortcuts/<动作 ID>` | 缺少覆盖时使用动作默认键 |
+| 截图目录 | `capture/directory` | Windows 图片目录的 `zopana` 子目录 |
+| 播放历史及断点策略 | `history/enabled`、`history/resumePolicy` | `false`、`0`（询问；`1` 总是继续，`2` 从头） |
 
 ## 源码布局
 

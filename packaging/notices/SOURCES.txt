@@ -44,6 +44,10 @@ https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files
 Qt SVG 6.11.3, dynamically linked (QSvgRenderer)
 The Qt SVG module is used under LGPLv3 alongside the Qt Base modules above.
 https://download.qt.io/archive/qt/6.11/6.11.3/submodules/qtsvg-everywhere-src-6.11.3.tar.xz
+The Qt 6.11.3 LGPLv3 and GPLv3 texts and the Qt Base and Qt SVG kit SPDX
+inventories are included alongside this notice. The libmpv SDK's LGPLv2.1
+text is included as libmpv-LICENSE.LGPL.
+https://github.com/qt/qtbase/tree/v6.11.3/LICENSES
 
 Lucide SVG icons, pinned to commit 45aaec4b721c98aa86a2acd0ab7281bcf68b9c5e
 ISC License with retained Feather-derived MIT notices.

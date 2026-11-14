@@ -622,6 +622,8 @@ public:
 
 int main(int argc, char **argv)
 {
+    QElapsedTimer startup;
+    startup.start();
     QApplication app(argc, argv);
     app.setApplicationName("zopana-m0");
     app.setQuitOnLastWindowClosed(false);
@@ -630,6 +632,7 @@ int main(int argc, char **argv)
     try {
         const bool production = mode == "production-perf";
         Probe probe(app.arguments()[2], app.arguments()[3], production || mode.startsWith("baseline"), production);
+        if (production) probe.details["startupToRendererMs"] = double(startup.elapsed());
         try {
             if (mode == "info") { /* Environment-only run for effective DPI calibration. */ }
             else if (production || mode.startsWith("baseline")) probe.baseline(production || mode == "baseline-perf");

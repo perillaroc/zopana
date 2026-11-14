@@ -18,4 +18,4 @@ Get-FileHash -Algorithm SHA256 .\zopana-windows-x64.zip
 2. 点击 **暂停**，确认顶栏显示 **缩放拖动**。把指针移到想看的细节上，向上滚动放大，按住左键拖动画面。
 3. 点击 **恢复适窗** 或在视频区按 **R**，回到完整画面。切换到 **常规播放** 后，视频区滚轮用于调节音量。
 
-按 **F1** 可以查看当前快捷键。继续了解[两种鼠标模式](./guide/zoom-and-pan.md)或[播放与全屏](./guide/playback.md)。
+按 **F1** 可以查看当前快捷键，按 **F5** 打开设置。播放历史默认关闭；如需记住最近文件和断点，可在[播放与记录](./guide/settings.md#resume-playback)中开启。继续了解[两种鼠标模式](./guide/zoom-and-pan.md)或[播放与全屏](./guide/playback.md)。

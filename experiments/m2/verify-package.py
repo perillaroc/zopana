@@ -12,10 +12,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('build', type=Path)
 parser.add_argument('fixture', type=Path)
 parser.add_argument('--extract-to', type=Path, help='Run the smoke test in a fresh extraction directory')
+parser.add_argument('--dist', type=Path, help='Use the given distribution directory instead of BUILD/dist-final')
 args = parser.parse_args()
 build = args.build.resolve()
-stage = build / 'dist-final/zopana-windows-x64'
-zip_path = build / 'dist-final/zopana-windows-x64.zip'
+dist = args.dist.resolve() if args.dist else build / 'dist-final'
+stage = dist / 'zopana-windows-x64'
+zip_path = dist / 'zopana-windows-x64.zip'
 repo = Path(__file__).resolve().parents[2]
 sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
 with zipfile.ZipFile(zip_path) as archive:

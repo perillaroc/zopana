@@ -49,7 +49,23 @@ Copy-Item -Path (Join-Path $crt '*.dll') -Destination $stage
 @('[Paths]', 'Prefix=.', 'Plugins=.') | Set-Content -LiteralPath (Join-Path $stage 'qt.conf') -Encoding ASCII
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.txt') -Destination $stage
 New-Item -ItemType Directory -Path (Join-Path $stage 'notices') -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'notices/lucide-LICENSE.txt') -Destination (Join-Path $stage 'notices/lucide-LICENSE.txt')
+$notices = Join-Path $stage 'notices'
+foreach ($file in 'SOURCES.txt','lucide-LICENSE.txt','LGPL-3.0-only.txt','GPL-3.0-only.txt') {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "notices/$file") -Destination $notices
+}
+Copy-Item -LiteralPath (Join-Path $mpv 'LICENSE.LGPL') -Destination (Join-Path $notices 'libmpv-LICENSE.LGPL')
+foreach ($module in 'qtbase','qtsvg') {
+    Copy-Item -LiteralPath (Join-Path $qt "sbom/$module-6.11.3.spdx.json") -Destination $notices
+}
+$files = @(Get-ChildItem -LiteralPath $stage -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
+    [ordered]@{
+        path = $_.FullName.Substring($stage.Length + 1).Replace('\', '/')
+        bytes = $_.Length
+        sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+})
+[ordered]@{ qt = '6.11.3'; libmpv = '0.42.0'; files = $files } | ConvertTo-Json -Depth 4 |
+    Set-Content -LiteralPath (Join-Path $notices 'manifest.json') -Encoding UTF8
 
 # Include the application folder so extraction never mixes its DLLs into other applications.
 Add-Type -AssemblyName System.IO.Compression.FileSystem

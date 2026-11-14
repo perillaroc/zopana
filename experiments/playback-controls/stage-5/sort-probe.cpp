@@ -180,6 +180,15 @@ qint64 engineInteger(Player &player, const char *name)
     return mpv_get_property(player.handle(), name, MPV_FORMAT_INT64, &value) >= 0 ? value : -1;
 }
 
+double processCpuMs()
+{
+    FILETIME created, exited, kernel, user;
+    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user))
+        throw std::runtime_error("cannot read player CPU time");
+    const auto ticks = [](FILETIME time) { return (quint64(time.dwHighDateTime) << 32) | time.dwLowDateTime; };
+    return double(ticks(kernel) + ticks(user)) / 10000;
+}
+
 Player &initialize(Player &player)
 {
     if (!player.initialize()) throw std::runtime_error("libmpv initialization failed");
@@ -544,6 +553,36 @@ void Suite::throughput()
     report.data["filenameSortMs"] = filenameMs;
     check(filenameMs < 100., "1,000-row natural sorting and reordering complete within 100 ms");
 
+    const auto samplePlayback = [&](const QString &key, bool scanning) {
+        constexpr int interval = 6000;
+        const auto before = processCpuMs();
+        const auto decode = engineInteger(player, "decoder-frame-drop-count");
+        const auto output = engineInteger(player, "frame-drop-count");
+        const auto swaps = frameSwaps;
+        const double position = player.position();
+        QElapsedTimer elapsed; elapsed.start();
+        double workingSet = 0, privateUsage = 0;
+        int count = 0, workerCountPeak = 0;
+        do {
+            QTest::qWait(250);
+            PROCESS_MEMORY_COUNTERS_EX memory{sizeof(memory)};
+            if (!K32GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&memory), sizeof(memory)))
+                throw std::runtime_error("cannot sample player memory");
+            workingSet += double(memory.WorkingSetSize) / 1048576;
+            privateUsage += double(memory.PrivateUsage) / 1048576;
+            workerCountPeak = qMax(workerCountPeak, children().count);
+            ++count;
+        } while (elapsed.elapsed() < interval && busy() == scanning);
+        const auto ms = elapsed.elapsed();
+        report.data[key] = QJsonObject{{"sampleMs", ms}, {"cpuPercentOneCore", 100 * (processCpuMs() - before) / ms},
+            {"averageWorkingSetMiB", workingSet / count}, {"averagePrivateMiB", privateUsage / count},
+            {"workerCountPeak", workerCountPeak}, {"frameSwaps", frameSwaps - swaps}, {"playedSeconds", player.position() - position},
+            {"decoderDrops", engineInteger(player, "decoder-frame-drop-count") - decode}, {"outputDrops", engineInteger(player, "frame-drop-count") - output}};
+        check(ms >= interval && busy() == scanning && workerCountPeak == (scanning ? 1 : 0) &&
+              player.playbackIdentity() == identity && transportCommands == commands && !player.paused(),
+              key + " recorded with continuous foreground playback and the expected worker count");
+    };
+
     const auto run = [&](PlayerActions::Id id, const QString &key) {
         const double position = player.position();
         const auto oldSwaps = frameSwaps;
@@ -552,6 +591,7 @@ void Suite::throughput()
         inputSentAt = -1;
         clock.restart();
         act(id)->trigger();
+        if (key == "uncachedScan") samplePlayback("withScan", true);
         ready([&] { return !busy(); }, key + " finishes", 90000);
         report.data[key + "Ms"] = clock.elapsed();
         report.data[key + "LayoutUs"] = commitUs;
@@ -563,6 +603,7 @@ void Suite::throughput()
             && player.playbackIdentity() == identity && transportCommands == commands && !player.paused(),
             key + " keeps the foreground playing");
     };
+    samplePlayback("withoutScan", false);
     turn.start();
     pulse.start(10);
     processSample.start();

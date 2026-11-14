@@ -7,7 +7,7 @@ zopana 是一个 Windows 桌面视频播放器，使用 Qt Widgets 和 libmpv。
 - [快速开始](docs/quick-start.md) · 校验和解压 Windows x64 便携包，打开第一段视频。
 - [使用手册](docs/guide/playback.md) · 播放、全屏和快捷键，以及[缩放拖动](docs/guide/zoom-and-pan.md)、[播放列表](docs/guide/playlist.md)、[音轨和字幕](docs/guide/media.md)、[截图和设置](docs/guide/settings.md)。
 - [开发指南](docs/development/build.md) · 准备 Qt 和 libmpv、构建播放器、[制作和验收便携包](docs/development/packaging.md)。
-- [播放控制验证](experiments/playback-controls/stage-1/README.md) · 复现设置、定位和偏好恢复，以及旋转和元数据探测小样。
+- [播放控制集成验收](experiments/playback-controls/stage-6/README.md) · 复现组合播放、全量偏好重启、窗口压力和性能对照。
 - [文档维护与部署](docs/development/docs.md) · 本地预览、构建和发布到 Netlify。
 
 ## 本地预览文档站
