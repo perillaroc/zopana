@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHeaderView>
 #include <QKeySequenceEdit>
 #include <QLabel>
@@ -15,6 +16,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -27,6 +29,29 @@ SettingsDialog::SettingsDialog(const Preferences &preferences, PlayerActions &ac
     setObjectName("settingsDialog"); setWindowTitle(QStringLiteral("设置")); resize(760,620);
     auto *layout=new QVBoxLayout(this); tabs_=new QTabWidget; tabs_->setObjectName("settingsTabs"); layout->addWidget(tabs_);
     general_=new QWidget; auto *form=new QFormLayout(general_); tabs_->addTab(general_,QStringLiteral("播放与记录"));
+    auto *seekGroup = new QGroupBox(QStringLiteral("定位步长"));
+    auto *seekRow = new QHBoxLayout(seekGroup);
+    const auto addStep = [this, seekRow](const char *name, const QString &label, int Preferences::*field, bool SettingsEdits::*edited) {
+        auto *spin = new QSpinBox;
+        spin->setObjectName(QString::fromLatin1(name));
+        spin->setAccessibleName(label);
+        spin->setRange(Preferences::minSeekStepSeconds, Preferences::maxSeekStepSeconds);
+        spin->setSuffix(QStringLiteral(" 秒"));
+        spin->setValue(draft_.*field);
+        connect(spin, &QSpinBox::valueChanged, this, [this, field, edited](int seconds) {
+            draft_.*field = seconds;
+            edits_.*edited = true;
+        });
+        auto *caption = new QLabel(label);
+        caption->setBuddy(spin);
+        seekRow->addWidget(caption);
+        seekRow->addWidget(spin, 1);
+        return spin;
+    };
+    seekSmall_ = addStep("seekSmallSpin", QStringLiteral("小步"), &Preferences::seekSmallSeconds, &SettingsEdits::seekSmallSeconds);
+    seekMedium_ = addStep("seekMediumSpin", QStringLiteral("中步"), &Preferences::seekMediumSeconds, &SettingsEdits::seekMediumSeconds);
+    seekLarge_ = addStep("seekLargeSpin", QStringLiteral("大步"), &Preferences::seekLargeSeconds, &SettingsEdits::seekLargeSeconds);
+    form->addRow(seekGroup);
     capture_=new QLineEdit(draft_.captureDirectory); capture_->setObjectName("captureDirectoryEdit"); capture_->setAccessibleName(QStringLiteral("截图目录"));
     auto *folder=new QWidget; auto *row=new QHBoxLayout(folder); row->setContentsMargins(0,0,0,0); row->addWidget(capture_); auto *browse=new QPushButton(QStringLiteral("浏览…")); row->addWidget(browse);
     connect(browse,&QPushButton::clicked,this,[this] { const auto path=QFileDialog::getExistingDirectory(this,QStringLiteral("选择截图目录"),capture_->text()); if(!path.isEmpty()) capture_->setText(path); }); form->addRow(QStringLiteral("截图目录"),folder);
@@ -66,6 +91,7 @@ SettingsDialog::SettingsDialog(const Preferences &preferences, PlayerActions &ac
     connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,this,[this] { this->apply(false); });
     connect(buttons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked, this, &SettingsDialog::resetPage);
     connect(all, &QPushButton::clicked, this, &SettingsDialog::resetAll);
+    connect(&actions_, &PlayerActions::seekStepsChanged, this, &SettingsDialog::populate);
     populate();
 }
 
@@ -78,11 +104,17 @@ void SettingsDialog::resetPage()
         sub_->setText(defaults.subtitleLanguages);
         history_->setChecked(defaults.recordHistory);
         resume_->setCurrentIndex(defaults.resumePolicy);
+        seekSmall_->setValue(defaults.seekSmallSeconds);
+        seekMedium_->setValue(defaults.seekMediumSeconds);
+        seekLarge_->setValue(defaults.seekLargeSeconds);
         edits_.captureDirectory=true;
         edits_.audioLanguages=true;
         edits_.subtitleLanguages=true;
         edits_.recordHistory=true;
         edits_.resumePolicy=true;
+        edits_.seekSmallSeconds=true;
+        edits_.seekMediumSeconds=true;
+        edits_.seekLargeSeconds=true;
     } else {
         resetShortcuts();
     }

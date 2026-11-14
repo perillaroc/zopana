@@ -32,6 +32,7 @@ protected:
 
 private:
     void showTime(int seconds);
+    void updateSeekDescription();
     QToolButton *button(QAction *action, const QString &name, QWidget *parent = nullptr);
     PlayerActions &actions_;
     SeekSlider *seek_;

@@ -1,4 +1,5 @@
 #include "playeractions.h"
+#include "settingsstore.h"
 #include "theme.h"
 
 #include <QAction>
@@ -19,9 +20,9 @@ constexpr Definition definitions[] = {
     {"app.quit", "退出", ""}, {"window.about", "关于 zopana", "info"},
     {"window.licenses", "第三方许可", "file-text"},
     {"play.stop", "停止", "square"},
-    {"seek.backSmall", "后退 5 秒", "skip-back"}, {"seek.forwardSmall", "前进 5 秒", "skip-forward"},
-    {"seek.backMedium", "后退 30 秒", ""}, {"seek.forwardMedium", "前进 30 秒", ""},
-    {"seek.backLarge", "后退 60 秒", ""}, {"seek.forwardLarge", "前进 60 秒", ""},
+    {"seek.backSmall", "后退", "skip-back"}, {"seek.forwardSmall", "前进", "skip-forward"},
+    {"seek.backMedium", "后退", ""}, {"seek.forwardMedium", "前进", ""},
+    {"seek.backLarge", "后退", ""}, {"seek.forwardLarge", "前进", ""},
     {"seek.start", "跳到开头", ""}, {"seek.end", "跳到最后画面", ""},
     {"seek.goto", "跳转时间…", ""},
     {"audio.volumeUp", "增大音量", ""}, {"audio.volumeDown", "减小音量", ""},
@@ -47,6 +48,18 @@ constexpr Definition definitions[] = {
     {"window.mediaInfo","媒体信息","info"}, {"file.location","打开文件位置","folder-open"}, {"window.alwaysOnTop","窗口置顶","pin"},
     {"window.settings","设置",""}, {"file.clearHistory","清除最近文件和进度",""}
 };
+constexpr PlayerActions::Id seekPairs[][2] = {
+    {PlayerActions::BackSmall, PlayerActions::ForwardSmall},
+    {PlayerActions::BackMedium, PlayerActions::ForwardMedium},
+    {PlayerActions::BackLarge, PlayerActions::ForwardLarge}
+};
+
+bool timelineNavigationKey(QKeyCombination key)
+{
+    if (key.keyboardModifiers() & ~Qt::KeypadModifier) return false;
+    return key.key() == Qt::Key_Home || key.key() == Qt::Key_End
+        || key.key() == Qt::Key_PageUp || key.key() == Qt::Key_PageDown;
+}
 }
 
 PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
@@ -82,6 +95,12 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     view(BackSmall, {QKeySequence(Qt::Key_Left)}, true); view(ForwardSmall, {QKeySequence(Qt::Key_Right)}, true);
     view(BackMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Left)}, true); view(ForwardMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Right)}, true);
     view(BackLarge, {QKeySequence(Qt::CTRL | Qt::Key_Left)}, true); view(ForwardLarge, {QKeySequence(Qt::CTRL | Qt::Key_Right)}, true);
+    for (size_t step = 0; step < seekSteps_.size(); ++step) {
+        connect(get(seekPairs[step][0]), &QAction::triggered, this, [this, step] { emit seekRelativeRequested(-seekSteps_[step]); });
+        connect(get(seekPairs[step][1]), &QAction::triggered, this, [this, step] { emit seekRelativeRequested(seekSteps_[step]); });
+    }
+    const Preferences defaults;
+    setSeekSteps(defaults.seekSmallSeconds, defaults.seekMediumSeconds, defaults.seekLargeSeconds);
     view(SeekStart, {QKeySequence(Qt::Key_Home)}); view(SeekEnd, {QKeySequence(Qt::Key_End)});
     get(SeekGoto)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
     view(VolumeUp, {QKeySequence(Qt::Key_Up)}, true); view(VolumeDown, {QKeySequence(Qt::Key_Down)}, true);
@@ -142,6 +161,49 @@ QKeyCombination normalized(const QKeySequence &sequence)
 }
 }
 QString PlayerActions::normalizedKey(const QString &key) { return QKeySequence(normalized(QKeySequence::fromString(key,QKeySequence::PortableText))).toString(QKeySequence::PortableText); }
+
+bool PlayerActions::viewingInputAllowed() const
+{
+    return QApplication::activeWindow() == &window_ && !composing_
+        && !QApplication::activePopupWidget() && !QApplication::activeModalWidget();
+}
+
+QAction *PlayerActions::timelineAction(const QKeyEvent &event) const
+{
+    if (timelineNavigationKey(event.keyCombination())) {
+        if (event.key() == Qt::Key_Home) return get(SeekStart);
+        if (event.key() == Qt::Key_End) return get(SeekEnd);
+        return nullptr;
+    }
+    const auto pressed = normalized(QKeySequence(event.keyCombination()));
+    for (const auto &pair : seekPairs) {
+        for (auto id : pair) {
+            for (const auto &key : get(id)->shortcuts()) {
+                if (normalized(key) == pressed) return get(id);
+            }
+        }
+    }
+    return nullptr;
+}
+
+QString PlayerActions::timelineDescription() const
+{
+    QStringList commands;
+    for (const auto &pair : seekPairs) {
+        for (auto id : pair) {
+            const auto *action = get(id);
+            QStringList keys;
+            for (const auto &key : action->shortcuts()) {
+                if (!timelineNavigationKey(key[0])) keys.append(key.toString(QKeySequence::NativeText));
+            }
+            if (!keys.isEmpty()) commands.append(QStringLiteral("%1（%2）").arg(action->text(), keys.join(" / ")));
+        }
+    }
+    commands.append(QStringLiteral("PageUp / PageDown 每次定位 10 秒"));
+    commands.append(QStringLiteral("Home / End 跳到开头或结尾"));
+    return commands.join('\n');
+}
+
 QString PlayerActions::bindingError(const QString &id,const QStringList &keys) const
 {
     QAction *action=nullptr; for(auto *a:actions_) if(a->objectName()==id) action=a;
@@ -260,9 +322,7 @@ void PlayerActions::attachPlaylist(QWidget &window, QWidget &view)
 bool PlayerActions::watching() const
 {
     auto *focus = QApplication::focusWidget();
-    return QApplication::activeWindow() == &window_ && !QApplication::activePopupWidget()
-        && !QApplication::activeModalWidget() && !composing_
-        && (!focus || focus == &video_ || focus == &surface_ || focus == &window_);
+    return viewingInputAllowed() && (!focus || focus == &video_ || focus == &surface_ || focus == &window_);
 }
 
 bool PlayerActions::eventFilter(QObject *object, QEvent *event)
@@ -318,9 +378,30 @@ void PlayerActions::setMediaState(bool loaded, bool paused, bool replayable, boo
 
 void PlayerActions::setSeekable(bool seekable)
 {
-    for (auto id : {BackSmall, ForwardSmall, BackMedium, ForwardMedium, BackLarge, ForwardLarge, SeekStart, SeekEnd, SeekGoto})
-    { get(id)->setEnabled(seekable); get(id)->setStatusTip(seekable ? get(id)->text() : QStringLiteral("当前媒体尚不可定位")); }
+    if (get(SeekGoto)->isEnabled() == seekable) return;
+    for (auto id : {BackSmall, ForwardSmall, BackMedium, ForwardMedium, BackLarge, ForwardLarge, SeekStart, SeekEnd, SeekGoto}) {
+        auto *action = get(id);
+        action->setStatusTip(seekable ? action->text() : QStringLiteral("当前媒体尚不可定位"));
+        action->setEnabled(seekable);
+    }
     refreshIcons();
+}
+
+void PlayerActions::setSeekSteps(int small, int medium, int large)
+{
+    const std::array steps{small, medium, large};
+    if (seekSteps_ == steps) return;
+    seekSteps_ = steps;
+    for (size_t step = 0; step < seekSteps_.size(); ++step) {
+        for (auto id : seekPairs[step]) {
+            auto *action = get(id);
+            const auto name = id == seekPairs[step][0] ? QStringLiteral("后退 %1 秒") : QStringLiteral("前进 %1 秒");
+            action->setText(name.arg(seekSteps_[step]));
+            if (action->isEnabled()) action->setStatusTip(action->text());
+        }
+    }
+    refreshIcons();
+    emit seekStepsChanged();
 }
 
 void PlayerActions::setAudioAvailable(bool available)

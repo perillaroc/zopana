@@ -7,7 +7,6 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QKeyEvent>
-#include <QApplication>
 #include <QPointer>
 #include <QPainter>
 #include <QResizeEvent>
@@ -21,7 +20,11 @@ namespace { QString timestamp(int seconds); }
 class SeekSlider final : public QSlider
 {
 public:
-    SeekSlider() : QSlider(Qt::Horizontal) { setTracking(false); setMouseTracking(true); }
+    explicit SeekSlider(PlayerActions &actions) : QSlider(Qt::Horizontal), actions_(actions)
+    {
+        setTracking(false);
+        setMouseTracking(true);
+    }
     int reported = 0;
     QPointer<QLabel> hover;
     QVariant loopA, loopB;
@@ -52,6 +55,15 @@ protected:
     }
     bool event(QEvent *event) override
     {
+        if (event->type() == QEvent::ShortcutOverride && hasFocus() && isEnabled()) {
+            const auto *key = static_cast<QKeyEvent *>(event);
+            const auto modifiers = key->modifiers() & ~Qt::KeypadModifier;
+            if (modifiers == Qt::NoModifier && (key->key() == Qt::Key_Home || key->key() == Qt::Key_End
+                || key->key() == Qt::Key_PageUp || key->key() == Qt::Key_PageDown)) {
+                event->accept();
+                return true;
+            }
+        }
         if (event->type() == QEvent::UngrabMouse || event->type() == QEvent::WindowDeactivate || event->type() == QEvent::Hide) cancel();
         if (hover && (event->type() == QEvent::Hide || event->type() == QEvent::Leave || event->type() == QEvent::WindowDeactivate)) hover->hide();
         return QSlider::event(event);
@@ -59,6 +71,21 @@ protected:
     void keyPressEvent(QKeyEvent *event) override
     {
         if (event->key() == Qt::Key_Escape && cancel()) { event->accept(); return; }
+        const bool canUseKeys = hasFocus() && actions_.viewingInputAllowed();
+        if (auto *action = actions_.timelineAction(*event)) {
+            if (canUseKeys) {
+                cancel();
+                if (action->isEnabled() && (!event->isAutoRepeat() || action->autoRepeat())) action->trigger();
+            }
+            event->accept();
+            return;
+        }
+        const int key = event->key();
+        if (key == Qt::Key_Left || key == Qt::Key_Right || (!canUseKeys && (key == Qt::Key_Up || key == Qt::Key_Down
+            || key == Qt::Key_Home || key == Qt::Key_End || key == Qt::Key_PageUp || key == Qt::Key_PageDown))) {
+            event->accept();
+            return;
+        }
         QSlider::keyPressEvent(event);
     }
     void mousePressEvent(QMouseEvent *event) override
@@ -103,6 +130,7 @@ private:
         return QStyle::sliderValueFromPosition(minimum(), maximum(), x - groove.x() - (dragging ? offset_ : handle.width() / 2),
                                                groove.width() - handle.width(), option.upsideDown);
     }
+    PlayerActions &actions_;
     int offset_ = 0, lastX_ = 0;
 };
 
@@ -119,7 +147,8 @@ public:
         setIconSize({20, 20});
         setFocusPolicy(Qt::StrongFocus);
         const auto sync = [this, seek, skip] {
-            const QString tip = QStringLiteral("左键：%1\n右键：%2").arg(seek->text(), skip->text());
+            const QString tip = QStringLiteral("左键：%1\n右键：%2").arg(
+                seek->isEnabled() ? seek->toolTip() : QStringLiteral("当前媒体尚不可定位"), skip->text());
             setEnabled(seek->isEnabled() || skip->isEnabled());
             setToolTip(tip);
             setAccessibleName(seek->text());
@@ -172,15 +201,17 @@ ControlBar::ControlBar(PlayerActions &actions, QWidget *parent) : QWidget(parent
     duration_->setAccessibleName(QStringLiteral("总时长"));
     auto font = current_->font(); font.setFamilies({"Cascadia Mono", "Consolas", font.family()});
     current_->setFont(font); duration_->setFont(font);
-    seek_ = new SeekSlider; seek_->setObjectName("seekSlider");
+    seek_ = new SeekSlider(actions); seek_->setObjectName("seekSlider");
     seek_->setAccessibleName(QStringLiteral("播放进度（秒）"));
-    seek_->setRange(0, 0); seek_->setSingleStep(1); seek_->setPageStep(10); seek_->setMinimumHeight(24);
+    seek_->setRange(0, 0); seek_->setPageStep(10); seek_->setMinimumHeight(24);
     timeline->addWidget(seek_, 1);
     seek_->hover = new QLabel(parent ? parent : this); seek_->hover->setObjectName("seekHoverTime");
     seek_->hover->setAttribute(Qt::WA_TransparentForMouseEvents); seek_->hover->setAutoFillBackground(true);
     seek_->hover->setBackgroundRole(QPalette::Button); seek_->hover->setMargin(6); seek_->hover->setFrameShape(QFrame::StyledPanel); seek_->hover->hide();
     connect(seek_, &QSlider::sliderMoved, this, &ControlBar::showTime);
     connect(seek_, &QSlider::valueChanged, this, &ControlBar::seekRequested);
+    connect(&actions_, &PlayerActions::seekStepsChanged, this, &ControlBar::updateSeekDescription);
+    connect(&actions_, &PlayerActions::bindingsChanged, this, &ControlBar::updateSeekDescription);
 
     volumeButton_ = button(actions.get(PlayerActions::Mute), "volumeButton");
     volumeButton_->setFixedSize(32, 32); timeline->addWidget(volumeButton_);
@@ -227,12 +258,24 @@ void ControlBar::setTimeline(int position, int duration, bool seekable)
 {
     const QSignalBlocker block(seek_);
     seek_->reported = position;
-    if (seek_->maximum() != duration || !seekable) { seek_->cancel(); seek_->setRange(0, duration); }
-    seek_->setEnabled(seekable && duration > 0);
-    seek_->setAccessibleDescription(seek_->isEnabled() ? QStringLiteral("可定位") : QStringLiteral("当前媒体尚不可定位"));
+    // The slider uses whole seconds and still needs a range for subsecond clips.
+    const int maximum = seekable ? qMax(1, duration) : duration;
+    if (seek_->maximum() != maximum || !seekable) { seek_->cancel(); seek_->setRange(0, maximum); }
+    const bool enabled = seekable;
+    if (seek_->isEnabled() != enabled) {
+        seek_->setEnabled(enabled);
+        updateSeekDescription();
+    }
     if (!seek_->isSliderDown()) seek_->setValue(position);
     showTime(seek_->isSliderDown() ? seek_->sliderPosition() : position);
-    duration_->setText(duration > 0 ? timestamp(duration) : QStringLiteral("--:--"));
+    duration_->setText(duration > 0 || seekable ? timestamp(duration) : QStringLiteral("--:--"));
+}
+
+void ControlBar::updateSeekDescription()
+{
+    const auto description = seek_->isEnabled() ? actions_.timelineDescription() : QStringLiteral("当前媒体尚不可定位");
+    seek_->setToolTip(description);
+    seek_->setAccessibleDescription(description);
 }
 
 void ControlBar::showTime(int seconds) { current_->setText(timestamp(seconds)); }

@@ -10,12 +10,14 @@ class QCheckBox;
 class QTableWidget;
 class QKeySequenceEdit;
 class QLabel;
+class QSpinBox;
 class QTabWidget;
 
 struct SettingsEdits {
     QSet<QString> shortcuts;
     bool captureDirectory = false, audioLanguages = false, subtitleLanguages = false;
     bool recordHistory = false, resumePolicy = false;
+    bool seekSmallSeconds = false, seekMediumSeconds = false, seekLargeSeconds = false;
     bool resetAll = false;
 };
 
@@ -42,6 +44,7 @@ private:
     QLineEdit *capture_,*audio_,*sub_,*filter_;
     QCheckBox *history_;
     QComboBox *resume_;
+    QSpinBox *seekSmall_, *seekMedium_, *seekLarge_;
     QTableWidget *table_;
     QKeySequenceEdit *first_,*second_;
     QLabel *message_;

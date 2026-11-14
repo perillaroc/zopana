@@ -120,10 +120,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     });
     connect(action(PlayerActions::ResetView), &QAction::triggered, video_, &VideoWidget::resetView);
     connect(action(PlayerActions::Stop), &QAction::triggered, &player_, &Player::stop);
-    for (auto [id, seconds] : {std::pair{PlayerActions::BackSmall, -5}, {PlayerActions::ForwardSmall, 5},
-            {PlayerActions::BackMedium, -30}, {PlayerActions::ForwardMedium, 30},
-            {PlayerActions::BackLarge, -60}, {PlayerActions::ForwardLarge, 60}})
-        connect(action(id), &QAction::triggered, this, [this, seconds] { player_.seekRelative(seconds); });
+    connect(actions_, &PlayerActions::seekRelativeRequested, &player_, &Player::seekRelative);
     connect(action(PlayerActions::SeekStart), &QAction::triggered, this, [this] { player_.seek(0); });
     connect(action(PlayerActions::SeekEnd), &QAction::triggered, this, [this] { player_.seek(player_.lastPosition()); });
     connect(action(PlayerActions::SeekGoto), &QAction::triggered, this, &MainWindow::gotoTime);
@@ -207,23 +204,21 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
         if (actions_->get(PlayerActions::PlayPause)->isEnabled()) actions_->get(PlayerActions::PlayPause)->trigger();
     });
     connect(video_, &VideoWidget::volumeStepsRequested, this, [this](double steps) { if (audioAvailable_) player_.setVolume(player_.volumeTarget() + 5 * steps); });
-    connect(controls_, &ControlBar::seekRequested, this, [this](int seconds) { if (state_ == Player::State::Loaded && seekable_) player_.seek(seconds); });
+    connect(controls_, &ControlBar::seekRequested, &player_, &Player::seek);
     connect(controls_, &ControlBar::volumeRequested, &player_, &Player::setVolume);
     connect(&player_, &Player::mediaChanged, this, &MainWindow::updateMedia);
     connect(&player_, &Player::fileOpening, this, [this] { controls_->cancelSeekPreview(); video_->cancelInput(); surface_->dismissOsd(); video_->setVideoSize({}); zoomLabel_->hide(); });
     connect(&player_, &Player::detailsChanged, this, [this] {
         showMultiplier(rateLabel_, QStringLiteral("倍速"), state_ == Player::State::Loaded ? player_.mediaProperty("speed").toDouble() : 1);
+        if (actions_->get(PlayerActions::SeekGoto)->isEnabled() != player_.canSeek()) updateTimeline();
     });
     connect(&player_, &Player::durationChanged, this, [this](double seconds) {
-        if (state_ == Player::State::Loaded) { durationSeconds_ = seconds; duration_ = wholeSeconds(seconds); controls_->setTimeline(position_, duration_, seekable_); updateSeekActions(); }
+        if (state_ == Player::State::Loaded) { durationSeconds_ = seconds; duration_ = wholeSeconds(seconds); updateTimeline(); }
     });
     connect(&player_, &Player::positionChanged, this, [this](double seconds) {
-        if (state_ == Player::State::Loaded) { position_ = wholeSeconds(seconds); controls_->setTimeline(position_, duration_, seekable_); }
+        if (state_ == Player::State::Loaded) { position_ = wholeSeconds(seconds); controls_->setTimeline(position_, duration_, player_.canSeek()); }
     });
-    connect(&player_, &Player::seekableChanged, this, [this](bool seekable) {
-        seekable_ = seekable; controls_->setTimeline(position_, duration_, state_ == Player::State::Loaded && seekable_);
-        updateSeekActions();
-    });
+    connect(&player_, &Player::seekableChanged, this, &MainWindow::updateTimeline);
     connect(&player_, &Player::pausedChanged, this, [this](bool paused) { paused_ = paused; updatePresentation(); });
     connect(&player_, &Player::volumeChanged, this, [this](double volume) {
         controls_->setVolume(volume);
@@ -235,6 +230,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     });
     connect(&player_, &Player::audioAvailableChanged, this, [this](bool available) {
         audioAvailable_ = available; actions_->setAudioAvailable(available); controls_->setAudioAvailable(available);
+        if (actions_->get(PlayerActions::SeekGoto)->isEnabled() != player_.canSeek()) updateTimeline();
     });
     connect(&player_, &Player::seekRequested, this, [this](double target) { surface_->showOsd("seek", QStringLiteral("定位 %1").arg(PlaybackDialogs::timestamp(target))); });
     connect(&player_, &Player::subtitleLoaded, this, [this](const QString &path) { surface_->showOsd("subtitle", QStringLiteral("已加载字幕：%1").arg(QFileInfo(path).fileName()), 2000); });
@@ -496,14 +492,13 @@ void MainWindow::updateMedia(Player::State state, const QString &path, const QSt
     if (state != Player::State::Loaded) {
         audioAvailable_ = false; actions_->setAudioAvailable(false); controls_->setAudioAvailable(false);
         controls_->cancelSeekPreview(); video_->cancelInput(); zoomLabel_->hide();
-        seekable_ = false; videoSize_ = {};
+        videoSize_ = {};
         if (state != Player::State::Loading) video_->setVideoSize({});
     }
     if (state == Player::State::Loading || state == Player::State::Idle || state == Player::State::Error) {
         position_ = 0; duration_ = 0; durationSeconds_ = 0; paused_ = false;
     } else if (state == Player::State::Ended) position_ = duration_;
-    controls_->setTimeline(position_, duration_, state == Player::State::Loaded && seekable_);
-    updateSeekActions();
+    updateTimeline();
     updatePresentation();
     if (state == Player::State::Error) {
         surface_->showOsd("error", QStringLiteral("无法打开文件：%1").arg(error), 3000); revealControls();
@@ -551,15 +546,20 @@ void MainWindow::showLicenses()
     dialog.resize(720, 500); dialog.exec();
 }
 
-void MainWindow::updateSeekActions()
+void MainWindow::updateTimeline()
 {
-    actions_->setSeekable(state_ == Player::State::Loaded && seekable_ && std::isfinite(durationSeconds_) && durationSeconds_ > 0);
+    const bool enabled = player_.canSeek();
+    actions_->setSeekable(enabled);
+    controls_->setTimeline(position_, duration_, enabled);
 }
 
 void MainWindow::gotoTime()
 {
     auto *owner = QApplication::activeWindow() ? QApplication::activeWindow() : this;
-    if (const auto time = PlaybackDialogs::gotoTime(owner, player_.positionTarget(), durationSeconds_)) player_.seek(*time);
+    const auto generation = player_.generation();
+    const auto epoch = player_.renderEpoch();
+    if (const auto time = PlaybackDialogs::gotoTime(owner, player_.positionTarget(), durationSeconds_);
+        time && generation == player_.generation() && epoch == player_.renderEpoch()) player_.seek(*time);
     if (owner == this) video_->setFocus();
 }
 

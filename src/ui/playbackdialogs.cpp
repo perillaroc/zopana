@@ -62,7 +62,7 @@ void shortcuts(QWidget *parent, const PlayerActions &actions)
 {
     QDialog dialog(parent); dialog.setObjectName("shortcutsDialog"); dialog.setWindowTitle(QStringLiteral("快捷键帮助"));
     auto *layout = new QVBoxLayout(&dialog);
-    auto *explanation = new QLabel(QStringLiteral("观看快捷键只在视频区生效。Tab 切换焦点；按钮、滑块、输入框、菜单和输入法保留自身按键。\nEsc 每次关闭一层；Ctrl+滚轮临时缩放，双击切换全屏。"));
+    auto *explanation = new QLabel(QStringLiteral("定位步长快捷键也可在进度条上使用。进度条的 PageUp / PageDown 移动 10 秒，Home / End 跳到开头或结尾。\nTab 切换焦点，Esc 每次关闭一层，Ctrl+滚轮缩放，双击切换全屏。"));
     explanation->setWordWrap(true); layout->addWidget(explanation);
     auto *table = new QTableWidget(PlayerActions::Count, 4); table->setObjectName("shortcutsTable");
     table->setHorizontalHeaderLabels({QStringLiteral("操作"), QStringLiteral("快捷键"), QStringLiteral("作用域"), QStringLiteral("允许长按")});
@@ -71,8 +71,10 @@ void shortcuts(QWidget *parent, const PlayerActions &actions)
     for (int i = 0; i < PlayerActions::Count; ++i) {
         auto *action = actions.get(PlayerActions::Id(i)); QStringList keys;
         for (const auto &key : action->shortcuts()) keys.append(key.toString(QKeySequence::NativeText));
+        const auto scope = PlayerActions::isRelativeSeek(PlayerActions::Id(i))
+            ? QStringLiteral("观看 / 进度条") : action->property("scope").toString();
         const QStringList columns{action->text(), keys.isEmpty() ? QStringLiteral("菜单入口") : keys.join(" / "),
-            action->property("scope").toString(), action->autoRepeat() ? QStringLiteral("是") : QStringLiteral("否")};
+            scope, action->autoRepeat() ? QStringLiteral("是") : QStringLiteral("否")};
         for (int column = 0; column < columns.size(); ++column) table->setItem(i, column, new QTableWidgetItem(columns[column]));
     }
     table->resizeColumnsToContents(); table->horizontalHeader()->setStretchLastSection(true); layout->addWidget(table);

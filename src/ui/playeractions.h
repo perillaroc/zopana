@@ -7,6 +7,7 @@
 #include <array>
 
 class QAction;
+class QKeyEvent;
 class QWidget;
 
 class PlayerActions final : public QObject
@@ -30,6 +31,11 @@ public:
     void setFullscreen(bool fullscreen);
     void refreshIcons();
     void setSeekable(bool seekable);
+    void setSeekSteps(int small, int medium, int large);
+    static bool isRelativeSeek(Id id) { return id >= BackSmall && id <= ForwardLarge; }
+    bool viewingInputAllowed() const;
+    QAction *timelineAction(const QKeyEvent &event) const;
+    QString timelineDescription() const;
     void setAudioAvailable(bool available);
     void setMuted(bool muted);
     void attachPlaylist(QWidget &window, QWidget &view);
@@ -43,6 +49,8 @@ public:
 signals:
     void invoked();
     void bindingsChanged();
+    void seekStepsChanged();
+    void seekRelativeRequested(int seconds);
 
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;
@@ -57,4 +65,5 @@ private:
     QPointer<QObject> composing_;
     QPointer<QWidget> queue_, playlistWindow_;
     QVariantMap defaults_;
+    std::array<int, 3> seekSteps_{};
 };

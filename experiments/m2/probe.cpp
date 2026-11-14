@@ -274,7 +274,7 @@ public:
         QTest::mousePress(slider, Qt::LeftButton, Qt::NoModifier, point); QEvent ungrab(QEvent::UngrabMouse); QApplication::sendEvent(slider, &ungrab);
         QTest::mouseRelease(slider, Qt::LeftButton, Qt::NoModifier, point); check("grab loss cancels drag", !slider->isSliderDown() && requests.isEmpty());
         slider->setFocus(); const auto before = number("time-pos"); QTest::keyClick(slider, Qt::Key_Right);
-        require("focused slider retains one-second step", until([&] { return std::abs(number("time-pos") - before - 1) < .08; }));
+        require("focused slider uses the five-second default", until([&] { return std::abs(number("time-pos") - before - 5) < .08; }));
         bool invalidShown = false, safe = false;
         QTimer::singleShot(80, &window, [&] {
             auto *dialog = QApplication::activeModalWidget(); if (!dialog) return;

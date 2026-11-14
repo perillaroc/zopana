@@ -77,9 +77,9 @@ Preferences SettingsStore::load()
     p.subtitleVisible = flag("tracks/subtitleVisible", p.subtitleVisible);
     p.audioDelay = number("tracks/audioDelay", p.audioDelay, -3600, 3600);
     p.subtitleDelay = number("tracks/subtitleDelay", p.subtitleDelay, -3600, 3600);
-    p.seekSmallSeconds = integer("playback/seekSmallSeconds", p.seekSmallSeconds, 1, 3600);
-    p.seekMediumSeconds = integer("playback/seekMediumSeconds", p.seekMediumSeconds, 1, 3600);
-    p.seekLargeSeconds = integer("playback/seekLargeSeconds", p.seekLargeSeconds, 1, 3600);
+    p.seekSmallSeconds = integer("playback/seekSmallSeconds", p.seekSmallSeconds, Preferences::minSeekStepSeconds, Preferences::maxSeekStepSeconds);
+    p.seekMediumSeconds = integer("playback/seekMediumSeconds", p.seekMediumSeconds, Preferences::minSeekStepSeconds, Preferences::maxSeekStepSeconds);
+    p.seekLargeSeconds = integer("playback/seekLargeSeconds", p.seekLargeSeconds, Preferences::minSeekStepSeconds, Preferences::maxSeekStepSeconds);
     p.skipEnabled = flag("skip/enabled", p.skipEnabled);
     p.introEnabled = flag("skip/introEnabled", p.introEnabled);
     p.outroEnabled = flag("skip/outroEnabled", p.outroEnabled);

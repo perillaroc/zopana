@@ -282,7 +282,12 @@ double Player::lastPosition() const
     // output buffers: the decoder can reach EOF during paused output priming.
     const double interval = fps_ > 0 ? 1.0 / fps_
         : sampleRate_ > 0 && audioBuffer_ > 0 ? std::max(2 * audioBuffer_, 1.0 / sampleRate_) : 0;
-    return duration_ > 0 && interval > 0 ? std::max(0.0, duration_ - interval) : 0;
+    return std::isfinite(duration_) && duration_ > 0 && interval > 0 ? std::max(0.0, duration_ - interval) : 0;
+}
+
+bool Player::canSeek() const
+{
+    return !closing_ && !recovering_ && state_ == State::Loaded && seekable_ && lastPosition() > 0;
 }
 
 void Player::clearSeek()
@@ -293,10 +298,9 @@ void Player::clearSeek()
 
 void Player::seek(double seconds)
 {
-    if (state_ != State::Loaded || !seekable_ || duration_ <= 0 || !std::isfinite(seconds) || closing_)
+    if (!canSeek() || !std::isfinite(seconds))
         return;
     const double maximum = lastPosition();
-    if (maximum <= 0 && seconds > 0) return;
     const double target = std::clamp(seconds, 0.0, maximum);
     const auto a = propertyTarget("ab-loop-a"), b = propertyTarget("ab-loop-b");
     if (a.toString() != "no" && b.toString() != "no" && a.isValid() && b.isValid() && (target < a.toDouble() || target > b.toDouble())) clearLoop();

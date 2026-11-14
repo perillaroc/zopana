@@ -101,6 +101,7 @@ void SessionController::captureRuntime(Preferences &p) const
 }
 void SessionController::applySettings()
 {
+    actions_->setSeekSteps(preferences_.seekSmallSeconds, preferences_.seekMediumSeconds, preferences_.seekLargeSeconds);
     window_.findChild<CaptureService *>()->setDirectory(preferences_.captureDirectory); player_.setTrackLanguages(preferences_.audioLanguages,preferences_.subtitleLanguages);
     video_->setInputMode(preferences_.standardMode?VideoWidget::InputMode::Standard:VideoWidget::InputMode::Feature);
     actions_->get(preferences_.standardMode?PlayerActions::StandardMode:PlayerActions::FeatureMode)->setChecked(true);
@@ -126,6 +127,9 @@ bool SessionController::applyDialogChanges(const Preferences &draft, const Setti
     if(edits.subtitleLanguages) p.subtitleLanguages=draft.subtitleLanguages;
     if(edits.recordHistory) p.recordHistory=draft.recordHistory;
     if(edits.resumePolicy) p.resumePolicy=draft.resumePolicy;
+    if(edits.seekSmallSeconds) p.seekSmallSeconds=draft.seekSmallSeconds;
+    if(edits.seekMediumSeconds) p.seekMediumSeconds=draft.seekMediumSeconds;
+    if(edits.seekLargeSeconds) p.seekLargeSeconds=draft.seekLargeSeconds;
     for(const auto &id : edits.shortcuts) {
         const auto binding = draft.shortcuts.constFind(id);
         if(binding == draft.shortcuts.cend()) p.shortcuts.remove(id);

@@ -52,6 +52,7 @@ public:
     void seekRelative(double seconds);
     double lastPosition() const;
     bool seekable() const { return seekable_; }
+    bool canSeek() const;
     double positionTarget() const { return seekTarget_.value_or(position_); }
     double position() const { return position_; }
     double duration() const { return duration_; }

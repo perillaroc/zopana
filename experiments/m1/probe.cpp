@@ -191,9 +191,9 @@ public:
         layoutMatrix("paused");
         check("video reset capability enabled", action("view.reset")->isEnabled());
         auto *seek = widget<QSlider>("seekSlider");
-        seek->setFocus(Qt::TabFocusReason); const int before = seek->value();
+        seek->setFocus(Qt::TabFocusReason); const double before = number("time-pos");
         QTest::keyClick(seek, Qt::Key_Right);
-        check("focused seek slider moves one second", until([&] { return std::abs(number("time-pos") - before - 1) < .1; }));
+        check("focused seek slider uses the five-second default", until([&] { return std::abs(number("time-pos") - before - 5) < .1; }));
         check("keyboard navigation marks slider focus", seek->property("keyboardFocus").toBool());
         screenshot("keyboard-focus");
         QTest::mousePress(seek, Qt::LeftButton);

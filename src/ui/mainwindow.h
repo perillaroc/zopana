@@ -54,7 +54,7 @@ private:
     void gotoTime();
     void revealControls();
     void hideControls();
-    void updateSeekActions();
+    void updateTimeline();
 
     Player &player_;
     VideoWidget *video_ = nullptr;
@@ -75,7 +75,7 @@ private:
     QRect geometryBeforeFullscreen_;
     int duration_ = 0, position_ = 0;
     double durationSeconds_ = 0;
-    bool paused_ = false, seekable_ = false, wasMaximized_ = false;
+    bool paused_ = false, wasMaximized_ = false;
     bool audioAvailable_ = false;
     bool maximizePressed_ = false;
     QTimer hideTimer_;

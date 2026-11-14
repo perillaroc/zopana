@@ -10,6 +10,8 @@ enum class SortDirection { Ascending, Descending };
 enum class WindowSizePolicy { LastGeometry, VideoScale, FitWorkArea };
 
 struct Preferences {
+    static constexpr int minSeekStepSeconds = 1, maxSeekStepSeconds = 3600;
+
     QString captureDirectory, audioLanguages, subtitleLanguages;
     bool recordHistory = false;
     int resumePolicy = 0; // Ask, always resume, start over.
