@@ -67,7 +67,9 @@ constexpr Definition definitions[] = {
     {"queue.sort.shuffle","随机打乱列表",""}, {"queue.sort.cancel","取消排序",""},
     {"window.controls", "控制窗口", "sliders-horizontal"},
     {"chapter.previous", "上一章", ""}, {"chapter.next", "下一章", ""},
-    {"seek.undo", "撤销上次定位", ""}
+    {"seek.undo", "撤销上次定位", ""},
+    {"file.openPlaylist", "打开片单…", ""}, {"file.appendPlaylist", "追加片单…", ""},
+    {"file.exportPlaylist", "导出片单…", ""}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},

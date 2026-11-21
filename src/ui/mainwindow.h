@@ -51,6 +51,8 @@ protected:
 private:
     void openFile();
     void openFiles(bool append);
+    void openPlaylistFile(bool append);
+    void exportPlaylistFile();
     void addFolder();
     QMenu *setupTopBar();
     void updateWindowButtons();

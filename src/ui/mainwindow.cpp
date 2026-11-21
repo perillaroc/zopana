@@ -53,6 +53,8 @@
 #include <utility>
 
 namespace {
+const auto playlistFileFilter = QStringLiteral("本地片单 (*.m3u8)");
+
 class WindowTitle final : public QLabel
 {
 public:
@@ -174,6 +176,8 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     auto *file = menu->addMenu(QStringLiteral("文件(&F)"));
     file->setObjectName("fileMenu");
     file->addAction(action(PlayerActions::Open)); file->addAction(action(PlayerActions::Add)); file->addAction(action(PlayerActions::AddFolder));
+    file->addSeparator();
+    for (auto id : {PlayerActions::OpenPlaylistFile, PlayerActions::AppendPlaylistFile, PlayerActions::ExportPlaylistFile}) file->addAction(action(id));
     file->addSeparator(); file->addAction(action(PlayerActions::Quit));
     auto *play = menu->addMenu(QStringLiteral("播放(&P)"));
     play->setObjectName("playMenu");
@@ -785,6 +789,9 @@ void MainWindow::setupPlaylist()
     actions_->attachPlaylist(*playlistHost_->window(), *panel_->view());
     const auto action = [this](PlayerActions::Id id) { return actions_->get(id); };
     connect(action(PlayerActions::Add), &QAction::triggered, this, [this] { openFiles(true); });
+    connect(action(PlayerActions::OpenPlaylistFile), &QAction::triggered, this, [this] { openPlaylistFile(false); });
+    connect(action(PlayerActions::AppendPlaylistFile), &QAction::triggered, this, [this] { openPlaylistFile(true); });
+    connect(action(PlayerActions::ExportPlaylistFile), &QAction::triggered, this, &MainWindow::exportPlaylistFile);
     connect(action(PlayerActions::AddFolder), &QAction::triggered, this, &MainWindow::addFolder);
     connect(action(PlayerActions::CancelScan), &QAction::triggered, scanner_, &FolderScanner::cancel);
     connect(action(PlayerActions::Previous), &QAction::triggered, playlist_, &PlaylistController::previous);
@@ -850,12 +857,41 @@ void MainWindow::updatePlaylistActions()
     actions_->get(PlayerActions::QueuePlay)->setEnabled(!selected.isEmpty());
     actions_->get(PlayerActions::QueueRemove)->setEnabled(!selected.isEmpty());
     actions_->get(PlayerActions::QueueClear)->setEnabled(model.rowCount() > 0);
+    actions_->get(PlayerActions::ExportPlaylistFile)->setEnabled(model.rowCount() > 0);
     bool up = false, down = false;
-    for (auto id : selected) { const int row = model.rowOf(id); up |= row > 0 && !selected.contains(model.idAt(row - 1)); down |= row + 1 < model.rowCount() && !selected.contains(model.idAt(row + 1)); }
+    if (!panel_->filtered()) {
+        for (auto id : selected) {
+            const int row = model.rowOf(id);
+            up |= row > 0 && !selected.contains(model.idAt(row - 1));
+            down |= row + 1 < model.rowCount() && !selected.contains(model.idAt(row + 1));
+        }
+    }
     actions_->get(PlayerActions::QueueUp)->setEnabled(up); actions_->get(PlayerActions::QueueDown)->setEnabled(down);
     actions_->get(PlayerActions::Playlist)->setChecked(playlistHost_->visible());
     actions_->get(PlayerActions::PlaylistMode)->setText(playlistHost_->detached() ? QStringLiteral("停靠回主窗口") : QStringLiteral("独立窗口"));
     actions_->refreshIcons();
+}
+
+void MainWindow::openPlaylistFile(bool append)
+{
+    auto *owner = QApplication::activeWindow() ? QApplication::activeWindow() : this;
+    const auto path = QFileDialog::getOpenFileName(owner, append ? QStringLiteral("追加片单") : QStringLiteral("打开片单"), {}, playlistFileFilter);
+    if (!path.isEmpty() && !playlist_->importPlaylist(path, !append).isEmpty()) playlistHost_->setVisible(true, false);
+}
+
+void MainWindow::exportPlaylistFile()
+{
+    auto *owner = QApplication::activeWindow() ? QApplication::activeWindow() : this;
+    QFileDialog dialog(owner, QStringLiteral("导出片单"), {}, playlistFileFilter);
+    dialog.setAcceptMode(QFileDialog::AcceptSave);
+    dialog.setDefaultSuffix("m3u8");
+    if (dialog.exec() != QDialog::Accepted) return;
+    const auto path = dialog.selectedFiles().value(0);
+    if (QFileInfo(path).suffix().compare(QStringLiteral("m3u8"), Qt::CaseInsensitive) != 0) {
+        surface_->showOsd("queue", QStringLiteral("请使用 .m3u8 作为片单扩展名。"), 3000);
+        return;
+    }
+    playlist_->exportPlaylist(path);
 }
 
 void MainWindow::addFolder()

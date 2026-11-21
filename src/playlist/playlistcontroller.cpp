@@ -1,4 +1,5 @@
 #include "playlistcontroller.h"
+#include "playlistfile.h"
 #include <QFile>
 #include <QFileInfo>
 #include <QTimer>
@@ -28,6 +29,40 @@ PlaylistController::PlaylistController(Player &player, QObject *parent, std::opt
 
 QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool replace, int row)
 {
+    return addFiles(paths, replace, row, ImportKind::Media);
+}
+
+QList<quint64> PlaylistController::importPlaylist(const QString &fileName, bool replace)
+{
+    const auto contents = PlaylistFile::read(fileName);
+    if (!contents.error.isEmpty()) {
+        emit message(contents.error);
+        return {};
+    }
+    QStringList skipped;
+    if (contents.networkPaths) skipped.append(QStringLiteral("%1 个网络或非本地地址").arg(contents.networkPaths));
+    if (contents.invalidPaths) skipped.append(QStringLiteral("%1 个无效路径").arg(contents.invalidPaths));
+    return addFiles(contents.paths, replace, -1, ImportKind::Playlist, skipped);
+}
+
+bool PlaylistController::exportPlaylist(const QString &fileName)
+{
+    if (!model_.rowCount()) return false;
+    QStringList paths;
+    paths.reserve(model_.rowCount());
+    for (int row = 0; row < model_.rowCount(); ++row)
+        paths.append(model_.index(row).data(PlaylistModel::PathRole).toString());
+    const auto error = PlaylistFile::write(fileName, paths);
+    if (!error.isEmpty()) {
+        emit message(QStringLiteral("无法保存片单。%1").arg(error));
+        return false;
+    }
+    emit message(QStringLiteral("已导出 %1 个项目到本地片单。").arg(paths.size()));
+    return true;
+}
+
+QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool replace, int row, ImportKind kind, QStringList skipped)
+{
     QStringList media, subtitles;
     QSet<QString> subtitleKeys;
     int unreadable = 0, unsupported = 0, duplicates = 0;
@@ -35,7 +70,7 @@ QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool repla
     for (const auto &path : paths) {
         const QFileInfo file(path);
         const auto absolutePath = file.absoluteFilePath();
-        const bool subtitle = MediaFiles::subtitle(path);
+        const bool subtitle = kind == ImportKind::Media && MediaFiles::subtitle(path);
         onlySubtitles &= subtitle;
         if (!file.isFile() || !QFile(absolutePath).open(QIODevice::ReadOnly)) {
             ++unreadable;
@@ -84,12 +119,12 @@ QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool repla
         unmatched = int(subtitles.size() - matching.size());
     }
 
-    QStringList skipped;
     if (unreadable) skipped.append(QStringLiteral("%1 个缺失或不可读的文件").arg(unreadable));
     if (unsupported) skipped.append(QStringLiteral("%1 个格式不受支持的文件").arg(unsupported));
     if (duplicates) skipped.append(QStringLiteral("%1 个重复路径").arg(duplicates));
     if (unmatched) skipped.append(QStringLiteral("%1 个未匹配的字幕").arg(unmatched));
     if (!skipped.isEmpty()) notices.append(QStringLiteral("已跳过 %1。").arg(skipped.join(QStringLiteral("、"))));
+    else if (kind == ImportKind::Playlist && ids.isEmpty()) notices.append(QStringLiteral("片单中没有可导入的本地媒体。"));
     if (!notices.isEmpty()) emit message(notices.join(' '));
 
     if (!ids.isEmpty()) {

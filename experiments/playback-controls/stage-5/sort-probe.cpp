@@ -287,8 +287,8 @@ void Suite::interfaces()
     const auto position = player.position();
     const auto before = transportCommands;
     auto *selection = panel.view()->selectionModel();
-    selection->setCurrentIndex(model.index(model.rowOf(ids[2])), QItemSelectionModel::ClearAndSelect);
-    selection->select(model.index(model.rowOf(ids[0])), QItemSelectionModel::Select);
+    selection->setCurrentIndex(panel.view()->model()->index(model.rowOf(ids[2]), 0), QItemSelectionModel::ClearAndSelect);
+    selection->select(panel.view()->model()->index(model.rowOf(ids[0]), 0), QItemSelectionModel::Select);
     const QSet<quint64> chosen{ids[0], ids[2]};
     for (auto id : {PlayerActions::SortFileNameAsc, PlayerActions::ReverseQueue, PlayerActions::ShuffleQueue, PlayerActions::SortAddedAsc}) {
         act(id)->trigger();
@@ -530,7 +530,7 @@ void Suite::throughput()
         if (inputSentAt >= 0) return;
         const int row = qBound(0, panel.view()->currentIndex().row() + (moveDown ? 1 : -1), model.rowCount() - 1);
         moveDown = !moveDown;
-        const auto point = panel.view()->visualRect(model.index(row)).center();
+        const auto point = panel.view()->visualRect(panel.view()->model()->index(row, 0)).center();
         inputSentAt = clock.elapsed();
         auto *viewport = panel.view()->viewport();
         QCoreApplication::postEvent(viewport, new QMouseEvent(QEvent::MouseButtonPress, point, viewport->mapToGlobal(point),
@@ -539,8 +539,8 @@ void Suite::throughput()
                                                               Qt::LeftButton, Qt::NoButton, Qt::NoModifier));
     });
     const auto focused = ids[300], anchored = ids[270];
-    selection->setCurrentIndex(model.index(model.rowOf(focused)), QItemSelectionModel::ClearAndSelect);
-    panel.view()->scrollTo(model.index(model.rowOf(anchored)), QAbstractItemView::PositionAtTop);
+    selection->setCurrentIndex(panel.view()->model()->index(model.rowOf(focused), 0), QItemSelectionModel::ClearAndSelect);
+    panel.view()->scrollTo(panel.view()->model()->index(model.rowOf(anchored), 0), QAbstractItemView::PositionAtTop);
     QTest::qWait(20);
     const auto topId = [&] { return panel.view()->indexAt(QPoint(panel.view()->viewport()->width() / 2, 1)).data(PlaylistModel::IdRole).toULongLong(); };
     const auto anchorBefore = topId();

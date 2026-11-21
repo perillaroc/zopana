@@ -30,6 +30,8 @@ public:
     void setCompletionHandler(CompletionHandler handler);
     void advanceAfterCompletion(const Player::PlaybackIdentity &playback);
     QList<quint64> addFiles(const QStringList &paths, bool replace, int row = -1);
+    QList<quint64> importPlaylist(const QString &fileName, bool replace);
+    bool exportPlaylist(const QString &fileName);
     void play(quint64 id);
     void replay();
     void previous();
@@ -48,6 +50,8 @@ signals:
     void message(const QString &text);
     void selectItem(quint64 id);
 private:
+    enum class ImportKind { Media, Playlist };
+    QList<quint64> addFiles(const QStringList &paths, bool replace, int row, ImportKind kind, QStringList skipped = {});
     void start(quint64 id, bool automatic, bool record = true);
     void advanceAutomatically();
     void scheduleAdvance(Player::PlaybackIdentity playback, Player::State state);

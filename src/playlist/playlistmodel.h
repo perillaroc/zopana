@@ -26,7 +26,7 @@ public:
         std::optional<PlaylistFileInfo> file;
         PlaylistMetadata metadata;
     };
-    enum Role { IdRole = Qt::UserRole + 1, PathRole, StatusRole };
+    enum Role { IdRole = Qt::UserRole + 1, PathRole, StatusRole, TitleRole };
     explicit PlaylistModel(QObject *parent = nullptr) : QAbstractListModel(parent) {}
     int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : int(items_.size()); }
     QVariant data(const QModelIndex &index, int role) const override;

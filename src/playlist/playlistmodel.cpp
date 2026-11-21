@@ -74,6 +74,7 @@ QVariant PlaylistModel::data(const QModelIndex &index, int role) const
     case IdRole: return QVariant::fromValue(item.id);
     case PathRole: return item.path;
     case StatusRole: return item.status;
+    case TitleRole: return item.metadata.state == PlaylistMetadata::State::Read ? item.metadata.title : QString();
     default: return {};
     }
 }
@@ -168,12 +169,17 @@ void PlaylistModel::setMetadata(quint64 id, const PlaylistFileInfo &file, const 
     if (row < 0) return;
     auto &item = items_[row];
     const bool versionChanged = !item.file || *item.file != file;
+    const auto oldTitle = data(index(row), TitleRole).toString();
     if (versionChanged) {
         item.file = file;
         item.metadata = {};
     }
     if (media) item.metadata = *media;
-    if (versionChanged || media) emit dataChanged(index(row), index(row), {Qt::ToolTipRole, Qt::AccessibleDescriptionRole});
+    if (versionChanged || media) {
+        QList<int> roles{Qt::ToolTipRole, Qt::AccessibleDescriptionRole};
+        if (oldTitle != data(index(row), TitleRole).toString()) roles.append(TitleRole);
+        emit dataChanged(index(row), index(row), roles);
+    }
 }
 
 QList<int> PlaylistModel::rowOrder() const

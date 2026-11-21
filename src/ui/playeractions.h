@@ -37,7 +37,7 @@ public:
               SortFileNameDesc, SortTitleDesc, SortExtensionDesc, SortFolderDesc, SortPathDesc, SortSizeDesc, SortModifiedDesc,
               SortCreatedDesc, SortDurationDesc, SortResolutionDesc, SortAddedDesc,
               SortAgain, ReverseQueue, ShuffleQueue, CancelSort, ControlWindowToggle,
-              PreviousChapter, NextChapter, UndoSeek, Count };
+              PreviousChapter, NextChapter, UndoSeek, OpenPlaylistFile, AppendPlaylistFile, ExportPlaylistFile, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     QAction *repeatModeAction(RepeatMode mode) const;

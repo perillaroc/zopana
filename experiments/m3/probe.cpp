@@ -5,6 +5,7 @@
 #include "folderscanner.h"
 #include "videowidget.h"
 #include <QAbstractItemModelTester>
+#include <QAbstractProxyModel>
 #include <QAction>
 #include <QApplication>
 #include <QDialog>
@@ -167,7 +168,7 @@ public:
         check("playlist drop appends to same model", queue->model().rowCount() == 4 && loads == after);
         {
             QMimeData mime; mime.setUrls({QUrl::fromLocalFile(fixtures + "/bad3.mkv")});
-            const QPoint position = panel->view()->visualRect(queue->model().index(0)).topLeft() + QPoint(3, 2);
+            const QPoint position = panel->view()->visualRect(panel->view()->model()->index(0, 0)).topLeft() + QPoint(3, 2);
             QDragEnterEvent enter(position, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier); QApplication::sendEvent(panel->view()->viewport(), &enter);
             QDragMoveEvent move(position, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier); QApplication::sendEvent(panel->view()->viewport(), &move);
             check("external drop shows explicit insertion row", panel->view()->property("externalDropRow").toInt() == 0);
@@ -287,7 +288,8 @@ public:
     void windows()
     {
         auto ids = replace(); host->setVisible(true, false); QTest::qWait(60);
-        auto *view = panel->view(); const auto context = video->context(); const int before = loads;
+        auto *view = panel->view(); const auto *viewModel = view->model();
+        const auto context = video->context(); const int before = loads;
         panel->select(ids[1]); activate(window); view->setFocus(); QTest::keyClick(view, Qt::Key_Return); waitLoaded(ids[1]);
         check("queue Enter plays selected without fullscreen", !window.isFullScreen());
         QSignalSpy toggles(action("play.toggle"), &QAction::triggered); view->setFocus(); QTest::keyClick(view, Qt::Key_Space);
@@ -308,7 +310,8 @@ public:
         check("floating playlist is owned and excluded from the Windows taskbar", host->window()->windowHandle()->transientParent() == window.windowHandle()
             && GetWindow(listHandle, GW_OWNER) == mainHandle && (GetWindowLongPtrW(listHandle, GWL_EXSTYLE) & WS_EX_TOOLWINDOW)
             && !(GetWindowLongPtrW(listHandle, GWL_EXSTYLE) & WS_EX_APPWINDOW));
-        check("independent list keeps shared model", view->model() == &queue->model());
+        const auto *proxy = qobject_cast<const QAbstractProxyModel *>(view->model());
+        check("independent list keeps shared model", view->model() == viewModel && proxy && proxy->sourceModel() == &queue->model());
         host->window()->move(host->window()->pos() + QPoint(30, 20)); host->window()->resize(350, 530); const auto geometry = host->window()->geometry();
         window.move(window.pos() + QPoint(15, 10)); QTest::qWait(30); check("moving main does not move independent list", host->window()->geometry() == geometry);
         auto *toggle = window.findChild<QToolButton *>("playlistButton");
