@@ -1,7 +1,8 @@
 #pragma once
 
+#include "mediastate.h"
+
 #include <QWidget>
-#include <QVariant>
 
 class QAction;
 class QLabel;
@@ -16,7 +17,9 @@ class ControlBar final : public QWidget
     Q_OBJECT
 public:
     explicit ControlBar(PlayerActions &actions, QWidget *parent = nullptr);
-    void setTimeline(int position, int duration, bool seekable);
+    void setTimeline(double position, double duration, bool seekable);
+    void setChapters(const QVector<MediaChapter> &chapters);
+    void setCurrentChapter(qsizetype chapter);
     void setVolume(double volume);
     void setMuted(bool muted);
     void setAudioAvailable(bool available);
@@ -28,14 +31,15 @@ public:
     void refreshIcons();
 
 signals:
-    void seekRequested(int seconds);
+    void seekRequested(double seconds, double origin);
+    void chapterRequested(qsizetype chapter, double origin);
     void volumeRequested(int percent);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
-    void showTime(int seconds);
+    void showTime(double seconds);
     void updateSeekDescription();
     QToolButton *button(QAction *action, const QString &name, QWidget *parent = nullptr);
     PlayerActions &actions_;

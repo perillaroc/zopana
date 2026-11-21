@@ -98,8 +98,7 @@ private:
     bool videoResizeDeferred_ = false, movingWindow_ = false;
     int playlistDockExtent_ = 0;
     QRect geometryBeforeFullscreen_;
-    int duration_ = 0, position_ = 0;
-    double durationSeconds_ = 0;
+    double durationSeconds_ = 0, position_ = 0;
     bool paused_ = false, wasMaximized_ = false;
     bool audioAvailable_ = false;
     bool maximizePressed_ = false;

@@ -48,3 +48,10 @@ struct MediaTrack
         return parts.join(" · ");
     }
 };
+
+struct MediaChapter
+{
+    double start;
+    QString title;
+    bool operator==(const MediaChapter &) const = default;
+};

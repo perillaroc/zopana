@@ -1,8 +1,10 @@
 #include "controlbar.h"
+#include "playbackdialogs.h"
 #include "playeractions.h"
 #include "theme.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
@@ -15,24 +17,50 @@
 #include <QStyleOptionSlider>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <optional>
+#include <utility>
 
-namespace { QString timestamp(int seconds); }
+namespace { QString timestamp(double seconds); }
 class SeekSlider final : public QSlider
 {
 public:
-    explicit SeekSlider(PlayerActions &actions) : QSlider(Qt::Horizontal), actions_(actions)
+    SeekSlider(ControlBar &bar, PlayerActions &actions) : QSlider(Qt::Horizontal), bar_(bar), actions_(actions)
     {
         setTracking(false);
         setMouseTracking(true);
+        connect(this, &QSlider::valueChanged, this, [this](int value) {
+            emit bar_.seekRequested(seconds(value), dragOrigin_.value_or(reported));
+        });
     }
-    int reported = 0;
+    double reported = 0;
     QPointer<QLabel> hover;
     QVariant loopA, loopB;
+    QVector<MediaChapter> chapters;
+    qsizetype currentChapter = -1;
+
+    double seconds(int position) const { return position * secondsPerTick_; }
+    int ticks(double seconds) const { return qRound(std::clamp(seconds / secondsPerTick_, 0.0, double(maximum()))); }
+    void setDuration(double duration, bool seekable)
+    {
+        const double tick = qMax(.001, duration / (std::numeric_limits<int>::max() - 1));
+        const int end = qMax(seekable ? 1 : 0, qRound(duration / tick));
+        if (maximum() != end || tick != secondsPerTick_ || !seekable) {
+            cancel();
+            secondsPerTick_ = tick;
+            setRange(0, end);
+        }
+    }
+
     bool cancel()
     {
         if (!isSliderDown()) return false;
-        { const QSignalBlocker block(this); setSliderPosition(value()); setSliderDown(false); setValue(reported); }
-        emit sliderMoved(reported);
+        dragOrigin_.reset();
+        pressedChapter_ = -1;
+        { const QSignalBlocker block(this); setSliderPosition(value()); setSliderDown(false); setValue(ticks(reported)); }
+        emit sliderMoved(value());
         if (hover) hover->hide();
         if (QWidget::mouseGrabber() == this) releaseMouse();
         return true;
@@ -40,18 +68,25 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override
     {
-        QSlider::paintEvent(event); if (maximum() <= minimum()) return;
+        QSlider::paintEvent(event);
+        if (maximum() <= minimum()) return;
         const bool hasA = loopA.isValid() && loopA.toString() != "no", hasB = loopB.isValid() && loopB.toString() != "no";
-        if (!hasA) return;
-        QStyleOptionSlider option; initStyleOption(&option);
-        const auto groove = style()->subControlRect(QStyle::CC_Slider,&option,QStyle::SC_SliderGroove,this);
-        const auto handle = style()->subControlRect(QStyle::CC_Slider,&option,QStyle::SC_SliderHandle,this);
-        const auto x = [&](double value) { return groove.x()+handle.width()/2+qRound((groove.width()-handle.width())*(value-minimum())/(maximum()-minimum())); };
-        QPainter painter(this); auto color = palette().color(QPalette::Highlight);
-        const int a = x(loopA.toDouble()), b = x(loopB.toDouble());
-        if (hasB) { color.setAlpha(65); painter.fillRect(QRect(a,height()/2-6,qMax(1,b-a),12),color); }
-        painter.setPen(palette().color(QPalette::Text)); painter.drawLine(a,2,a,height()-2); painter.drawText(a+3,11,"A");
-        if (hasB) { painter.drawLine(b,2,b,height()-2); painter.drawText(b+3,11,"B"); }
+        if (!hasA && chapters.isEmpty()) return;
+        const auto track = sliderTrack();
+        QPainter painter(this);
+        if (hasA) {
+            auto color = palette().color(QPalette::Highlight);
+            const int a = markerX(track, loopA.toDouble()), b = markerX(track, loopB.toDouble());
+            if (hasB) { color.setAlpha(65); painter.fillRect(QRect(qMin(a,b),height()/2-6,qMax(1,qAbs(b-a)),12),color); }
+            painter.setPen(palette().color(QPalette::Text)); painter.drawLine(a,2,a,height()-2); painter.drawText(a+3,11,"A");
+            if (hasB) { painter.drawLine(b,2,b,height()-2); painter.drawText(b+3,11,"B"); }
+        }
+        painter.setPen(Qt::NoPen);
+        for (qsizetype i = 0; i < chapters.size(); ++i) {
+            const int x = markerX(track, chapters[i].start), y = height() - 2;
+            painter.setBrush(palette().color(i == currentChapter ? QPalette::Highlight : QPalette::ButtonText));
+            painter.drawPolygon(QPolygon{{x - 4, y}, {x, y - 7}, {x + 4, y}});
+        }
     }
     bool event(QEvent *event) override
     {
@@ -75,14 +110,22 @@ protected:
         if (auto *action = actions_.timelineAction(*event)) {
             if (canUseKeys) {
                 cancel();
-                if (action->isEnabled() && (!event->isAutoRepeat() || action->autoRepeat())) action->trigger();
+                actions_.triggerSeekKey(*action, *event);
             }
             event->accept();
             return;
         }
         const int key = event->key();
-        if (key == Qt::Key_Left || key == Qt::Key_Right || (!canUseKeys && (key == Qt::Key_Up || key == Qt::Key_Down
-            || key == Qt::Key_Home || key == Qt::Key_End || key == Qt::Key_PageUp || key == Qt::Key_PageDown))) {
+        if (key == Qt::Key_PageUp || key == Qt::Key_PageDown || key == Qt::Key_Up || key == Qt::Key_Down) {
+            if (canUseKeys) {
+                cancel();
+                const int step = key == Qt::Key_PageUp ? 10 : key == Qt::Key_PageDown ? -10 : key == Qt::Key_Up ? 1 : -1;
+                actions_.seekTimelineStep(step, *event);
+            }
+            event->accept();
+            return;
+        }
+        if (key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Home || key == Qt::Key_End) {
             event->accept();
             return;
         }
@@ -94,44 +137,94 @@ protected:
         QStyleOptionSlider option; initStyleOption(&option);
         const QRect handle = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, this);
         const QPoint point = event->position().toPoint();
-        offset_ = handle.contains(point) ? point.x() - handle.left() : handle.width() / 2;
-        lastX_ = point.x(); setSliderDown(true);
-        if (!handle.contains(point)) previewAt(lastX_);
+        pressedChapter_ = chapterAt(point);
+        dragOrigin_ = reported;
+        const bool onHandle = pressedChapter_ < 0 && handle.contains(point);
+        offset_ = onHandle ? point.x() - handle.left() : handle.width() / 2;
+        lastX_ = pressX_ = point.x(); setSliderDown(true);
+        if (pressedChapter_ < 0 && !onHandle) previewAt(lastX_);
         event->accept();
     }
     void mouseMoveEvent(QMouseEvent *event) override
     {
-        const int x = event->position().toPoint().x();
+        const auto point = event->position().toPoint();
+        const int x = point.x();
         if (isSliderDown()) moveTo(x);
         if (isEnabled() && hover) {
-            hover->setText(timestamp(isSliderDown() ? sliderPosition() : at(x, false))); hover->adjustSize();
+            const auto index = isSliderDown() ? pressedChapter_ : chapterAt(point);
+            QString text;
+            if (index >= 0) {
+                const auto &chapter = chapters[index];
+                text = QStringLiteral("%1  %2").arg(PlaybackDialogs::timestamp(chapter.start), chapter.title);
+            } else {
+                text = timestamp(seconds(isSliderDown() ? sliderPosition() : at(x, false)));
+            }
             auto *host = hover->parentWidget(); const auto position = mapTo(host, QPoint(x, 0));
-            hover->move(qBound(0, position.x() - hover->width() / 2, host->width() - hover->width()), qMax(0, position.y() - hover->height() - 6));
+            hover->setText(hover->fontMetrics().elidedText(text, Qt::ElideRight, qMax(0, host->width() - 2 * hover->margin())));
+            hover->adjustSize();
+            hover->move(qBound(0, position.x() - hover->width() / 2, qMax(0, host->width() - hover->width())), qMax(0, position.y() - hover->height() - 6));
             hover->show(); hover->raise();
         }
     }
     void mouseReleaseEvent(QMouseEvent *event) override
     {
         if (event->button() == Qt::LeftButton && isSliderDown()) {
-            moveTo(event->position().toPoint().x()); setSliderDown(false); event->accept();
+            moveTo(event->position().toPoint().x());
+            const auto chapter = std::exchange(pressedChapter_, -1);
+            setSliderDown(false);
+            if (chapter >= 0) emit bar_.chapterRequested(chapter, dragOrigin_.value_or(reported));
+            dragOrigin_.reset();
+            event->accept();
         }
     }
 private:
-    void moveTo(int x) { if (x != lastX_) { lastX_ = x; previewAt(x); } }
+    struct Track { int left, width, handleWidth; bool upsideDown; };
+    Track sliderTrack() const
+    {
+        QStyleOptionSlider option; initStyleOption(&option);
+        const auto groove = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderGroove, this);
+        const auto handle = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, this);
+        return {groove.left(), qMax(0, groove.width() - handle.width()), handle.width(), option.upsideDown};
+    }
+    int markerX(const Track &track, double position) const
+    {
+        return track.left + track.handleWidth / 2
+            + QStyle::sliderPositionFromValue(minimum(), maximum(), ticks(position), track.width, track.upsideDown);
+    }
+    qsizetype chapterAt(QPoint point) const
+    {
+        if (chapters.isEmpty() || point.y() < height() - 10 || !rect().contains(point)) return -1;
+        const auto track = sliderTrack();
+        int distance = 6;
+        qsizetype nearest = -1;
+        for (qsizetype i = 0; i < chapters.size(); ++i) {
+            const int delta = qAbs(point.x() - markerX(track, chapters[i].start));
+            if (delta < distance) { distance = delta; nearest = i; }
+        }
+        return nearest;
+    }
+    void moveTo(int x)
+    {
+        if (pressedChapter_ >= 0 && qAbs(x - pressX_) < QApplication::startDragDistance()) return;
+        pressedChapter_ = -1;
+        if (x != lastX_) { lastX_ = x; previewAt(x); }
+    }
     void previewAt(int x)
     {
         setSliderPosition(at(x, true));
     }
-    int at(int x, bool dragging)
+    int at(int x, bool dragging) const
     {
-        QStyleOptionSlider option; initStyleOption(&option);
-        const QRect groove = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderGroove, this);
-        const QRect handle = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, this);
-        return QStyle::sliderValueFromPosition(minimum(), maximum(), x - groove.x() - (dragging ? offset_ : handle.width() / 2),
-                                               groove.width() - handle.width(), option.upsideDown);
+        const auto track = sliderTrack();
+        return QStyle::sliderValueFromPosition(minimum(), maximum(), x - track.left - (dragging ? offset_ : track.handleWidth / 2),
+                                               track.width, track.upsideDown);
     }
+    ControlBar &bar_;
     PlayerActions &actions_;
-    int offset_ = 0, lastX_ = 0;
+    std::optional<double> dragOrigin_;
+    double secondsPerTick_ = .001;
+    qsizetype pressedChapter_ = -1;
+    int offset_ = 0, lastX_ = 0, pressX_ = 0;
 };
 
 namespace {
@@ -180,8 +273,9 @@ private:
     QAction *skip_;
 };
 
-QString timestamp(int seconds)
+QString timestamp(double position)
 {
+    const int seconds = int(std::clamp(position, 0.0, double(std::numeric_limits<int>::max())));
     return QStringLiteral("%1:%2:%3").arg(seconds / 3600, 2, 10, QLatin1Char('0'))
         .arg((seconds / 60) % 60, 2, 10, QLatin1Char('0')).arg(seconds % 60, 2, 10, QLatin1Char('0'));
 }
@@ -201,15 +295,14 @@ ControlBar::ControlBar(PlayerActions &actions, QWidget *parent) : QWidget(parent
     duration_->setAccessibleName(QStringLiteral("总时长"));
     auto font = current_->font(); font.setFamilies({"Cascadia Mono", "Consolas", font.family()});
     current_->setFont(font); duration_->setFont(font);
-    seek_ = new SeekSlider(actions); seek_->setObjectName("seekSlider");
-    seek_->setAccessibleName(QStringLiteral("播放进度（秒）"));
-    seek_->setRange(0, 0); seek_->setPageStep(10); seek_->setMinimumHeight(24);
+    seek_ = new SeekSlider(*this, actions); seek_->setObjectName("seekSlider");
+    seek_->setAccessibleName(QStringLiteral("播放进度"));
+    seek_->setRange(0, 0); seek_->setPageStep(10000); seek_->setSingleStep(1000); seek_->setMinimumHeight(24);
     timeline->addWidget(seek_, 1);
     seek_->hover = new QLabel(parent ? parent : this); seek_->hover->setObjectName("seekHoverTime");
-    seek_->hover->setAttribute(Qt::WA_TransparentForMouseEvents); seek_->hover->setAutoFillBackground(true);
+    seek_->hover->setAttribute(Qt::WA_TransparentForMouseEvents); seek_->hover->setAutoFillBackground(true); seek_->hover->setTextFormat(Qt::PlainText);
     seek_->hover->setBackgroundRole(QPalette::Button); seek_->hover->setMargin(6); seek_->hover->setFrameShape(QFrame::StyledPanel); seek_->hover->hide();
-    connect(seek_, &QSlider::sliderMoved, this, &ControlBar::showTime);
-    connect(seek_, &QSlider::valueChanged, this, &ControlBar::seekRequested);
+    connect(seek_, &QSlider::sliderMoved, this, [this](int ticks) { showTime(seek_->seconds(ticks)); });
     connect(&actions_, &PlayerActions::seekStepsChanged, this, &ControlBar::updateSeekDescription);
     connect(&actions_, &PlayerActions::bindingsChanged, this, &ControlBar::updateSeekDescription);
 
@@ -263,20 +356,18 @@ QToolButton *ControlBar::button(QAction *action, const QString &name, QWidget *p
     return result;
 }
 
-void ControlBar::setTimeline(int position, int duration, bool seekable)
+void ControlBar::setTimeline(double position, double duration, bool seekable)
 {
     const QSignalBlocker block(seek_);
-    seek_->reported = position;
-    // The slider uses whole seconds and still needs a range for subsecond clips.
-    const int maximum = seekable ? qMax(1, duration) : duration;
-    if (seek_->maximum() != maximum || !seekable) { seek_->cancel(); seek_->setRange(0, maximum); }
-    const bool enabled = seekable;
-    if (seek_->isEnabled() != enabled) {
-        seek_->setEnabled(enabled);
+    seek_->reported = std::isfinite(position) ? position : 0;
+    duration = std::isfinite(duration) ? qMax(0.0, duration) : 0;
+    seek_->setDuration(duration, seekable);
+    if (seek_->isEnabled() != seekable) {
+        seek_->setEnabled(seekable);
         updateSeekDescription();
     }
-    if (!seek_->isSliderDown()) seek_->setValue(position);
-    showTime(seek_->isSliderDown() ? seek_->sliderPosition() : position);
+    if (!seek_->isSliderDown()) seek_->setValue(seek_->ticks(seek_->reported));
+    showTime(seek_->isSliderDown() ? seek_->seconds(seek_->sliderPosition()) : seek_->reported);
     duration_->setText(duration > 0 || seekable ? timestamp(duration) : QStringLiteral("--:--"));
 }
 
@@ -287,7 +378,7 @@ void ControlBar::updateSeekDescription()
     seek_->setAccessibleDescription(description);
 }
 
-void ControlBar::showTime(int seconds) { current_->setText(timestamp(seconds)); }
+void ControlBar::showTime(double seconds) { current_->setText(timestamp(seconds)); }
 
 void ControlBar::setVolume(double volume)
 {
@@ -316,6 +407,19 @@ void ControlBar::setPlaybackRate(double rate, bool available)
     rateButton_->setEnabled(available);
 }
 void ControlBar::setLoop(const QVariant &a, const QVariant &b) { seek_->loopA = a; seek_->loopB = b; seek_->update(); }
+void ControlBar::setChapters(const QVector<MediaChapter> &chapters)
+{
+    cancelSeekPreview();
+    seek_->chapters = chapters;
+    setCurrentChapter(-1);
+}
+
+void ControlBar::setCurrentChapter(qsizetype chapter)
+{
+    seek_->currentChapter = chapter;
+    seek_->update();
+}
+
 bool ControlBar::cancelSeekPreview()
 {
     if (!seek_->cancel()) return false;

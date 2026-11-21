@@ -49,17 +49,10 @@
 #include <windows.h>
 #include <windowsx.h>
 
-#include <algorithm>
 #include <cmath>
-#include <limits>
 #include <utility>
 
 namespace {
-int wholeSeconds(double value)
-{
-    return std::isfinite(value) ? int(std::clamp(value, 0.0, double(std::numeric_limits<int>::max()))) : 0;
-}
-
 class WindowTitle final : public QLabel
 {
 public:
@@ -252,7 +245,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
         if (actions_->get(PlayerActions::PlayPause)->isEnabled()) actions_->get(PlayerActions::PlayPause)->trigger();
     });
     connect(video_, &VideoWidget::volumeStepsRequested, this, [this](double steps) { if (audioAvailable_) player_.setVolume(player_.volumeTarget() + 5 * steps); });
-    connect(controls_, &ControlBar::seekRequested, &player_, &Player::seek);
+    connect(controls_, &ControlBar::seekRequested, &player_, &Player::seekFrom);
     connect(controls_, &ControlBar::volumeRequested, &player_, &Player::setVolume);
     connect(&player_, &Player::mediaChanged, this, &MainWindow::updateMedia);
     connect(&player_, &Player::fileOpening, this, [this] {
@@ -263,10 +256,10 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
         if (actions_->get(PlayerActions::SeekGoto)->isEnabled() != player_.canSeek()) updateTimeline();
     });
     connect(&player_, &Player::durationChanged, this, [this](double seconds) {
-        if (state_ == Player::State::Loaded) { durationSeconds_ = seconds; duration_ = wholeSeconds(seconds); updateTimeline(); }
+        if (state_ == Player::State::Loaded) { durationSeconds_ = seconds; updateTimeline(); }
     });
     connect(&player_, &Player::positionChanged, this, [this](double seconds) {
-        if (state_ == Player::State::Loaded) { position_ = wholeSeconds(seconds); controls_->setTimeline(position_, duration_, player_.canSeek()); }
+        if (state_ == Player::State::Loaded) { position_ = seconds; controls_->setTimeline(position_, durationSeconds_, player_.canSeek()); }
     });
     connect(&player_, &Player::seekableChanged, this, &MainWindow::updateTimeline);
     connect(&player_, &Player::pausedChanged, this, [this](bool paused) { paused_ = paused; updatePresentation(); });
@@ -298,8 +291,8 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
         surface_->showOsd("error", QStringLiteral("操作失败：%1").arg(message), 3000);
     });
     setMinimumSize(640, 400);
-    new MediaControls(player_,*actions_,*video_,*surface_,*controls_,*this);
-    new ControlWindow(*this, player_, *actions_, *video_);
+    auto *mediaControls = new MediaControls(player_,*actions_,*video_,*surface_,*controls_,*this);
+    new ControlWindow(*this, player_, *actions_, *video_, mediaControls->chapterMenu());
     const QSize available = QGuiApplication::primaryScreen()->availableGeometry().size();
     resize(QSize(1120, 720).boundedTo(available * .9).expandedTo(minimumSize()));
     actions_->setAudioAvailable(false); controls_->setAudioAvailable(false);
@@ -654,8 +647,8 @@ void MainWindow::updateMedia(Player::State state, const QString &path, const QSt
         video_->setVideoSize({});
     }
     if (state == Player::State::Loading || state == Player::State::Idle || state == Player::State::Error) {
-        position_ = 0; duration_ = 0; durationSeconds_ = 0; paused_ = false;
-    } else if (state == Player::State::Ended) position_ = duration_;
+        position_ = 0; durationSeconds_ = 0; paused_ = false;
+    } else if (state == Player::State::Ended) position_ = durationSeconds_;
     updateTimeline();
     updatePresentation();
     if (state == Player::State::Error) {
@@ -709,7 +702,7 @@ void MainWindow::updateTimeline()
 {
     const bool enabled = player_.canSeek();
     actions_->setSeekable(enabled);
-    controls_->setTimeline(position_, duration_, enabled);
+    controls_->setTimeline(position_, durationSeconds_, enabled);
 }
 
 void MainWindow::gotoTime()
@@ -717,8 +710,9 @@ void MainWindow::gotoTime()
     auto *owner = QApplication::activeWindow() ? QApplication::activeWindow() : this;
     const auto generation = player_.generation();
     const auto epoch = player_.renderEpoch();
+    const auto origin = player_.position();
     if (const auto time = PlaybackDialogs::gotoTime(owner, player_.positionTarget(), durationSeconds_);
-        time && generation == player_.generation() && epoch == player_.renderEpoch()) player_.seek(*time);
+        time && generation == player_.generation() && epoch == player_.renderEpoch()) player_.seekFrom(*time, origin);
     if (owner == this) video_->setFocus();
 }
 

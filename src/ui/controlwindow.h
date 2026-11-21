@@ -8,6 +8,7 @@
 
 class QAction;
 class QLabel;
+class QMenu;
 class QSlider;
 class QTabWidget;
 class QToolButton;
@@ -19,7 +20,7 @@ class ControlWindow final : public QWidget
 {
     Q_OBJECT
 public:
-    ControlWindow(QWidget &main, Player &player, PlayerActions &actions, VideoWidget &video);
+    ControlWindow(QWidget &main, Player &player, PlayerActions &actions, VideoWidget &video, QMenu &chapters);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -27,7 +28,7 @@ protected:
     bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
-    QWidget *createPlaybackPage(PlayerActions &actions);
+    QWidget *createPlaybackPage(PlayerActions &actions, QMenu &chapters);
     QWidget *createFramingPage(PlayerActions &actions);
     void syncVisibility(bool activate = false);
     void ensureOnScreen();

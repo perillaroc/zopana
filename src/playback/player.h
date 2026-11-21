@@ -42,6 +42,8 @@ public:
     bool recovering() const { return recovering_; }
     bool lastLoadWasRecovery() const { return lastLoadWasRecovery_; }
     const QVector<MediaTrack> &tracks() const { return tracks_; }
+    const QVector<MediaChapter> &chapters() const { return chapters_; }
+    qsizetype currentChapter() const;
     QVariant mediaProperty(const QString &name) const { return properties_.value(name); }
     QVariant propertyTarget(const QString &name) const { return targets_.value(name, properties_.value(name)); }
     void setMediaProperty(const QString &name, const QVariant &value);
@@ -58,16 +60,19 @@ public:
     void togglePaused();
     void stop(bool clearFile = false);
     void seek(double seconds);
+    void seekFrom(double seconds, double origin);
     bool seekToStart(double seconds, StartPosition reason);
     void cancelStartSeek();
-    void seekRelative(double seconds);
+    void seekRelative(double seconds, bool continuing = false);
+    void undoSeek();
     bool completeOutro(PlaybackIdentity playback);
     double lastPosition() const;
     bool seekable() const { return seekable_; }
     bool canSeek() const;
-    bool seekInProgress() const { return seekTarget_.has_value() || settlingSeek_; }
+    bool seekInProgress() const { return pendingSeek_.has_value() || submittedSeek_.has_value(); }
+    bool canUndoSeek() const { return canSeek() && undoPosition_.has_value() && !seekInProgress(); }
     bool canSetLoopPoint() const { return canSeek() && !seekInProgress(); }
-    double positionTarget() const { return seekTarget_.value_or(position_); }
+    double positionTarget() const;
     double position() const { return position_; }
     double duration() const { return duration_; }
     bool paused() const { return paused_; }
@@ -92,6 +97,7 @@ public:
 
 signals:
     void detailsChanged();
+    void chaptersChanged();
     void preferenceTargetChanged();
     void notice(const QString &message);
     void sourceImageReady(const QImage &image, quint64 generation, quint64 renderEpoch, quint64 transformVersion,
@@ -126,7 +132,7 @@ private:
     void queueLoad(bool recovery = false);
     void submitPendingLoad();
     enum class Command { Load, Seek, Pause, Volume, Mute, Stop, Subtitle, ResetLoop,
-                         Property, FramePause, Frame, Screenshot, RestoreProperty, RestoreSubtitle, RestoreSeek, ReadProperty, FinishOutro };
+                         Property, FramePause, Frame, Screenshot, RestoreProperty, RestoreSubtitle, RestoreSeek, ReadProperty, ReadSeekPosition, FinishOutro };
     struct Request {
         Command command;
         uint64_t generation, epoch;
@@ -139,19 +145,21 @@ private:
     bool submitControl(Command command, const char **args, const QString &subject = {}, const QVariant &value = {});
     void applyVolume();
     bool issueProperty(const QString &name, const QVariant &value, Command command = Command::Property);
-    void readProperty(const QString &name);
+    bool readProperty(const QString &name, Command command = Command::ReadProperty);
     void applyProperty(const QString &name, const QVariant &value);
     void restoreStep();
     void publishFileProperties();
     void updateTracks();
+    void updateChapters();
     void resetFileDetails();
     void invalidateVideoOutput(int target);
     void confirmVideoOutput();
+    struct Seek { double target; std::optional<double> origin; bool undo = false; };
+    void queueSeek(Seek seek);
     void flushSeek();
     void finishSeek();
     void clearSeek();
-    void failSeek();
-    void settleSeek();
+    void settleSeek(std::optional<double> confirmedPosition);
     bool naturalProgress() const;
     void drainEvents();
     void handleReply(const mpv_event &event);
@@ -171,12 +179,13 @@ private:
     quint64 renderEpoch_ = 1, observationId_ = 0, nextObservation_ = 1;
     quint64 itemId_ = 0;
     QHash<uint64_t, Request> requests_;
-    QTimer seekTimer_;
-    std::optional<double> seekTarget_, pendingSeek_, submittedSeek_;
+    QTimer seekTimer_, seekTimeout_;
+    std::optional<Seek> pendingSeek_, submittedSeek_;
+    std::optional<double> relativeSeekOrigin_, undoPosition_;
     struct InitialSeek { PlaybackIdentity playback; StartPosition reason; };
     std::optional<InitialSeek> initialSeek_;
-    bool settlingSeek_ = false;
-    bool seekBusy_ = false, seekReplied_ = false, seekRestarted_ = false;
+    quint64 seekRequest_ = 0;
+    bool seekStarted_ = false, seekRestarted_ = false;
     bool seekable_ = false;
     double duration_ = 0, fps_ = 0, sampleRate_ = 0;
     double audioBuffer_ = 0;
@@ -201,6 +210,7 @@ private:
     QVariantMap targets_;
     QSet<QString> propertyInFlight_;
     QVector<MediaTrack> tracks_;
+    QVector<MediaChapter> chapters_;
     QStringList initialSubtitles_;
     QString audioLanguages_,subtitleLanguages_;
     bool trackPreferencesPending_=false,skipResumeNext_=false,resumeAllowed_=true,automaticOpen_=false;

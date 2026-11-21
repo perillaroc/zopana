@@ -101,6 +101,25 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     subScale_ = numberControl(sub,"sub-scale","subScaleSpin",.5,2,QStringLiteral("字幕字体缩放（ASS 保留自带样式）"));
     for (auto id : {PlayerActions::SubScaleUp,PlayerActions::SubScaleDown,PlayerActions::SubScaleReset}) sub->addAction(action(id));
     auto *play = window.findChild<QMenu *>("playMenu"); rateMenu_ = play->addMenu(QStringLiteral("倍速")); rateMenu_->setObjectName("rateMenu");
+    auto *before = play->findChild<QMenu *>("repeatModeMenu")->menuAction();
+    auto *previousChapter = action(PlayerActions::PreviousChapter);
+    auto *nextChapter = action(PlayerActions::NextChapter);
+    auto *undoSeek = action(PlayerActions::UndoSeek);
+    chaptersMenu_ = new QMenu(QStringLiteral("章节"), play);
+    chaptersMenu_->setObjectName("chaptersMenu");
+    play->insertActions(before, {previousChapter, nextChapter});
+    play->insertMenu(before, chaptersMenu_);
+    play->insertAction(before, undoSeek);
+    connect(previousChapter, &QAction::triggered, this, [this] { jumpToChapter(currentChapter_ - 1, player_.position()); });
+    connect(nextChapter, &QAction::triggered, this, [this] { jumpToChapter(currentChapter_ + 1, player_.position()); });
+    connect(undoSeek, &QAction::triggered, &player_, &Player::undoSeek);
+    connect(&bar_, &ControlBar::chapterRequested, this, &MediaControls::jumpToChapter);
+    connect(&player_, &Player::chaptersChanged, this, &MediaControls::rebuildChapters);
+    connect(&player_, &Player::mediaChanged, this, &MediaControls::updateSeekNavigation);
+    connect(&player_, &Player::seekActivityChanged, this, &MediaControls::updateSeekNavigation);
+    connect(&player_, &Player::positionChanged, this, [this] {
+        if (!player_.seekInProgress() && player_.currentChapter() != currentChapter_) updateSeekNavigation();
+    });
     bar_.setRateMenu(rateMenu_);
     for (auto [id,rate] : rates) rateMenu_->addAction(action(id));
     rateMenu_->addSeparator(); for (auto id : {PlayerActions::RateLess,PlayerActions::RateMore,PlayerActions::Pitch}) rateMenu_->addAction(action(id));
@@ -169,6 +188,7 @@ void MediaControls::refresh()
         const QSignalBlocker blocker(spin); spin->setValue(player_.mediaProperty(name).toDouble()); spin->setEnabled(enabled);
     }
     bar_.setLoop(player_.mediaProperty("ab-loop-a"),player_.mediaProperty("ab-loop-b"));
+    updateSeekNavigation();
     tracksMenu(audioTracks_,"audio"); tracksMenu(subtitleTracks_,"sub"); actions_.refreshIcons();
 }
 void MediaControls::updateLoopActions()
@@ -177,6 +197,52 @@ void MediaControls::updateLoopActions()
     actions_.get(PlayerActions::LoopA)->setEnabled(settable);
     actions_.get(PlayerActions::LoopB)->setEnabled(settable);
     actions_.get(PlayerActions::LoopClear)->setEnabled(player_.canSeek());
+}
+
+void MediaControls::rebuildChapters()
+{
+    currentChapter_ = -1;
+    chaptersMenu_->clear();
+    const auto &chapters = player_.chapters();
+    for (qsizetype i = 0; i < chapters.size(); ++i) {
+        const auto &chapter = chapters[i];
+        QString title = chapter.title;
+        title.replace('&', "&&");
+        auto *entry = chaptersMenu_->addAction(QStringLiteral("%1  %2").arg(PlaybackDialogs::timestamp(chapter.start), title));
+        entry->setCheckable(true);
+        connect(entry, &QAction::triggered, this, [this, i, entry] {
+            entry->setChecked(i == currentChapter_);
+            jumpToChapter(i, player_.position());
+        });
+    }
+    bar_.setChapters(chapters);
+    updateSeekNavigation();
+}
+
+void MediaControls::updateSeekNavigation()
+{
+    if (!player_.seekInProgress()) currentChapter_ = player_.currentChapter();
+    const bool seekable = player_.canSeek();
+    const auto &chapters = player_.chapters();
+    const double last = player_.lastPosition();
+    const auto available = [&](qsizetype i) { return seekable && i >= 0 && i < chapters.size() && chapters[i].start <= last; };
+    actions_.get(PlayerActions::PreviousChapter)->setEnabled(available(currentChapter_ - 1));
+    actions_.get(PlayerActions::NextChapter)->setEnabled(available(currentChapter_ + 1));
+    actions_.get(PlayerActions::UndoSeek)->setEnabled(player_.canUndoSeek());
+    chaptersMenu_->menuAction()->setEnabled(seekable && !chapters.isEmpty());
+    const auto entries = chaptersMenu_->actions();
+    for (qsizetype i = 0; i < entries.size(); ++i) {
+        entries[i]->setEnabled(available(i));
+        entries[i]->setChecked(i == currentChapter_);
+    }
+    bar_.setCurrentChapter(currentChapter_);
+}
+
+void MediaControls::jumpToChapter(qsizetype chapter, double origin)
+{
+    const auto &chapters = player_.chapters();
+    if (chapter >= 0 && chapter < chapters.size() && chapters[chapter].start <= player_.lastPosition())
+        player_.seekFrom(chapters[chapter].start, origin);
 }
 void MediaControls::loadSubtitle()
 {

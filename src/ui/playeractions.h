@@ -36,7 +36,8 @@ public:
               SortCreatedAsc, SortDurationAsc, SortResolutionAsc, SortAddedAsc,
               SortFileNameDesc, SortTitleDesc, SortExtensionDesc, SortFolderDesc, SortPathDesc, SortSizeDesc, SortModifiedDesc,
               SortCreatedDesc, SortDurationDesc, SortResolutionDesc, SortAddedDesc,
-              SortAgain, ReverseQueue, ShuffleQueue, CancelSort, ControlWindowToggle, Count };
+              SortAgain, ReverseQueue, ShuffleQueue, CancelSort, ControlWindowToggle,
+              PreviousChapter, NextChapter, UndoSeek, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     QAction *repeatModeAction(RepeatMode mode) const;
@@ -53,6 +54,8 @@ public:
     static bool isRelativeSeek(Id id) { return id >= BackSmall && id <= ForwardLarge; }
     bool viewingInputAllowed() const;
     QAction *timelineAction(const QKeyEvent &event) const;
+    void triggerSeekKey(QAction &action, const QKeyEvent &event);
+    void seekTimelineStep(int seconds, const QKeyEvent &event);
     QString timelineDescription() const;
     void setAudioAvailable(bool available);
     void setMuted(bool muted);
@@ -68,7 +71,7 @@ signals:
     void invoked();
     void bindingsChanged();
     void seekStepsChanged();
-    void seekRelativeRequested(int seconds);
+    void seekRelativeRequested(int seconds, bool continuing);
     void playlistSortRequested(PlaylistSort sort);
 
 protected:
@@ -77,6 +80,8 @@ protected:
 private:
     QStringList bindingConflicts(const QString &id, const QStringList &keys, const QVariantMap &bindings) const;
     bool watching() const;
+    QAction *relativeSeekAction(const QKeyEvent &event) const;
+    bool continuesSeekKey(const QKeyEvent &event);
     QWidget &window_, &video_, &surface_;
     std::array<QAction *, Count> actions_{};
     std::array<QString, Count> appliedIconNames_;
@@ -85,4 +90,6 @@ private:
     QPointer<QWidget> queue_, playlistWindow_;
     QVariantMap defaults_;
     std::array<int, 3> seekSteps_{};
+    int seekKey_ = 0;
+    bool continuingSeekKey_ = false;
 };

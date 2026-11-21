@@ -8,6 +8,7 @@
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QScopedValueRollback>
 #include <QSet>
 #include <QWidget>
 
@@ -64,7 +65,9 @@ constexpr Definition definitions[] = {
     {"queue.sort.resolution.desc","分辨率",""}, {"queue.sort.addedOrder.desc","添加顺序",""},
     {"queue.sort.again","按上次条件重新排序",""}, {"queue.sort.reverse","反转当前顺序",""},
     {"queue.sort.shuffle","随机打乱列表",""}, {"queue.sort.cancel","取消排序",""},
-    {"window.controls", "控制窗口", "sliders-horizontal"}
+    {"window.controls", "控制窗口", "sliders-horizontal"},
+    {"chapter.previous", "上一章", ""}, {"chapter.next", "下一章", ""},
+    {"seek.undo", "撤销上次定位", ""}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},
@@ -130,8 +133,8 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     view(BackMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Left)}, true); view(ForwardMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Right)}, true);
     view(BackLarge, {QKeySequence(Qt::CTRL | Qt::Key_Left)}, true); view(ForwardLarge, {QKeySequence(Qt::CTRL | Qt::Key_Right)}, true);
     for (size_t step = 0; step < seekSteps_.size(); ++step) {
-        connect(get(seekPairs[step][0]), &QAction::triggered, this, [this, step] { emit seekRelativeRequested(-seekSteps_[step]); });
-        connect(get(seekPairs[step][1]), &QAction::triggered, this, [this, step] { emit seekRelativeRequested(seekSteps_[step]); });
+        connect(get(seekPairs[step][0]), &QAction::triggered, this, [this, step] { emit seekRelativeRequested(-seekSteps_[step], continuingSeekKey_); });
+        connect(get(seekPairs[step][1]), &QAction::triggered, this, [this, step] { emit seekRelativeRequested(seekSteps_[step], continuingSeekKey_); });
     }
     const Preferences defaults;
     setSeekSteps(defaults.seekSmallSeconds, defaults.seekMediumSeconds, defaults.seekLargeSeconds);
@@ -208,7 +211,10 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     get(StandardMode)->setStatusTip(QStringLiteral("视频区滚轮调音量，单击播放或暂停"));
     for(auto *action:actions_) { QStringList keys; for(const auto &key:action->shortcuts()) keys.append(key.toString(QKeySequence::PortableText)); defaults_[action->objectName()]=keys; }
     qApp->installEventFilter(this);
-    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) { if (now != composing_) composing_.clear(); });
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
+        if (now != composing_) composing_.clear();
+        seekKey_ = 0;
+    });
     refreshIcons();
 }
 
@@ -300,6 +306,11 @@ QAction *PlayerActions::timelineAction(const QKeyEvent &event) const
         if (event.key() == Qt::Key_End) return get(SeekEnd);
         return nullptr;
     }
+    return relativeSeekAction(event);
+}
+
+QAction *PlayerActions::relativeSeekAction(const QKeyEvent &event) const
+{
     const auto pressed = normalized(QKeySequence(event.keyCombination()));
     for (const auto &pair : seekPairs) {
         for (auto id : pair) {
@@ -309,6 +320,27 @@ QAction *PlayerActions::timelineAction(const QKeyEvent &event) const
         }
     }
     return nullptr;
+}
+
+bool PlayerActions::continuesSeekKey(const QKeyEvent &event)
+{
+    const bool continuing = event.isAutoRepeat() && seekKey_ == event.key();
+    seekKey_ = event.key();
+    return continuing;
+}
+
+void PlayerActions::triggerSeekKey(QAction &action, const QKeyEvent &event)
+{
+    if (!action.isEnabled() || (event.isAutoRepeat() && !action.autoRepeat())) return;
+    const QScopedValueRollback repeat(continuingSeekKey_, continuesSeekKey(event));
+    action.trigger();
+}
+
+void PlayerActions::seekTimelineStep(int seconds, const QKeyEvent &event)
+{
+    const bool continuing = continuesSeekKey(event);
+    emit invoked();
+    emit seekRelativeRequested(seconds, continuing);
 }
 
 QString PlayerActions::timelineDescription() const
@@ -456,6 +488,20 @@ bool PlayerActions::eventFilter(QObject *object, QEvent *event)
         const auto *input = static_cast<QInputMethodEvent *>(event);
         if (input->preeditString().isEmpty()) { if (composing_ == object) composing_.clear(); }
         else composing_ = object;
+    }
+    if (event->type() == QEvent::KeyRelease) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (!key->isAutoRepeat() && key->key() == seekKey_) seekKey_ = 0;
+    } else if (object == &window_ && event->type() == QEvent::WindowDeactivate) {
+        seekKey_ = 0;
+    }
+    if ((event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) && watching()) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (auto *action = relativeSeekAction(*key)) {
+            key->accept();
+            if (event->type() == QEvent::KeyPress) triggerSeekKey(*action, *key);
+            return true;
+        }
     }
     if ((event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) && queue_
         && QApplication::focusWidget() == queue_) {

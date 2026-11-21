@@ -70,7 +70,7 @@ QString loopPoint(const QVariant &value)
 }
 }
 
-ControlWindow::ControlWindow(QWidget &main, Player &player, PlayerActions &actions, VideoWidget &video)
+ControlWindow::ControlWindow(QWidget &main, Player &player, PlayerActions &actions, VideoWidget &video, QMenu &chapters)
     : QWidget(&main, Qt::Tool), main_(main), player_(player), video_(video),
       toggle_(actions.get(PlayerActions::ControlWindowToggle))
 {
@@ -96,7 +96,7 @@ ControlWindow::ControlWindow(QWidget &main, Player &player, PlayerActions &actio
 
     tabs_ = new QTabWidget;
     tabs_->setObjectName("controlTabs");
-    tabs_->addTab(createPlaybackPage(actions), QStringLiteral("播放"));
+    tabs_->addTab(createPlaybackPage(actions, chapters), QStringLiteral("播放"));
     framingPage_ = createFramingPage(actions);
     tabs_->addTab(framingPage_, QStringLiteral("缩放与平移"));
     layout->addWidget(tabs_);
@@ -131,14 +131,16 @@ ControlWindow::ControlWindow(QWidget &main, Player &player, PlayerActions &actio
     adjustSize();
 }
 
-QWidget *ControlWindow::createPlaybackPage(PlayerActions &actions)
+QWidget *ControlWindow::createPlaybackPage(PlayerActions &actions, QMenu &chapters)
 {
     using Id = PlayerActions::Id;
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
 
     auto *seek = new QGroupBox(QStringLiteral("定位"));
-    auto *seekRow = new QHBoxLayout(seek);
+    auto *seekLayout = new QVBoxLayout(seek);
+    auto *seekRow = new QHBoxLayout;
+    seekLayout->addLayout(seekRow);
     const auto seekButton = [&](Id id, const char *name, std::optional<Id> medium = {}) {
         auto *button = actionButton(actions, id, name);
         if (medium) {
@@ -153,6 +155,18 @@ QWidget *ControlWindow::createPlaybackPage(PlayerActions &actions)
     seekButton(Id::BackSmall, "controlBackSmall", Id::BackMedium);
     seekButton(Id::ForwardSmall, "controlForwardSmall", Id::ForwardMedium);
     seekButton(Id::ForwardLarge, "controlForwardLarge");
+    auto *navigation = toolButton("controlNavigationButton");
+    navigation->setText(QStringLiteral("章节与撤销"));
+    auto *menu = new QMenu(navigation);
+    menu->setObjectName("controlNavigationMenu");
+    menu->addAction(actions.get(Id::PreviousChapter));
+    menu->addAction(actions.get(Id::NextChapter));
+    menu->addMenu(&chapters);
+    menu->addSeparator();
+    menu->addAction(actions.get(Id::UndoSeek));
+    navigation->setMenu(menu);
+    navigation->setPopupMode(QToolButton::InstantPopup);
+    seekLayout->addWidget(navigation, 0, Qt::AlignLeft);
     layout->addWidget(seek);
 
     auto *speed = new QGroupBox(QStringLiteral("倍速"));

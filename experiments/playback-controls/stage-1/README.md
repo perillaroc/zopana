@@ -49,6 +49,16 @@ $nativeDpr = 2
 
 只重跑配置和定位时，在同一命令末尾加 `-Checks Settings,Seek`。每组开头输出证据目录，成功时显示对应进程的 `PASS` 和检查项数。任何一组报错都会让总入口失败，可从最后输出的目录查看日志。`Settings` 只在该轮证据目录设置写保护并恢复其权限，强制终止的是该轮启动的检查进程。
 
+## 章节与撤销定位
+
+用含 `libx264` 的 FFmpeg 生成有章节和无章节的样片，并在两个播放器窗口中检查章首时间、当前章勾选和一次撤销。日志和暂停帧对照图写入 `navigation-` 证据目录。
+
+```powershell
+cmake --build $build --target zopana_playback_navigation
+if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+& ./experiments/playback-controls/stage-1/run-navigation.ps1 -BuildDir $build -QtRoot $qt
+```
+
 ## 旋转、窗口与元数据验证
 
 构建同一目录下的两个额外目标。准备 Python 3、FFprobe 和含 `libx264`、`libvpx-vp9` 的 FFmpeg。
