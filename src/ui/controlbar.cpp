@@ -237,6 +237,15 @@ ControlBar::ControlBar(PlayerActions &actions, QWidget *parent) : QWidget(parent
     row->addWidget(new QLabel("/"));
     row->addWidget(duration_);
     row->addStretch();
+    rateButton_ = new QToolButton;
+    rateButton_->setObjectName("playbackRateButton");
+    rateButton_->setAccessibleName(QStringLiteral("倍速"));
+    rateButton_->setFocusPolicy(Qt::StrongFocus);
+    rateButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    rateButton_->setPopupMode(QToolButton::InstantPopup);
+    rateButton_->setMinimumHeight(32);
+    row->addWidget(rateButton_);
+    row->addWidget(button(actions.get(PlayerActions::ControlWindowToggle), "controlWindowButton"));
     row->addWidget(button(actions.get(PlayerActions::Playlist), "playlistButton"));
     setTimeline(0, 0, false); refreshIcons();
 }
@@ -299,6 +308,13 @@ void ControlBar::setAudioAvailable(bool available)
     volumeButton_->setEnabled(available);
     setVolume(volumeValue_);
 }
+void ControlBar::setRateMenu(QMenu *menu) { rateButton_->setMenu(menu); }
+void ControlBar::setPlaybackRate(double rate, bool available)
+{
+    rateButton_->setText(QStringLiteral("%1×").arg(rate > 0 ? rate : 1, 0, 'f', 2));
+    rateButton_->setToolTip(QStringLiteral("倍速 %1").arg(rateButton_->text()));
+    rateButton_->setEnabled(available);
+}
 void ControlBar::setLoop(const QVariant &a, const QVariant &b) { seek_->loopA = a; seek_->loopB = b; seek_->update(); }
 bool ControlBar::cancelSeekPreview()
 {
@@ -318,4 +334,5 @@ void ControlBar::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
     volume_->setFixedWidth(qBound(64, width() / 8, 112));
+    rateButton_->setVisible(width() >= 460);
 }

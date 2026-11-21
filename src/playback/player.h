@@ -65,6 +65,8 @@ public:
     double lastPosition() const;
     bool seekable() const { return seekable_; }
     bool canSeek() const;
+    bool seekInProgress() const { return seekTarget_.has_value() || settlingSeek_; }
+    bool canSetLoopPoint() const { return canSeek() && !seekInProgress(); }
     double positionTarget() const { return seekTarget_.value_or(position_); }
     double position() const { return position_; }
     double duration() const { return duration_; }
@@ -112,6 +114,7 @@ signals:
     void mutedChanged(bool muted);
     void seekRequested(double seconds);
     void seekSettled(double position);
+    void seekActivityChanged();
     void subtitleLoaded(const QString &path);
     void videoSizeChanged(QSize size);
     void videoTransformChanged();
@@ -148,7 +151,7 @@ private:
     void finishSeek();
     void clearSeek();
     void failSeek();
-    void finishStartSeek();
+    void settleSeek();
     bool naturalProgress() const;
     void drainEvents();
     void handleReply(const mpv_event &event);

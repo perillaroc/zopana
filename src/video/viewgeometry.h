@@ -60,22 +60,27 @@ public:
     {
         if (!valid())
             return;
-        placeFrame(position);
+        topLeft_ = constrainedOrigin(position);
         const auto frame = frameSize();
         focus_ = {(viewport_.width() / 2 - topLeft_.x()) / frame.width(),
                   (viewport_.height() / 2 - topLeft_.y()) / frame.height()};
     }
 
+    bool canPanBy(QPointF delta) const
+    {
+        return valid() && constrainedOrigin(topLeft_ + delta) != topLeft_;
+    }
+
 private:
-    void placeFrame(QPointF position)
+    QPointF constrainedOrigin(QPointF position) const
     {
         const auto frame = frameSize();
         auto limit = [](double origin, double viewport, double length) {
             return length > viewport ? std::clamp(origin, viewport - length, 0.0)
                                      : (viewport - length) / 2;
         };
-        topLeft_ = {limit(position.x(), viewport_.width(), frame.width()),
-                    limit(position.y(), viewport_.height(), frame.height())};
+        return {limit(position.x(), viewport_.width(), frame.width()),
+                limit(position.y(), viewport_.height(), frame.height())};
     }
 
     void placeAtFocus()
@@ -87,8 +92,8 @@ private:
             return;
         }
         const auto frame = frameSize();
-        placeFrame({viewport_.width() / 2 - focus_.x() * frame.width(),
-                    viewport_.height() / 2 - focus_.y() * frame.height()});
+        topLeft_ = constrainedOrigin({viewport_.width() / 2 - focus_.x() * frame.width(),
+                                      viewport_.height() / 2 - focus_.y() * frame.height()});
     }
 
     QSizeF viewport_;

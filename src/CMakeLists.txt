@@ -5,6 +5,7 @@ add_library(zopana_core STATIC
     video/videowidget.cpp video/videowidget.h
     ui/playeractions.cpp ui/playeractions.h
     ui/controlbar.cpp ui/controlbar.h
+    ui/controlwindow.cpp ui/controlwindow.h
     ui/videosurface.cpp ui/videosurface.h
     ui/theme.cpp ui/theme.h
     ui/playbackdialogs.cpp ui/playbackdialogs.h

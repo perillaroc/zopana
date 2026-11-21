@@ -63,7 +63,8 @@ constexpr Definition definitions[] = {
     {"queue.sort.modifiedTime.desc","修改时间",""}, {"queue.sort.createdTime.desc","创建时间",""}, {"queue.sort.duration.desc","时长",""},
     {"queue.sort.resolution.desc","分辨率",""}, {"queue.sort.addedOrder.desc","添加顺序",""},
     {"queue.sort.again","按上次条件重新排序",""}, {"queue.sort.reverse","反转当前顺序",""},
-    {"queue.sort.shuffle","随机打乱列表",""}, {"queue.sort.cancel","取消排序",""}
+    {"queue.sort.shuffle","随机打乱列表",""}, {"queue.sort.cancel","取消排序",""},
+    {"window.controls", "控制窗口", "sliders-horizontal"}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},
@@ -145,6 +146,8 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     get(Add)->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     view(Previous, {QKeySequence(Qt::Key_PageUp)}); view(Next, {QKeySequence(Qt::Key_PageDown)});
     view(Playlist, {QKeySequence(Qt::Key_P)}); get(Playlist)->setCheckable(true);
+    get(ControlWindowToggle)->setShortcut(QKeySequence(Qt::Key_F7));
+    get(ControlWindowToggle)->setCheckable(true);
     get(ClosePlaylist)->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W)); get(ClosePlaylist)->setProperty("scope", QStringLiteral("独立列表"));
     for (auto id : {QueuePlay, QueueRemove, QueueUp, QueueDown}) { get(id)->setShortcutContext(Qt::WidgetShortcut); get(id)->setProperty("scope", QStringLiteral("队列")); }
     get(QueuePlay)->setShortcuts({QKeySequence(Qt::Key_Return), QKeySequence(Qt::Key_Enter)});

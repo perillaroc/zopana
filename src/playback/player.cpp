@@ -302,10 +302,12 @@ bool Player::canSeek() const
 
 void Player::clearSeek()
 {
+    const bool wasSeeking = seekInProgress();
     seekTimer_.stop(); pendingSeek_.reset(); seekTarget_.reset(); submittedSeek_.reset();
     initialSeek_.reset();
     settlingSeek_ = false;
     seekBusy_ = seekReplied_ = seekRestarted_ = false;
+    if (wasSeeking) emit seekActivityChanged();
 }
 
 void Player::seek(double seconds)
@@ -316,19 +318,23 @@ void Player::seek(double seconds)
     const double target = std::clamp(seconds, 0.0, maximum);
     const auto a = propertyTarget("ab-loop-a"), b = propertyTarget("ab-loop-b");
     if (a.toString() != "no" && b.toString() != "no" && a.isValid() && b.isValid() && (target < a.toDouble() || target > b.toDouble())) clearLoop();
+    const bool wasSeeking = seekInProgress();
     settlingSeek_ = false;
     if (startHeld_) initialSeek_ = InitialSeek{playbackIdentity(), StartPosition::User};
     seekTarget_ = pendingSeek_ = target;
-    emit seekRequested(*seekTarget_);
+    if (!wasSeeking) emit seekActivityChanged();
+    emit seekRequested(target);
     if (!seekTimer_.isActive()) seekTimer_.start();
 }
 
 bool Player::seekToStart(double seconds, StartPosition reason)
 {
     if (!canSeek() || !std::isfinite(seconds) || seconds < 0 || seconds > lastPosition()) return false;
+    const bool wasSeeking = seekInProgress();
     settlingSeek_ = false;
     initialSeek_ = InitialSeek{playbackIdentity(), reason};
     seekTarget_ = pendingSeek_ = seconds;
+    if (!wasSeeking) emit seekActivityChanged();
     if (!seekTimer_.isActive()) seekTimer_.start();
     return true;
 }
@@ -351,7 +357,7 @@ void Player::failSeek()
 bool Player::naturalProgress() const
 {
     return state_ == State::Loaded && engineLoaded_ && !recovering_ && !startHeld_
-        && !paused_ && !pauseTarget_ && !seekTarget_ && !settlingSeek_ && !framePending_ && !loopActive();
+        && !paused_ && !pauseTarget_ && !seekInProgress() && !framePending_ && !loopActive();
 }
 
 bool Player::completeOutro(PlaybackIdentity playback)
@@ -394,18 +400,17 @@ void Player::finishSeek()
         if (!initialSeek_) seekTarget_.reset();
         return;
     }
-    seekTarget_.reset();
-    finishStartSeek();
-    emit seekSettled(position_);
+    settleSeek();
 }
 
-void Player::finishStartSeek()
+void Player::settleSeek()
 {
-    if (!initialSeek_) return;
-    const auto seek = *initialSeek_;
-    initialSeek_.reset();
+    settlingSeek_ = false;
     seekTarget_.reset();
-    if (seek.playback == playbackIdentity()) emit startPositionResolved(seek.playback, seek.reason, true);
+    const auto seek = std::exchange(initialSeek_, std::nullopt);
+    if (seek && seek->playback == playbackIdentity()) emit startPositionResolved(seek->playback, seek->reason, true);
+    emit seekActivityChanged();
+    emit seekSettled(position_);
 }
 
 void Player::setVolume(double volume)
@@ -747,11 +752,7 @@ void Player::propertyChanged(const mpv_event &event)
         emit positionChanged(position_);
         if (playback != playbackIdentity()) return;
         finishSeek();
-        if (settlingSeek_ && (!initialSeek_ || (seekTarget_ && std::abs(position_ - *seekTarget_) < .15))) {
-            settlingSeek_ = false;
-            finishStartSeek();
-            emit seekSettled(position_);
-        }
+        if (settlingSeek_ && (!initialSeek_ || (seekTarget_ && std::abs(position_ - *seekTarget_) < .15))) settleSeek();
         if (advancing && position_ > before) emit playbackAdvanced(playback, before, position_);
     } else if (name == "pause") {
         paused_ = *static_cast<int *>(property.data) != 0;
@@ -895,18 +896,20 @@ void Player::frameStep()
 }
 void Player::setLoopA()
 {
-    if (state_ != State::Loaded || !seekable_) return;
-    setMediaProperty("ab-loop-b","no"); setMediaProperty("ab-loop-a",position_);
-    emit notice(QStringLiteral("已设置 A 点：%1 秒").arg(position_,0,'f',3));
+    if (!canSetLoopPoint()) return;
+    const double position = position_;
+    setMediaProperty("ab-loop-b","no"); setMediaProperty("ab-loop-a",position);
+    emit notice(QStringLiteral("已设置 A 点：%1 秒").arg(position,0,'f',3));
 }
 void Player::setLoopB()
 {
-    if (state_ != State::Loaded || !seekable_) return;
+    if (!canSetLoopPoint()) return;
     const auto a = propertyTarget("ab-loop-a");
     if (!a.isValid() || a.toString() == "no") { setLoopA(); emit notice(QStringLiteral("已设置 A，请继续设置 B")); return; }
-    if (position_ - a.toDouble() < .5) { emit notice(QStringLiteral("B 必须比 A 晚至少 0.5 秒")); return; }
-    setMediaProperty("ab-loop-b",position_);
-    emit notice(QStringLiteral("A–B 区间：%1 — %2 秒").arg(a.toDouble(),0,'f',3).arg(position_,0,'f',3));
+    const double position = position_;
+    if (position - a.toDouble() < .5) { emit notice(QStringLiteral("B 必须比 A 晚至少 0.5 秒")); return; }
+    setMediaProperty("ab-loop-b",position);
+    emit notice(QStringLiteral("A–B 区间：%1 — %2 秒").arg(a.toDouble(),0,'f',3).arg(position,0,'f',3));
 }
 void Player::clearLoop() { setMediaProperty("ab-loop-a","no"); setMediaProperty("ab-loop-b","no"); }
 bool Player::loopActive() const

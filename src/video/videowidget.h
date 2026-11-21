@@ -29,9 +29,13 @@ public:
     void setVideoTransform(std::optional<quint64> version);
     void restoreView(double scale, QPointF focus);
     void resetView();
+    void centerView();
+    void setZoomScale(double scale);
     void zoomSteps(double steps);
     double zoomScale() const { return view_.scale(); }
     QPointF viewFocus() const;
+    bool canPanBy(QPointF delta) const { return view_.canPanBy(delta); }
+    void panBy(QPointF delta);
     bool cancelInput();
     bool gestureActive() const { return leftPressActive_; }
     bool canCapture() const { return renderer_ && hasFrame_ && view_.valid(); }
@@ -43,6 +47,7 @@ signals:
     void playbackToggleRequested();
     void fullscreenRequested();
     void zoomChanged(double scale);
+    void viewChanged();
 
 protected:
     void initializeGL() override;
@@ -66,6 +71,7 @@ private:
     void zoomAt(QPointF pointer, double steps);
     bool withinClickDistance(QPointF position) const;
     void dragTo(QPointF position);
+    void moveViewTo(QPointF position);
 
     mpv_handle *player_;
     mpv_render_context *renderer_ = nullptr;

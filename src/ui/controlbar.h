@@ -5,6 +5,7 @@
 
 class QAction;
 class QLabel;
+class QMenu;
 class QSlider;
 class QToolButton;
 class SeekSlider;
@@ -19,6 +20,8 @@ public:
     void setVolume(double volume);
     void setMuted(bool muted);
     void setAudioAvailable(bool available);
+    void setRateMenu(QMenu *menu);
+    void setPlaybackRate(double rate, bool available);
     void setLoop(const QVariant &a, const QVariant &b);
     bool cancelSeekPreview();
     bool seekPreviewActive() const;
@@ -39,7 +42,7 @@ private:
     SeekSlider *seek_;
     QSlider *volume_;
     QLabel *current_, *duration_;
-    QToolButton *play_, *volumeButton_;
+    QToolButton *play_, *volumeButton_, *rateButton_;
     bool muted_ = false;
     bool audioAvailable_ = false;
     double volumeValue_ = 100;

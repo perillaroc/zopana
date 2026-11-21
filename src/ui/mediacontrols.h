@@ -22,6 +22,7 @@ public:
 signals:
     void alwaysOnTopChanged();
 private:
+    void updateLoopActions();
     void tracksMenu(QMenu *menu, const QString &type);
     void loadSubtitle();
     void showInformation();

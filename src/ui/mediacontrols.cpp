@@ -78,6 +78,9 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(&player_, &Player::videoSizeChanged, this, queueRefresh);
     connect(&player_, &Player::videoTransformChanged, this, queueRefresh);
     connect(&player_, &Player::seekableChanged, this, queueRefresh);
+    connect(&player_, &Player::seekActivityChanged, this, &MediaControls::updateLoopActions);
+    connect(&player_, &Player::durationChanged, this, &MediaControls::updateLoopActions);
+    connect(&player_, &Player::audioAvailableChanged, this, &MediaControls::updateLoopActions);
     connect(&video_, &QOpenGLWidget::frameSwapped, this, [this] {
         if ((player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion())) != captureReady_) refresh();
     });
@@ -98,6 +101,7 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     subScale_ = numberControl(sub,"sub-scale","subScaleSpin",.5,2,QStringLiteral("字幕字体缩放（ASS 保留自带样式）"));
     for (auto id : {PlayerActions::SubScaleUp,PlayerActions::SubScaleDown,PlayerActions::SubScaleReset}) sub->addAction(action(id));
     auto *play = window.findChild<QMenu *>("playMenu"); rateMenu_ = play->addMenu(QStringLiteral("倍速")); rateMenu_->setObjectName("rateMenu");
+    bar_.setRateMenu(rateMenu_);
     for (auto [id,rate] : rates) rateMenu_->addAction(action(id));
     rateMenu_->addSeparator(); for (auto id : {PlayerActions::RateLess,PlayerActions::RateMore,PlayerActions::Pitch}) rateMenu_->addAction(action(id));
     play->addAction(action(PlayerActions::FrameForward));
@@ -153,10 +157,11 @@ void MediaControls::refresh()
     for (auto id : {PlayerActions::RateLess,PlayerActions::RateMore,PlayerActions::Pitch}) actions_.get(id)->setEnabled(loaded || player_.recovering());
     actions_.get(PlayerActions::Pitch)->setChecked(player_.mediaProperty("audio-pitch-correction").toBool());
     rateMenu_->setTitle(QStringLiteral("倍速 · %1×").arg(speed,0,'f',2));
+    bar_.setPlaybackRate(speed, loaded || player_.recovering());
     captureReady_ = player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion());
     for (auto id : {PlayerActions::CaptureSource,PlayerActions::CaptureViewport}) actions_.get(id)->setEnabled(loaded && captureReady_);
     actions_.get(PlayerActions::FrameForward)->setEnabled(loaded && video_.canCapture());
-    for (auto id : {PlayerActions::LoopA,PlayerActions::LoopB,PlayerActions::LoopClear}) actions_.get(id)->setEnabled(loaded && player_.seekable());
+    updateLoopActions();
     actions_.get(PlayerActions::CaptureFolder)->setEnabled(!captures_->lastSaved().isEmpty());
     actions_.get(PlayerActions::MediaInfo)->setEnabled(!player_.path().isEmpty()); actions_.get(PlayerActions::FileLocation)->setEnabled(QFileInfo::exists(player_.path()));
     actions_.get(PlayerActions::AlwaysOnTop)->setChecked(window_.windowFlags().testFlag(Qt::WindowStaysOnTopHint));
@@ -165,6 +170,13 @@ void MediaControls::refresh()
     }
     bar_.setLoop(player_.mediaProperty("ab-loop-a"),player_.mediaProperty("ab-loop-b"));
     tracksMenu(audioTracks_,"audio"); tracksMenu(subtitleTracks_,"sub"); actions_.refreshIcons();
+}
+void MediaControls::updateLoopActions()
+{
+    const bool settable = player_.canSetLoopPoint();
+    actions_.get(PlayerActions::LoopA)->setEnabled(settable);
+    actions_.get(PlayerActions::LoopB)->setEnabled(settable);
+    actions_.get(PlayerActions::LoopClear)->setEnabled(player_.canSeek());
 }
 void MediaControls::loadSubtitle()
 {

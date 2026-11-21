@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "controlbar.h"
+#include "controlwindow.h"
 #include "playeractions.h"
 #include "playbackdialogs.h"
 #include "theme.h"
@@ -198,7 +199,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     for (auto id : {PlayerActions::Mute, PlayerActions::VolumeUp, PlayerActions::VolumeDown}) audio->addAction(action(id));
     auto *view = menu->addMenu(QStringLiteral("视图(&W)"));
     view->setObjectName("viewMenu");
-    for (auto id : {PlayerActions::Playlist, PlayerActions::PlaylistMode, PlayerActions::Fullscreen}) view->addAction(action(id));
+    for (auto id : {PlayerActions::Playlist, PlayerActions::PlaylistMode, PlayerActions::ControlWindowToggle, PlayerActions::Fullscreen}) view->addAction(action(id));
     auto *help = menu->addMenu(QStringLiteral("帮助(&H)"));
     help->addAction(action(PlayerActions::Shortcuts)); help->addAction(action(PlayerActions::About)); help->addAction(action(PlayerActions::Licenses));
     auto *context = new QMenu(video_);
@@ -298,6 +299,7 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     });
     setMinimumSize(640, 400);
     new MediaControls(player_,*actions_,*video_,*surface_,*controls_,*this);
+    new ControlWindow(*this, player_, *actions_, *video_);
     const QSize available = QGuiApplication::primaryScreen()->availableGeometry().size();
     resize(QSize(1120, 720).boundedTo(available * .9).expandedTo(minimumSize()));
     actions_->setAudioAvailable(false); controls_->setAudioAvailable(false);
@@ -891,6 +893,7 @@ void MainWindow::ingestPaths(const QStringList &paths, bool replace, int row)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    actions_->get(PlayerActions::ControlWindowToggle)->setChecked(false);
     scanner_->cancel();
     playlist_->cancelSort();
     playlistHost_->shutdown();

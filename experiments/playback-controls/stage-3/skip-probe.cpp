@@ -161,7 +161,8 @@ public:
     void seek(double seconds)
     {
         player.seek(seconds);
-        ready([&] { return near(player.position(), seconds); }, QString("seek landed at %1 s").arg(seconds));
+        ready([&] { return !player.seekInProgress() && near(player.position(), seconds); },
+              QString("seek settled at %1 s").arg(seconds));
     }
 
     void complete(Reason reason, Player::PlaybackIdentity playback, qsizetype count)

@@ -83,6 +83,7 @@ void VideoWidget::setVideoSize(QSize displaySize, int rotation)
     if (rotationChanged) view_.setFocus(view_.scale(), rotatedFocus(focus, rotation_));
     if (displaySize_.isEmpty())
         hasFrame_ = false;
+    emit viewChanged();
     update();
 }
 
@@ -104,7 +105,13 @@ void VideoWidget::restoreView(double scale, QPointF focus)
 {
     cancelGestures();
     view_.setFocus(scale, rotatedFocus(focus, rotation_));
+    emit viewChanged();
     update();
+}
+
+void VideoWidget::centerView()
+{
+    if (canCapture()) restoreView(view_.scale(), {0.5, 0.5});
 }
 
 void VideoWidget::resetView()
@@ -112,6 +119,7 @@ void VideoWidget::resetView()
     cancelGestures();
     view_.reset();
     emit zoomChanged(view_.scale());
+    emit viewChanged();
     update();
 }
 
@@ -142,6 +150,7 @@ bool VideoWidget::event(QEvent *event)
     case QEvent::DevicePixelRatioChange:
         // The FBO has a new pixel density; the model stays in widget-local DIP.
         cancelGestures();
+        emit viewChanged();
         update();
         break;
     default:
@@ -155,6 +164,7 @@ void VideoWidget::resizeEvent(QResizeEvent *event)
     cancelGestures();
     if (!event->size().isEmpty()) {
         view_.setSizes(event->size(), displaySize_);
+        emit viewChanged();
         if (view_.valid())
             update();
     }
@@ -182,7 +192,19 @@ void VideoWidget::wheelEvent(QWheelEvent *event)
     zoomAt(event->position(), steps);
 }
 
-void VideoWidget::zoomSteps(double steps) { zoomAt(QPointF(rect().center()), steps); }
+void VideoWidget::setZoomScale(double scale)
+{
+    if (!canCapture() || leftPressActive_ || !std::isfinite(scale)) return;
+    zoomTimer_.stop();
+    const double previous = view_.scale();
+    view_.zoomAt({width() / 2.0, height() / 2.0}, scale);
+    if (view_.scale() == previous) return;
+    emit zoomChanged(view_.scale());
+    emit viewChanged();
+    update();
+}
+
+void VideoWidget::zoomSteps(double steps) { zoomAt({width() / 2.0, height() / 2.0}, steps); }
 
 void VideoWidget::zoomAt(QPointF pointer, double steps)
 {
@@ -220,6 +242,7 @@ void VideoWidget::advanceZoom()
     if (progress == 1)
         zoomTimer_.stop();
     emit zoomChanged(view_.scale());
+    emit viewChanged();
     update();
 }
 
@@ -262,10 +285,23 @@ bool VideoWidget::withinClickDistance(QPointF position) const
 
 void VideoWidget::dragTo(QPointF position)
 {
+    moveViewTo(dragOrigin_ + position - pressPosition_);
+}
+
+void VideoWidget::panBy(QPointF delta)
+{
+    if (!canCapture() || leftPressActive_) return;
+    zoomTimer_.stop();
+    moveViewTo(view_.topLeft() + delta);
+}
+
+void VideoWidget::moveViewTo(QPointF position)
+{
     auto dragged = view_;
-    dragged.moveTo(dragOrigin_ + position - pressPosition_);
+    dragged.moveTo(position);
     if (dragged.topLeft() == view_.topLeft()) return;
     view_ = dragged;
+    emit viewChanged();
     update();
 }
 

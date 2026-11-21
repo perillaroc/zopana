@@ -36,7 +36,7 @@ public:
               SortCreatedAsc, SortDurationAsc, SortResolutionAsc, SortAddedAsc,
               SortFileNameDesc, SortTitleDesc, SortExtensionDesc, SortFolderDesc, SortPathDesc, SortSizeDesc, SortModifiedDesc,
               SortCreatedDesc, SortDurationDesc, SortResolutionDesc, SortAddedDesc,
-              SortAgain, ReverseQueue, ShuffleQueue, CancelSort, Count };
+              SortAgain, ReverseQueue, ShuffleQueue, CancelSort, ControlWindowToggle, Count };
     PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     QAction *repeatModeAction(RepeatMode mode) const;
