@@ -487,6 +487,7 @@ void VideoWidget::prepareVideoBuffer()
 
 void VideoWidget::paintGL()
 {
+    paintedTransform_.reset();
     auto *gl = context()->extraFunctions();
     GLint viewport[4];
     gl->glGetIntegerv(GL_VIEWPORT, viewport);
@@ -509,11 +510,8 @@ void VideoWidget::paintGL()
         return;
     }
     const QSize source = videoBuffer_->size();
-    if (newFrame || !bufferHasFrame_) {
+    if (newFrame || !bufferHasFrame_)
         bufferHasFrame_ = renderFrame(static_cast<int>(videoBuffer_->handle()), source);
-        // libmpv invalidates the previous frame during VO reconfiguration.
-        if (bufferHasFrame_) paintedTransform_ = videoTransform_;
-    }
 
     gl->glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination);
     gl->glDisable(GL_SCISSOR_TEST);
@@ -533,6 +531,7 @@ void VideoWidget::paintGL()
         gl->glBindFramebuffer(GL_READ_FRAMEBUFFER, videoBuffer_->handle());
         gl->glBlitFramebuffer(0, 0, source.width(), source.height(), left, bottom, right, top,
                               GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        paintedTransform_ = videoTransform_;
     }
     gl->glBindFramebuffer(GL_FRAMEBUFFER, destination);
     gl->glViewport(0, 0, pixels.width(), pixels.height());

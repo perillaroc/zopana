@@ -8,6 +8,7 @@
 #include "playbackdialogs.h"
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -63,6 +64,14 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(action(PlayerActions::LoopClear), &QAction::triggered, &player_, &Player::clearLoop);
     connect(action(PlayerActions::CaptureSource), &QAction::triggered, captures_, &CaptureService::source);
     connect(action(PlayerActions::CaptureViewport), &QAction::triggered, captures_, &CaptureService::viewport);
+    connect(action(PlayerActions::CopyViewport), &QAction::triggered, this, [this] {
+        const auto image = captures_->viewportImage();
+        if (image.isNull()) return;
+        auto *clipboard = QApplication::clipboard();
+        clipboard->setImage(image);
+        if (clipboard->ownsClipboard()) surface_.showOsd("capture", QStringLiteral("已复制当前取景"));
+        else surface_.showOsd("error", QStringLiteral("无法写入剪贴板"), 3000);
+    });
     connect(action(PlayerActions::CaptureFolder), &QAction::triggered, this, [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(captures_->lastSaved()).absolutePath())); });
     connect(action(PlayerActions::FileLocation), &QAction::triggered, this, [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(player_.path()).absolutePath())); });
     connect(action(PlayerActions::MediaInfo), &QAction::triggered, this, &MediaControls::showInformation);
@@ -84,8 +93,10 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(&player_, &Player::seekActivityChanged, this, &MediaControls::updateLoopActions);
     connect(&player_, &Player::durationChanged, this, &MediaControls::updateLoopActions);
     connect(&player_, &Player::audioAvailableChanged, this, &MediaControls::updateLoopActions);
+    connect(&player_, &Player::mediaChanged, this, &MediaControls::updateVideoActions);
+    connect(&player_, &Player::videoTransformChanged, this, &MediaControls::updateVideoActions);
     connect(&video_, &QOpenGLWidget::frameSwapped, this, [this] {
-        if ((player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion())) != captureReady_) refresh();
+        if (captures_->canCaptureViewport() != captureReady_) updateVideoActions();
     });
     auto *audio = window.findChild<QMenu *>("audioMenu");
     audioTracks_ = audio->addMenu(QStringLiteral("音轨")); audioTracks_->setObjectName("audioTracksMenu");
@@ -130,7 +141,8 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     play->addAction(action(PlayerActions::FrameBackward));
     for (auto id : {PlayerActions::LoopA,PlayerActions::LoopB,PlayerActions::LoopClear}) play->addAction(action(id));
     auto *picture = window.findChild<QMenu *>("pictureMenu"); picture->addSeparator();
-    picture->addAction(action(PlayerActions::CaptureSource)); picture->addAction(action(PlayerActions::CaptureViewport)); picture->addAction(action(PlayerActions::CaptureFolder));
+    for (auto id : {PlayerActions::CaptureSource, PlayerActions::CaptureViewport, PlayerActions::CopyViewport, PlayerActions::CaptureFolder})
+        picture->addAction(action(id));
     auto *view = window.findChild<QMenu *>("viewMenu"); view->addAction(action(PlayerActions::AlwaysOnTop)); view->addAction(action(PlayerActions::MediaInfo));
     window.findChild<QMenu *>("fileMenu")->addAction(action(PlayerActions::FileLocation));
     auto *context = window.findChild<QMenu *>("videoContextMenu");
@@ -181,9 +193,7 @@ void MediaControls::refresh()
     actions_.get(PlayerActions::Pitch)->setChecked(player_.mediaProperty("audio-pitch-correction").toBool());
     rateMenu_->setTitle(QStringLiteral("倍速 · %1×").arg(speed,0,'f',2));
     bar_.setPlaybackRate(speed, loaded || player_.recovering());
-    captureReady_ = player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion());
-    for (auto id : {PlayerActions::CaptureSource,PlayerActions::CaptureViewport}) actions_.get(id)->setEnabled(loaded && captureReady_);
-    updateFrameActions();
+    updateVideoActions();
     updateLoopActions();
     actions_.get(PlayerActions::CaptureFolder)->setEnabled(!captures_->lastSaved().isEmpty());
     actions_.get(PlayerActions::MediaInfo)->setEnabled(!player_.path().isEmpty()); actions_.get(PlayerActions::FileLocation)->setEnabled(QFileInfo::exists(player_.path()));
@@ -195,6 +205,15 @@ void MediaControls::refresh()
     updateSeekNavigation();
     tracksMenu(audioTracks_,"audio"); tracksMenu(subtitleTracks_,"sub"); actions_.refreshIcons();
 }
+
+void MediaControls::updateVideoActions()
+{
+    captureReady_ = captures_->canCaptureViewport();
+    for (auto id : {PlayerActions::CaptureSource, PlayerActions::CaptureViewport, PlayerActions::CopyViewport})
+        actions_.get(id)->setEnabled(captureReady_);
+    updateFrameActions();
+}
+
 void MediaControls::updateFrameActions()
 {
     actions_.get(PlayerActions::FrameForward)->setEnabled(player_.state() == Player::State::Loaded

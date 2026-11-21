@@ -10,6 +10,8 @@ public:
     CaptureService(Player &player, VideoWidget &video, QObject *parent = nullptr);
     void source();
     void viewport();
+    bool canCaptureViewport() const;
+    QImage viewportImage();
     void setDirectory(const QString &path) { directory_ = path; }
     QString directory() const { return directory_; }
     QString lastSaved() const { return lastSaved_; }

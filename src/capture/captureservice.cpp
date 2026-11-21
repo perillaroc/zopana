@@ -26,15 +26,35 @@ CaptureService::CaptureService(Player &player, VideoWidget &video, QObject *pare
 }
 void CaptureService::source()
 {
-    if (player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion())) player_.captureSource();
+    if (canCaptureViewport()) player_.captureSource();
 }
+
+bool CaptureService::canCaptureViewport() const
+{
+    return player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion());
+}
+
+QImage CaptureService::viewportImage()
+{
+    if (!canCaptureViewport()) return {};
+    const auto playback = player_.playbackIdentity();
+    const auto version = player_.videoTransformVersion();
+    auto image = video_.grabFramebuffer();
+    if (player_.playbackIdentity() != playback || player_.videoTransformVersion() != version
+        || !player_.videoTransformReady()) return {};
+    if (image.isNull() || !video_.canCaptureTransform(version)) {
+        emit failed(QStringLiteral("无法读取当前取景画面"));
+        return {};
+    }
+    return image;
+}
+
 void CaptureService::viewport()
 {
-    const auto version = player_.videoTransformVersion();
-    if (!player_.videoTransformReady() || !video_.canCaptureTransform(version)) return;
-    const auto image = video_.grabFramebuffer();
-    if (!video_.canCaptureTransform(version) || player_.videoTransformVersion() != version) return;
-    write(image, player_.generation(), player_.renderEpoch(), version, player_.path(), player_.positionTarget(), "viewport");
+    auto image = viewportImage();
+    if (image.isNull()) return;
+    write(std::move(image), player_.generation(), player_.renderEpoch(), player_.videoTransformVersion(),
+          player_.path(), player_.positionTarget(), "viewport");
 }
 void CaptureService::write(QImage image, quint64 generation, quint64 epoch, quint64 transformVersion,
                            const QString &media, double position, const QString &kind, int rotation)

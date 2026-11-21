@@ -206,6 +206,7 @@ private:
     double position_ = 0;
     bool paused_ = false;
     bool pauseTarget_ = false, engineLoaded_ = false;
+    bool videoOutputObserved_ = false;
     bool framePending_ = false, startHeld_ = false;
     bool recovering_ = false, lastLoadWasRecovery_ = false;
     int restoreStage_ = 0;

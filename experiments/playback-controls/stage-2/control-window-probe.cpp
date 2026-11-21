@@ -1,3 +1,4 @@
+#include "captureservice.h"
 #include "controlwindow.h"
 #include "mainwindow.h"
 #include "playbackdialogs.h"
@@ -8,10 +9,12 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QKeyEvent>
 #include <QKeySequenceEdit>
 #include <QLabel>
@@ -25,6 +28,7 @@
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTest>
+#include <QThreadPool>
 #include <QToolButton>
 #include <QWheelEvent>
 #include <clocale>
@@ -108,6 +112,148 @@ public:
         require(until([&] { return zoom()->isEnabled() && player_.videoRotation() == 90; })
             && video_->zoomScale() == 1 && video_->viewFocus() == QPointF(.5, .5),
             "a new process starts at 1× centered with the saved 90° rotation");
+        window_.close();
+        player_.shutdown();
+    }
+
+    void verifyClipboard(bool cropped)
+    {
+        auto *captures = window_.findChild<CaptureService *>();
+        auto *clipboard = QApplication::clipboard();
+        auto *copy = action(Id::CopyViewport);
+        auto *copyButton = button("controlCopyViewport");
+        auto *picture = window_.findChild<QMenu *>("pictureMenu");
+        const QString sentinel = "zopana clipboard regression";
+        showSmall();
+        tabs()->setCurrentIndex(1);
+        require(picture->actions().contains(copy) && copyButton->defaultAction() == copy
+            && copy->shortcuts().isEmpty(), "the Picture menu and framing tab share Copy Current View");
+        clipboard->setText(sentinel);
+        const auto requireUnavailable = [&](const char *message) {
+            copy->trigger();
+            copyButton->click();
+            require(!copy->isEnabled() && !copyButton->isEnabled() && captures->viewportImage().isNull()
+                && clipboard->text() == sentinel, message);
+        };
+        requireUnavailable("an empty player leaves the clipboard untouched");
+
+        activate(&window_);
+        window_.resize(820, 680);
+        action(Id::Playlist)->trigger();
+        auto *search = window_.findChild<QLineEdit *>("playlistSearch");
+        search->setFocus();
+        search->setText(sentinel);
+        search->selectAll();
+        clipboard->setText("old text");
+        QTest::keyClick(search, Qt::Key_C, Qt::ControlModifier);
+        require(clipboard->text() == sentinel, "Ctrl+C still copies selected playlist search text");
+        search->clear();
+        action(Id::Playlist)->trigger();
+
+        const auto openPaused = [&](const QString &file, quint64 id) {
+            player_.openFile(fixtures_.filePath(file), id);
+            player_.setInitialPaused(true);
+            require(until([&] { return player_.itemId() == id && player_.paused()
+                && player_.canSeek() && copy->isEnabled() && copyButton->isEnabled(); }),
+                "a paused video enables both copy entries after its first frame");
+        };
+        if (cropped) {
+            player_.openFile(fixtures_.filePath("audio.m4a"));
+            require(until([&] { return player_.state() == Player::State::Loaded && player_.canSeek(); }), "load an audio-only clip");
+            requireUnavailable("audio playback leaves the clipboard untouched");
+
+            openPaused("grid.mp4", 1);
+            const auto oldImage = captures->viewportImage().convertToFormat(QImage::Format_RGB32);
+            player_.setRendererReady(false);
+            requireUnavailable("renderer recovery disables copy immediately");
+            player_.setRendererReady(true);
+            require(until([&] { return copy->isEnabled() && !player_.recovering(); }), "copy recovers with a confirmed frame");
+
+            player_.openFile(fixtures_.filePath("portrait.mp4"), 2);
+            player_.openFile(fixtures_.filePath("motion-1080.mp4"), 3);
+            player_.setInitialPaused(true);
+            requireUnavailable("rapid replacement disables copy before the new frame");
+            require(until([&] { return player_.itemId() == 3 && player_.paused() && copy->isEnabled(); }),
+                "the final replacement can be copied once painted");
+            copy->trigger();
+            const auto replacement = clipboard->image().convertToFormat(QImage::Format_RGB32);
+            require(!replacement.isNull() && replacement != oldImage
+                && replacement == captures->viewportImage().convertToFormat(QImage::Format_RGB32),
+                "the clipboard holds the replacement's frame instead of the original grid");
+            require(replacement.save(output_.filePath("replacement.png")), "retain the frame copied after replacement");
+            const auto green = replacement.pixelColor(replacement.width() / 4, replacement.height() / 2);
+            require(green.green() > 160 && green.red() < 60 && green.blue() < 60, "the first copy contains the replacement's green color bar");
+            clipboard->setText(sentinel);
+        }
+
+        openPaused("grid.mp4", 4);
+        player_.seek(2.4);
+        require(until([&] { return player_.paused() && !player_.seekInProgress() && near(player_.position(), 2.4, .001); }),
+                "position the video on a known paused frame");
+        if (cropped) {
+            action(Id::RotateNext)->trigger();
+            requireUnavailable("rotation disables copy until the new angle has painted");
+            require(until([&] { return player_.videoRotation() == 90 && copy->isEnabled(); }), "the rotated frame is ready");
+            zoom()->setValue(400);
+            video_->restoreView(4, {.9, .5});
+            require(video_->zoomScale() == 4 && near(video_->viewFocus().x(), .9, .001), "pan the rotated 4x crop to the subtitle");
+        }
+        const auto clean = captures->viewportImage().convertToFormat(QImage::Format_RGB32);
+        require(!clean.isNull(), "capture a paused baseline before adding the subtitle");
+        player_.addSubtitle(fixtures_.filePath("external.ass"));
+        require(until([&] { return player_.mediaProperty("sid").toLongLong() > 0; }), "select the external ASS track");
+        QImage expected;
+        const bool visibleSubtitles = until([&] {
+            expected = captures->viewportImage().convertToFormat(QImage::Format_RGB32);
+            return !expected.isNull() && expected != clean;
+        });
+        if (!visibleSubtitles) expected.save(output_.filePath("subtitle-not-visible.png"));
+        require(visibleSubtitles, "the paused viewport contains visible subtitle pixels");
+        require(expected.size() == QSize(qRound(video_->width() * video_->devicePixelRatioF()),
+            qRound(video_->height() * video_->devicePixelRatioF())), "the viewport uses physical pixels");
+        if (!cropped) {
+            const int x = expected.width() / 2;
+            require(expected.pixelColor(x, 0) == Qt::black && expected.pixelColor(x, expected.height() - 1) == Qt::black
+                && expected.pixelColor(x, expected.height() / 2) != Qt::black, "the fit viewport includes its black bars");
+        }
+
+        const auto directory = output_.filePath("screenshots");
+        captures->setDirectory(directory);
+        QSignalSpy saved(captures, &CaptureService::saved);
+        QSignalSpy failed(captures, &CaptureService::failed);
+        if (cropped) {
+            activate(small_);
+            QTest::mouseClick(copyButton, Qt::LeftButton);
+        } else {
+            activate(&window_);
+            picture->popup(window_.mapToGlobal(QPoint(20, 30)));
+            require(picture->isVisible(), "open the Picture menu");
+            QTest::mouseClick(picture, Qt::LeftButton, Qt::NoModifier, picture->actionGeometry(copy).center());
+        }
+        auto *osd = window_.findChild<QLabel *>("playerOsd");
+        const auto copied = clipboard->image().convertToFormat(QImage::Format_RGB32);
+        require(copied == expected && osd->text() == QStringLiteral("已复制当前取景"),
+            "copy puts the paused viewport in the clipboard and confirms success");
+        QThreadPool::globalInstance()->waitForDone();
+        QCoreApplication::processEvents();
+        require(captures->lastSaved().isEmpty() && !QDir(directory).exists() && saved.isEmpty() && failed.isEmpty(),
+            "copy alone produces no screenshot directory or saved path");
+
+        action(Id::CaptureViewport)->trigger();
+        require(until([&] { return !saved.isEmpty(); }) && failed.isEmpty(), "save the same viewport as a PNG");
+        const auto lastSaved = captures->lastSaved();
+        const auto png = QImage(lastSaved).convertToFormat(QImage::Format_RGB32);
+        require(png.size() == copied.size() && png == copied, "clipboard and viewport PNG pixels are identical");
+        captures->setDirectory(lastSaved);
+        copy->trigger();
+        QThreadPool::globalInstance()->waitForDone();
+        QCoreApplication::processEvents();
+        require(clipboard->image().convertToFormat(QImage::Format_RGB32) == png
+            && captures->lastSaved() == lastSaved && saved.size() == 1 && failed.isEmpty(),
+            "copy succeeds with an unusable output directory and preserves the last saved path");
+        require(QFile::copy(lastSaved, output_.filePath("viewport.png")) && copied.save(output_.filePath("clipboard.png")),
+                "retain matching PNGs for the Windows Paint check");
+        std::printf("Viewport: %dx%d pixels\n", copied.width(), copied.height());
         window_.close();
         player_.shutdown();
     }
@@ -690,11 +836,14 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     app.setApplicationName("zopana control window probe");
     const auto arguments = app.arguments();
-    const bool restart = arguments.size() == 4 && arguments.at(3) == "--restart";
-    if ((!restart && arguments.size() != 3) || !QDir().mkpath(arguments[2])) return 2;
+    const auto mode = arguments.value(3);
+    if ((arguments.size() != 3 && (arguments.size() != 4
+        || (mode != "--restart" && mode != "--clipboard-fit" && mode != "--clipboard-crop")))
+        || !QDir().mkpath(arguments[2])) return 2;
     try {
         Suite suite(arguments[1], arguments[2]);
-        if (restart) suite.verifyRestart();
+        if (mode == "--restart") suite.verifyRestart();
+        else if (!mode.isEmpty()) suite.verifyClipboard(mode == "--clipboard-crop");
         else suite.run();
         return 0;
     } catch (const std::exception &error) {

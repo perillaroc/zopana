@@ -23,6 +23,7 @@ public:
 signals:
     void alwaysOnTopChanged();
 private:
+    void updateVideoActions();
     void updateFrameActions();
     void updateLoopActions();
     void rebuildChapters();

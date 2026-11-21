@@ -41,7 +41,7 @@ struct Property {
 
 constexpr Property fileProperties[] = {
     {"duration", MPV_FORMAT_DOUBLE}, {"time-pos", MPV_FORMAT_DOUBLE},
-    {"pause", MPV_FORMAT_FLAG}, {"video-out-params", MPV_FORMAT_NODE},
+    {"pause", MPV_FORMAT_FLAG},
     {"current-ao", MPV_FORMAT_STRING}, {"audio-out-params", MPV_FORMAT_NODE},
     {"seekable", MPV_FORMAT_FLAG}, {"estimated-vf-fps", MPV_FORMAT_DOUBLE},
     {"track-list", MPV_FORMAT_NODE}, {"aid", MPV_FORMAT_NODE}, {"sid", MPV_FORMAT_NODE},
@@ -573,6 +573,11 @@ void Player::drainEvents()
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
             if (eventEntry_ == selectedEntry_) {
+                if (engineLoaded_ && !videoOutputObserved_) {
+                    // FILE_LOADED can still expose the previous file's video output.
+                    videoOutputObserved_ = true;
+                    mpv_observe_property(handle_, observationId_, "video-out-params", MPV_FORMAT_NODE);
+                }
                 if (submittedSeek_ && seekStarted_) { seekRestarted_ = true; finishSeek(); }
                 if (recovering_ && engineLoaded_) { restoreRestarted_ = true; restoreStep(); }
             }
@@ -863,6 +868,7 @@ void Player::propertyChanged(const mpv_event &event)
 void Player::resetFileDetails()
 {
     framePending_ = false;
+    videoOutputObserved_ = false;
     tracks_.clear(); videoSize_ = {}; videoRotation_ = 0; properties_.remove("track-list");
     reportedVideoSize_ = {};
     rotationBase_.reset();

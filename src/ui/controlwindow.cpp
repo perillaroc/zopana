@@ -284,6 +284,7 @@ QWidget *ControlWindow::createFramingPage(PlayerActions &actions)
     fullViewButton_->installEventFilter(this);
     resetRow->addWidget(fullViewButton_);
     resetRow->addStretch();
+    resetRow->addWidget(actionButton(actions, PlayerActions::CopyViewport, "controlCopyViewport"));
     layout->addLayout(resetRow);
     layout->addStretch();
     return page;
