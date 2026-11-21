@@ -28,6 +28,7 @@ class MainWindow final : public QMainWindow
     Q_OBJECT
 public:
     explicit MainWindow(Player &player, QWidget *parent = nullptr);
+    void ingestPaths(const QStringList &paths, bool replace, int row = -1);
     bool videoContextValid() const;
     bool restoreMaximized() const { return isFullScreen()?wasMaximized_:isMaximized(); }
     QRect windowedGeometry() const;

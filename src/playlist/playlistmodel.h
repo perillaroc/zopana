@@ -9,6 +9,7 @@
 class QRandomGenerator;
 
 namespace MediaFiles {
+const QStringList &mediaExtensions();
 bool media(const QString &path);
 bool subtitle(const QString &path);
 QString key(const QString &path);

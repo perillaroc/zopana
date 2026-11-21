@@ -487,10 +487,12 @@ void MainWindow::openFile()
 void MainWindow::openFiles(bool append)
 {
     auto *owner = QApplication::activeWindow(); if (!owner) owner = this;
+    const auto filter = QStringLiteral("媒体文件 (*.%1);;所有文件 (*)")
+        .arg(MediaFiles::mediaExtensions().join(QStringLiteral(" *.")));
     const QStringList paths = QFileDialog::getOpenFileNames(owner, append ? QStringLiteral("添加媒体文件") : QStringLiteral("打开本地媒体"), {},
-        QStringLiteral("媒体文件 (*.mkv *.mp4 *.mov *.avi *.webm *.m4v *.ts *.m4a *.mp3 *.flac *.wav);;所有文件 (*)"));
+        filter);
     if (paths.isEmpty()) return;
-    QList<QUrl> urls; for (const auto &path : paths) urls.append(QUrl::fromLocalFile(path)); ingestUrls(urls, !append);
+    ingestPaths(paths, !append);
     if (owner == this) video_->setFocus();
 }
 
@@ -869,27 +871,22 @@ void MainWindow::addFolder()
 
 void MainWindow::ingestUrls(const QList<QUrl> &urls, bool replace, int row)
 {
-    if (urls.isEmpty()) return;
-    QStringList media, subtitles; int ignored = 0;
+    QStringList paths;
     for (const auto &url : urls) {
-        if (!url.isLocalFile() || !QFileInfo(url.toLocalFile()).isFile()) { ++ignored; continue; }
-        const auto path = url.toLocalFile();
-        if (MediaFiles::subtitle(path)) subtitles.append(path); else media.append(path);
+        if (url.isLocalFile()) paths.append(url.toLocalFile());
     }
-    if (!media.isEmpty()) {
-        QStringList matching;
-        for (const auto &subtitle : subtitles) {
-            if (QFileInfo(subtitle).completeBaseName().compare(QFileInfo(media.first()).completeBaseName(), Qt::CaseInsensitive) == 0) matching.append(subtitle);
-            else ++ignored;
-        }
-        const auto added = playlist_->addFiles(media, replace, row, matching);
-        if (added.size() > 1 || !replace) playlistHost_->setVisible(true, false);
-        if (QApplication::activeWindow() == this) video_->setFocus();
-    } else if (!subtitles.isEmpty()) {
-        if (state_ != Player::State::Loaded) surface_->showOsd("drop", QStringLiteral("请先打开媒体，再拖入字幕。"), 3000);
-        else for (const auto &subtitle : subtitles) player_.addSubtitle(subtitle);
-    }
-    if (ignored) surface_->showOsd("drop", QStringLiteral("已忽略 %1 个文件夹、非本地路径或未匹配字幕；字幕可在播放后单独拖入。").arg(ignored), 3000);
+    const auto ignored = urls.size() - paths.size();
+    if (ignored) surface_->showOsd("drop", QStringLiteral("已跳过 %1 个非本地路径。").arg(ignored), 3000);
+    ingestPaths(paths, replace, row);
+}
+
+void MainWindow::ingestPaths(const QStringList &paths, bool replace, int row)
+{
+    if (paths.isEmpty()) return;
+    const auto added = playlist_->addFiles(paths, replace, row);
+    if (added.isEmpty()) return;
+    if (added.size() > 1 || !replace) playlistHost_->setVisible(true, false);
+    if (QApplication::activeWindow() == this) video_->setFocus();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

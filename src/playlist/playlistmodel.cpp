@@ -14,11 +14,12 @@
 #include <tuple>
 
 namespace MediaFiles {
-bool media(const QString &path)
+const QStringList &mediaExtensions()
 {
     static const QStringList extensions{"mkv","mp4","mov","avi","webm","m4v","ts","m2ts","mpeg","mpg","wmv","flv","m4a","mp3","flac","wav","ogg","opus","aac","wma"};
-    return extensions.contains(QFileInfo(path).suffix().toLower());
+    return extensions;
 }
+bool media(const QString &path) { return mediaExtensions().contains(QFileInfo(path).suffix().toLower()); }
 bool subtitle(const QString &path) { return QStringList{"srt","ass","ssa","vtt"}.contains(QFileInfo(path).suffix().toLower()); }
 QString key(const QString &path)
 {

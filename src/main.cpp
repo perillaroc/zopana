@@ -15,7 +15,8 @@
 int main(int argc, char **argv)
 {
     std::setlocale(LC_NUMERIC, "C");
-    if (argc == 2 && QByteArrayView(argv[1]) == MetadataProbe::workerArgument)
+    const bool metadataWorker = argc > 1 && QByteArrayView(argv[1]) == MetadataProbe::workerArgument;
+    if (metadataWorker && argc == 2)
         return MetadataProbe::runWorker();
 
     QApplication app(argc, argv);
@@ -47,6 +48,8 @@ int main(int argc, char **argv)
         player.shutdown();
         return EXIT_FAILURE;
     }
+    if (!metadataWorker && !isolated && arguments.size() > 1)
+        window.ingestPaths(arguments.mid(1), true);
 
     const int result = app.exec();
     player.shutdown();

@@ -1,4 +1,5 @@
 #include "playlistcontroller.h"
+#include <QFile>
 #include <QFileInfo>
 #include <QTimer>
 #include <utility>
@@ -25,15 +26,33 @@ PlaylistController::PlaylistController(Player &player, QObject *parent, std::opt
     connect(&probe_, &MetadataProbe::versionsChecked, this, &PlaylistController::sortVersionsChecked);
 }
 
-QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool replace, int row, const QStringList &subtitles)
+QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool replace, int row)
 {
-    QStringList valid; int invalid = 0;
+    QStringList media, subtitles;
+    QSet<QString> subtitleKeys;
+    int unreadable = 0, unsupported = 0, duplicates = 0;
+    bool onlySubtitles = true;
     for (const auto &path : paths) {
         const QFileInfo file(path);
-        if (file.isFile() && file.isReadable() && MediaFiles::media(path)) valid.append(file.absoluteFilePath()); else ++invalid;
+        const auto absolutePath = file.absoluteFilePath();
+        const bool subtitle = MediaFiles::subtitle(path);
+        onlySubtitles &= subtitle;
+        if (!file.isFile() || !QFile(absolutePath).open(QIODevice::ReadOnly)) {
+            ++unreadable;
+        } else if (subtitle) {
+            const auto key = MediaFiles::key(absolutePath);
+            if (subtitleKeys.contains(key)) ++duplicates;
+            else {
+                subtitleKeys.insert(key);
+                subtitles.append(absolutePath);
+            }
+        } else if (MediaFiles::media(path)) {
+            media.append(absolutePath);
+        } else {
+            ++unsupported;
+        }
     }
-    if (valid.isEmpty()) { emit message(QStringLiteral("没有可加入的媒体文件（%1 个无效项目）。").arg(invalid)); return {}; }
-    if (replace) {
+    if (replace && !media.isEmpty()) {
         resetAdvance();
         history_.clear();
         historyPosition_ = -1;
@@ -41,13 +60,44 @@ QList<quint64> PlaylistController::addFiles(const QStringList &paths, bool repla
         model_.clear();
     }
     const bool wasEmpty = model_.rowCount() == 0;
-    const auto ids = model_.insert(valid, row);
-    if (shuffleEnabled_) bag_.append(ids);
-    if (!ids.isEmpty() && !subtitles.isEmpty()) model_.setSubtitles(ids.first(), subtitles);
-    if (invalid || valid.size() != ids.size()) emit message(QStringLiteral("加入 %1 项；跳过 %2 个无效项目、%3 个重复项目。")
-        .arg(ids.size()).arg(invalid).arg(valid.size() - ids.size()));
-    if (!ids.isEmpty() && (replace || wasEmpty)) start(ids.first(), false);
-    emit changed(); return ids;
+    const auto ids = media.isEmpty() ? QList<quint64>{} : model_.insert(media, row);
+    duplicates += int(media.size() - ids.size());
+
+    QStringList notices;
+    int unmatched = 0;
+    if (onlySubtitles && !subtitles.isEmpty()) {
+        if (player_.state() == Player::State::Loaded) {
+            for (const auto &path : subtitles) player_.addSubtitle(path);
+        } else {
+            notices.append(QStringLiteral("请先打开媒体，再添加字幕。"));
+        }
+    } else if (!subtitles.isEmpty()) {
+        QStringList matching;
+        if (!ids.isEmpty()) {
+            const auto stem = QFileInfo(model_.item(ids.first())->path).completeBaseName();
+            for (const auto &path : subtitles) {
+                if (QFileInfo(path).completeBaseName().compare(stem, Qt::CaseInsensitive) == 0)
+                    matching.append(path);
+            }
+            if (!matching.isEmpty()) model_.setSubtitles(ids.first(), matching);
+        }
+        unmatched = int(subtitles.size() - matching.size());
+    }
+
+    QStringList skipped;
+    if (unreadable) skipped.append(QStringLiteral("%1 个缺失或不可读的文件").arg(unreadable));
+    if (unsupported) skipped.append(QStringLiteral("%1 个格式不受支持的文件").arg(unsupported));
+    if (duplicates) skipped.append(QStringLiteral("%1 个重复路径").arg(duplicates));
+    if (unmatched) skipped.append(QStringLiteral("%1 个未匹配的字幕").arg(unmatched));
+    if (!skipped.isEmpty()) notices.append(QStringLiteral("已跳过 %1。").arg(skipped.join(QStringLiteral("、"))));
+    if (!notices.isEmpty()) emit message(notices.join(' '));
+
+    if (!ids.isEmpty()) {
+        if (shuffleEnabled_) bag_.append(ids);
+        if (replace || wasEmpty) start(ids.first(), false);
+        emit changed();
+    }
+    return ids;
 }
 void PlaylistController::setPlaybackOrder(RepeatMode repeatMode, bool shuffleEnabled)
 {

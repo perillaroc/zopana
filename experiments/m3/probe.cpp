@@ -27,6 +27,7 @@
 #include <QScrollBar>
 #include <QSignalSpy>
 #include <QSplitter>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
 #include <QToolButton>
@@ -128,10 +129,23 @@ public:
         QSignalSpy messages(queue, &PlaylistController::message);
         queue->addFiles({fixtures + "/ignore.txt"}, true);
         check("invalid replacement keeps current queue and explains result", queue->model().rowCount() == 4 && player.itemId() == current && !messages.isEmpty());
-        bool chooser = false;
-        QTimer::singleShot(100, &window, [&] { auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget()); if (dialog) { chooser = dialog->fileMode() == QFileDialog::ExistingFiles; dialog->reject(); } });
-        activate(window); video->setFocus(); QTest::keyClick(video, Qt::Key_O, Qt::ControlModifier);
-        check("multi-select chooser cancellation changes nothing", chooser && loads == before && queue->model().rowCount() == 4);
+        activate(window);
+        for (const auto name : {"file.open", "file.add"}) {
+            bool chooser = false;
+            QString filter;
+            QTimer::singleShot(100, &window, [&] {
+                auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+                if (!dialog) return;
+                chooser = dialog->fileMode() == QFileDialog::ExistingFiles;
+                filter = dialog->selectedNameFilter();
+                dialog->reject();
+            });
+            action(name)->trigger();
+            check(QString("%1 defaults to all 20 media extensions, including M2TS, WMV and Opus").arg(name),
+                chooser && filter.count("*.") == 20 && filter.contains("*.m2ts") && filter.contains("*.wmv")
+                && filter.contains("*.opus") && !filter.contains("*.srt"));
+        }
+        check("multi-select chooser cancellation changes nothing", loads == before && queue->model().rowCount() == 4);
         QTimer::singleShot(100, &window, [&] {
             auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget()); if (!dialog) return;
             auto *edit = dialog->findChild<QLineEdit *>("fileNameEdit");
@@ -160,10 +174,42 @@ public:
             QDropEvent event(position, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier); QApplication::sendEvent(panel->view()->viewport(), &event);
             check("external insertion keeps active item and inserts at top", queue->model().item(queue->model().idAt(0))->path.endsWith("bad3.mkv") && loads == after);
         }
-        QSignalSpy subtitles(&player, &Player::subtitleLoaded);
-        drop(&window, {QUrl::fromLocalFile(fixtures + "/E1.mp4"), QUrl::fromLocalFile(fixtures + "/E1.srt")});
+        QTemporaryDir mixed;
+        const auto first = mixed.filePath(QStringLiteral("影片 A.mp4"));
+        const auto second = mixed.filePath(QStringLiteral("影片 B.mp4"));
+        const auto caption = mixed.filePath(QStringLiteral("subtitles/影片 A.srt"));
+        const auto secondCaption = mixed.filePath(QStringLiteral("subtitles/影片 B.srt"));
+        const auto missing = mixed.filePath("missing.mp4");
+        require("prepare mixed import fixtures without adjacent subtitles", mixed.isValid()
+            && QDir(mixed.path()).mkdir("subtitles") && QFile::copy(fixtures + "/E1.mp4", first)
+            && QFile::copy(fixtures + "/E2.mp4", second) && QFile::copy(fixtures + "/E1.srt", caption)
+            && QFile::copy(fixtures + "/E1.srt", secondCaption));
+        messages.clear();
+        QSignalSpy subtitles(&player, &Player::subtitleLoaded), starts(&player, &Player::fileOpening);
+        drop(&window, {QUrl::fromLocalFile(fixtures + "/ignore.txt"), QUrl::fromLocalFile(first), QUrl::fromLocalFile(caption),
+            QUrl::fromLocalFile(second), QUrl::fromLocalFile(first), QUrl::fromLocalFile(missing)});
         require("matching subtitle follows mixed media drop", until([&] { return subtitles.count() == 1; }));
-        check("mixed drop has one authoritative media item", queue->model().rowCount() == 1 && queue->model().item(queue->model().currentId())->subtitles.size() == 1);
+        const auto &model = queue->model();
+        require("mixed drop accepts two media items", model.rowCount() == 2);
+        check("mixed drop preserves order and starts the first accepted item once", starts.count() == 1
+            && model.currentId() == model.idAt(0) && model.item(model.idAt(0))->path == first && model.item(model.idAt(1))->path == second);
+        check("mixed drop attaches the caption only to the first accepted item",
+            model.item(model.idAt(0))->subtitles == QStringList{caption} && model.item(model.idAt(1))->subtitles.isEmpty()
+            && subtitles.first().first().toString() == caption);
+        const auto notice = messages.isEmpty() ? QString() : messages.first().first().toString();
+        check("mixed drop explains unsupported, duplicate and missing inputs", messages.count() == 1
+            && notice.contains(QStringLiteral("1 个格式不受支持")) && notice.contains(QStringLiteral("1 个重复路径"))
+            && notice.contains(QStringLiteral("1 个缺失或不可读")), {{"notice", notice}});
+
+        const auto initial = queue->addFiles({first}, true);
+        require("prepare duplicate append case", initial.size() == 1);
+        waitLoaded(initial.first());
+        starts.clear();
+        const auto appended = queue->addFiles({first, caption, second, secondCaption}, false);
+        require("append skips paths already in the queue", appended.size() == 1);
+        check("append attaches the caption to the first newly added item and keeps playback", starts.isEmpty()
+            && model.currentId() == initial.first() && paused() && model.item(initial.first())->subtitles.isEmpty()
+            && model.item(appended.first())->subtitles == QStringList{secondCaption});
     }
     void scanner()
     {

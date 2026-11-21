@@ -29,7 +29,7 @@ public:
     void cancelSort();
     void setCompletionHandler(CompletionHandler handler);
     void advanceAfterCompletion(const Player::PlaybackIdentity &playback);
-    QList<quint64> addFiles(const QStringList &paths, bool replace, int row = -1, const QStringList &subtitles = {});
+    QList<quint64> addFiles(const QStringList &paths, bool replace, int row = -1);
     void play(quint64 id);
     void replay();
     void previous();
