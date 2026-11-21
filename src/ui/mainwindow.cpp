@@ -35,6 +35,7 @@
 #include <QGuiApplication>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScreen>
@@ -61,6 +62,8 @@ int wholeSeconds(double value)
 class WindowTitle final : public QLabel
 {
 public:
+    WindowTitle() { setContentsMargins(iconSize + 6, 0, 0, 0); }
+
     void setTitle(const QString &title)
     {
         setToolTip(title);
@@ -69,6 +72,13 @@ public:
     }
 
 protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        QLabel::paintEvent(event);
+        QPainter painter(this);
+        windowIcon().paint(&painter, 0, (height() - iconSize) / 2, iconSize, iconSize);
+    }
+
     void resizeEvent(QResizeEvent *event) override
     {
         QLabel::resizeEvent(event);
@@ -76,7 +86,8 @@ protected:
     }
 
 private:
-    void updateText() { setText(fontMetrics().elidedText(toolTip(), Qt::ElideMiddle, width())); }
+    static constexpr int iconSize = 20;
+    void updateText() { setText(fontMetrics().elidedText(toolTip(), Qt::ElideMiddle, contentsRect().width())); }
 };
 
 void showMultiplier(QLabel *label, const QString &caption, double value)
@@ -155,9 +166,10 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
     connect(action(PlayerActions::Quit), &QAction::triggered, this, &QWidget::close);
     connect(action(PlayerActions::About), &QAction::triggered, this, [this] {
         QWidget *owner = QApplication::activeWindow() ? QApplication::activeWindow() : this;
-        QMessageBox dialog(QMessageBox::Information, QStringLiteral("关于 zopana"),
+        QMessageBox dialog(QMessageBox::NoIcon, QStringLiteral("关于 zopana"),
                            QStringLiteral("zopana\n本地视频播放与画面细节观察\nQt Widgets · libmpv\n图标：Lucide（ISC / Feather MIT）"),
                            QMessageBox::Close, owner);
+        dialog.setIconPixmap(windowIcon().pixmap(QSize(48, 48), owner->devicePixelRatioF()));
         auto *licenses = dialog.addButton(actions_->get(PlayerActions::Licenses)->text(), QMessageBox::ActionRole);
         licenses->setObjectName("aboutLicenses");
         dialog.exec();

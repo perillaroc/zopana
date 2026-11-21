@@ -9,14 +9,14 @@ class QApplication;
 
 namespace Theme {
 // Keep colors in one place; QSS refers to palette roles rather than copies.
-inline constexpr auto Window = "#15181d";
-inline constexpr auto Surface = "#1d222a";
-inline constexpr auto Raised = "#272e38";
-inline constexpr auto Border = "#343d4a";
-inline constexpr auto Text = "#edf1f7";
-inline constexpr auto Secondary = "#b3bdcc";
-inline constexpr auto Accent = "#6ea8ff";
-inline constexpr auto AccentText = "#152235";
+inline constexpr auto Window = "#211a2b";
+inline constexpr auto Surface = "#30243e";
+inline constexpr auto Raised = "#433153";
+inline constexpr auto Border = "#60506e";
+inline constexpr auto Text = "#f5effb";
+inline constexpr auto Secondary = "#cbbcd9";
+inline constexpr auto Accent = "#dbbaff";
+inline constexpr auto AccentText = "#37264e";
 
 QIcon icon(const QString &name, const QPalette &palette, bool primary = false);
 

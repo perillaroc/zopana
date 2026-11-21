@@ -39,7 +39,7 @@ try {
     $env:PATH = "$(Join-Path $qt 'bin');$previousPath"
     & (Join-Path $qt 'bin/windeployqt.exe') --release --no-compiler-runtime --no-translations `
         --no-system-d3d-compiler --no-system-dxc-compiler `
-        --skip-plugin-types imageformats,iconengines,networkinformation,tls,generic,platforminputcontexts `
+        --skip-plugin-types imageformats,networkinformation,tls,generic,platforminputcontexts --include-plugins qsvgicon `
         --dir $stage $exe
     if ($LASTEXITCODE) { throw "windeployqt failed ($LASTEXITCODE)." }
 } finally {

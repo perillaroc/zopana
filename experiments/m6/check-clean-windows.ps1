@@ -86,7 +86,7 @@ try {
     $appDir = Join-Path $extract 'zopana-windows-x64'
     $exe = Join-Path $appDir 'zopana.exe'
     $requiredFiles = 'zopana.exe','README.txt','qt.conf','Qt6Core.dll','Qt6Gui.dll','Qt6Widgets.dll','Qt6OpenGL.dll','Qt6OpenGLWidgets.dll','Qt6Svg.dll','platforms/qwindows.dll','libmpv-2.dll',
-        'notices/lucide-LICENSE.txt','notices/SOURCES.txt','notices/libmpv-LICENSE.LGPL','notices/LGPL-3.0-only.txt','notices/GPL-3.0-only.txt',
+        'iconengines/qsvgicon.dll','notices/lucide-LICENSE.txt','notices/SOURCES.txt','notices/libmpv-LICENSE.LGPL','notices/LGPL-3.0-only.txt','notices/GPL-3.0-only.txt',
         'notices/qtbase-6.11.3.spdx.json','notices/qtsvg-6.11.3.spdx.json','notices/manifest.json'
     foreach ($file in $requiredFiles) {
         if (!(Test-Path -LiteralPath (Join-Path $appDir $file) -PathType Leaf)) { throw "Missing packaged file $file." }
@@ -145,7 +145,7 @@ try {
     $modules = @(Get-Process -Id $player.Id -Module | Select-Object ModuleName,FileName)
     $modules | Export-Csv -LiteralPath (Join-Path $folder 'modules.csv') -Encoding UTF8 -NoTypeInformation
     $crtModules = 'msvcp140.dll','msvcp140_1.dll','msvcp140_2.dll','vcruntime140.dll','vcruntime140_1.dll'
-    $expectedModules = @('Qt6Core.dll','Qt6Gui.dll','Qt6Widgets.dll','Qt6OpenGL.dll','Qt6OpenGLWidgets.dll','Qt6Svg.dll','qwindows.dll','libmpv-2.dll') + $crtModules
+    $expectedModules = @('Qt6Core.dll','Qt6Gui.dll','Qt6Widgets.dll','Qt6OpenGL.dll','Qt6OpenGLWidgets.dll','Qt6Svg.dll','qwindows.dll','qsvgicon.dll','libmpv-2.dll') + $crtModules
     $record.missingModules = @($expectedModules |
         Where-Object { $_ -notin $modules.ModuleName })
     $bundle = $appDir.TrimEnd('\') + '\'

@@ -5,7 +5,10 @@ export default defineConfig({
   title: 'zopana',
   description: 'zopana Windows 视频播放器的使用手册和开发指南',
   cleanUrls: true,
+  vite: { publicDir: '../resources/brand' },
+  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/zopana.svg' }]],
   themeConfig: {
+    logo: '/zopana.svg',
     nav: [
       { text: '快速开始', link: '/quick-start' },
       { text: '使用手册', link: '/guide/playback', activeMatch: '^/guide/' },

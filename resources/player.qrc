@@ -1,4 +1,5 @@
 <RCC><qresource prefix="/">
+<file>brand/zopana.svg</file>
 <file>icons/lucide/ellipsis.svg</file>
 <file>icons/lucide/file-text.svg</file>
 <file>icons/lucide/folder-open.svg</file>

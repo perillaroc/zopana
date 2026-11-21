@@ -52,7 +52,8 @@ https://github.com/qt/qtbase/tree/v6.11.3/LICENSES
 Lucide SVG icons, pinned to commit 45aaec4b721c98aa86a2acd0ab7281bcf68b9c5e
 ISC License with retained Feather-derived MIT notices.
 The exact upstream SVG bytes are recorded in resources/icons/lucide/SOURCES.json.
-Only runtime palette recoloring is applied; vendored SVG files are unmodified.
+The vendored SVG files are unmodified and recolored at runtime. The separate
+Zopana application icon adapts the scan and move shapes in twilight purple.
 The complete upstream LICENSE is distributed as notices/lucide-LICENSE.txt.
 https://github.com/lucide-icons/lucide/tree/45aaec4b721c98aa86a2acd0ab7281bcf68b9c5e
 https://lucide.dev/license

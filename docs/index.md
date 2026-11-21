@@ -6,6 +6,9 @@ hero:
   name: zopana
   text: Windows 视频播放器
   tagline: 播放本地视频，跟随鼠标指针放大细节，拖动画面查看其他区域。
+  image:
+    src: /zopana.svg
+    alt: zopana 暮光紫折角 Z 图标
   actions:
     - theme: brand
       text: 快速开始

@@ -112,6 +112,7 @@ Controller::Controller(QApplication &app, QObject *parent) : QObject(parent), ap
 {
     static const bool initialized = [] { initializePlayerResources(); return true; }();
     Q_UNUSED(initialized);
+    app_.setWindowIcon(QIcon(QStringLiteral(":/brand/zopana.svg")));
     app_.installNativeEventFilter(this);
     app_.installEventFilter(this);
     apply(systemHighContrast());
@@ -155,7 +156,8 @@ void Controller::apply(bool highContrast)
         for (auto [role, index] : {std::pair{QPalette::Window, COLOR_WINDOW}, {QPalette::WindowText, COLOR_WINDOWTEXT},
                 {QPalette::Base, COLOR_WINDOW}, {QPalette::Text, COLOR_WINDOWTEXT},
                 {QPalette::Button, COLOR_BTNFACE}, {QPalette::ButtonText, COLOR_BTNTEXT},
-                {QPalette::Highlight, COLOR_HIGHLIGHT}, {QPalette::HighlightedText, COLOR_HIGHLIGHTTEXT},
+                {QPalette::Accent, COLOR_HIGHLIGHT}, {QPalette::Highlight, COLOR_HIGHLIGHT}, {QPalette::HighlightedText, COLOR_HIGHLIGHTTEXT},
+                {QPalette::Link, COLOR_HOTLIGHT}, {QPalette::LinkVisited, COLOR_HOTLIGHT},
                 {QPalette::ToolTipBase, COLOR_INFOBK}, {QPalette::ToolTipText, COLOR_INFOTEXT}})
             palette.setColor(role, systemColor(index));
         palette.setColor(QPalette::Disabled, QPalette::Text, systemColor(COLOR_GRAYTEXT));
@@ -165,7 +167,8 @@ void Controller::apply(bool highContrast)
         for (auto [role, color] : {std::pair{QPalette::Window, Window}, {QPalette::WindowText, Text},
                 {QPalette::Base, Window}, {QPalette::AlternateBase, Raised}, {QPalette::Button, Surface},
                 {QPalette::ButtonText, Text}, {QPalette::Text, Text}, {QPalette::Mid, Border},
-                {QPalette::Highlight, Accent}, {QPalette::HighlightedText, AccentText},
+                {QPalette::Accent, Accent}, {QPalette::Highlight, Accent}, {QPalette::HighlightedText, AccentText},
+                {QPalette::Link, Accent}, {QPalette::LinkVisited, Secondary},
                 {QPalette::PlaceholderText, Secondary}, {QPalette::ToolTipBase, Surface}, {QPalette::ToolTipText, Text}})
             palette.setColor(role, QColor(color));
         palette.setColor(QPalette::Disabled, QPalette::Text, QColor(Secondary));

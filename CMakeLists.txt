@@ -31,7 +31,11 @@ set_target_properties(mpv::mpv PROPERTIES
 )
 
 add_subdirectory(src)
-add_executable(zopana WIN32 src/main.cpp)
+add_executable(zopana WIN32 src/main.cpp resources/zopana.rc)
+set_source_files_properties(resources/zopana.rc PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/brand/zopana.ico"
+)
 target_compile_features(zopana PRIVATE cxx_std_20)
 target_link_libraries(zopana PRIVATE zopana_core)
 
