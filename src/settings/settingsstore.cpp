@@ -6,11 +6,13 @@
 #include <QSaveFile>
 #include <QTemporaryDir>
 #include <QStandardPaths>
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
 namespace {
 constexpr qlonglong schemaVersion = 2;
+constexpr const char *legacyViewKeys[] = {"video/viewScale", "video/focusU", "video/focusV"};
 constexpr std::pair<RepeatMode, const char *> repeatModes[] = {
     {RepeatMode::None, "none"}, {RepeatMode::One, "one"}, {RepeatMode::All, "all"}
 };
@@ -89,8 +91,6 @@ Preferences SettingsStore::load()
     p.shuffleEnabled = flag("playback/shuffleEnabled", p.shuffleEnabled);
     p.sortField = readEnum(s, "playlist/sortField", p.sortField, sortFields);
     p.sortDirection = readEnum(s, "playlist/sortDirection", p.sortDirection, sortDirections);
-    p.viewScale = number("video/viewScale", p.viewScale, 1, 8);
-    p.viewFocus = {number("video/focusU", p.viewFocus.x(), 0, 1), number("video/focusV", p.viewFocus.y(), 0, 1)};
     const int rotation = integer("video/userRotationDeg", p.userRotationDeg, 0, 270);
     if (rotation % 90 == 0) p.userRotationDeg = rotation;
     p.resetViewOnOpen = flag("video/resetViewOnOpen", p.resetViewOnOpen);
@@ -102,7 +102,9 @@ Preferences SettingsStore::load()
     p.mainGeometry=s.value("window/normalGeometry").toRect(); p.playlistGeometry=s.value("playlist/normalGeometry").toRect();
     p.detached=flag("playlist/detached",false); p.playlistVisible=flag("playlist/visible",false); p.dockWidth=integer("playlist/dockWidth",p.dockWidth,260,2000);
     s.beginGroup("shortcuts"); for(const auto &key:s.allKeys()) p.shortcuts[key]=s.value(key); s.endGroup();
-    needsWrite_ = QFile::exists(fileName()) && (s.value("schemaVersion").toString().toLongLong() < schemaVersion || s.status() == QSettings::FormatError);
+    needsWrite_ = QFile::exists(fileName()) && (s.value("schemaVersion").toString().toLongLong() < schemaVersion
+        || s.status() == QSettings::FormatError
+        || std::ranges::any_of(legacyViewKeys, [&s](const char *key) { return s.contains(key); }));
     error_=s.status()==QSettings::NoError ? QString() : QStringLiteral("部分设置无法读取，已采用有效值或默认值。"); return p;
 }
 bool SettingsStore::save(const Preferences &p)
@@ -141,9 +143,7 @@ bool SettingsStore::save(const Preferences &p)
     s.setValue("playback/shuffleEnabled", p.shuffleEnabled);
     writeEnum(s, "playlist/sortField", p.sortField, sortFields);
     writeEnum(s, "playlist/sortDirection", p.sortDirection, sortDirections);
-    s.setValue("video/viewScale", p.viewScale);
-    s.setValue("video/focusU", p.viewFocus.x());
-    s.setValue("video/focusV", p.viewFocus.y());
+    for (const auto *key : legacyViewKeys) s.remove(key);
     s.setValue("video/userRotationDeg", p.userRotationDeg);
     s.setValue("video/resetViewOnOpen", p.resetViewOnOpen);
     writeEnum(s, "window/sizePolicy", p.sizePolicy, sizePolicies);

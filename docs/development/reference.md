@@ -11,7 +11,7 @@
 
 `settings.ini` 的当前 schema 为 2。旧配置读取时使用已有合法值，缺失或无效字段取默认值。首次成功保存旧配置时写入 `schemaVersion=2`，更高的已有版本号和未知字段均保留。有效自定义键优先于与其冲突的普通默认键，显式清空的绑定也会保留。
 
-设置对话框应用时将已编辑字段与当前运行时偏好合并，再原子替换 INI。菜单和取景产生的偏好变更在约 700 ms 后合并保存，正常关闭时补存。历史 JSON 由工作线程单独写入。保存失败时播放器会提示，当前播放仍可继续。[应用设置和历史操作](../guide/settings.md)
+设置对话框应用时将已编辑字段与当前运行时偏好合并，再原子替换 INI。运行时偏好变更在约 700 ms 后合并保存，正常关闭时补存。画面缩放与拖动仅在本次运行中生效，旧版本的取景字段会在保存配置时移除。历史 JSON 由工作线程单独写入。保存失败时播放器会提示，当前播放仍可继续。[应用设置和历史操作](../guide/settings.md)
 
 表中字段名使用 QSettings 的 `组/键` 写法。
 
@@ -28,7 +28,6 @@
 | 字幕字体和轨道语言 | `tracks/subtitleScale`、`tracks/audioLanguages`、`tracks/subtitleLanguages` | `1`（范围 0.5–2）、两个空字符串；语言为逗号分隔的代码 |
 | 普通窗口几何、最大化和置顶 | `window/normalGeometry`、`window/maximized`、`window/alwaysOnTop` | 空矩形（由应用放置）、`false`、`false` |
 | 列表布局与几何 | `playlist/detached`、`playlist/visible`、`playlist/dockWidth`、`playlist/normalGeometry` | `false`、`false`、320 逻辑像素、空矩形 |
-| 取景 | `video/viewScale`、`video/focusU`、`video/focusV` | `1`、`0.5`、`0.5`，中心按未旋转画面归一化 |
 | 旋转和换片取景 | `video/userRotationDeg`、`video/resetViewOnOpen` | `0`、`false`，额外角度接受 0、90、180、270 |
 | 视频比例窗口 | `window/sizePolicy`、`window/lastVideoScale` | `lastGeometry`、`1`，另有 `videoScale` 和 `fitWorkArea` 策略，比例接受 0.5、1、1.5、2 |
 | 鼠标模式 | `input/standardMode` | `false`（缩放拖动） |

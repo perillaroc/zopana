@@ -2,7 +2,6 @@
 #include "playlistsort.h"
 #include "repeatmode.h"
 #include "windowsizing.h"
-#include <QPointF>
 #include <QRect>
 #include <QString>
 #include <QVariantMap>
@@ -26,8 +25,6 @@ struct Preferences {
     bool shuffleEnabled = false;
     SortField sortField = SortField::FileName;
     SortDirection sortDirection = SortDirection::Ascending;
-    double viewScale = 1;
-    QPointF viewFocus{0.5, 0.5};
     int userRotationDeg = 0;
     bool resetViewOnOpen = false;
     WindowSizePolicy sizePolicy = WindowSizePolicy::LastGeometry;

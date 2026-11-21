@@ -132,7 +132,12 @@ struct Probe {
         require(!session.preferences().recordHistory && playlist->model().rowCount() == 0, "history off and queue empty by default");
         const auto &initial = session.preferences();
         require(initial.speed == 1 && initial.pitchCorrection && initial.subtitleVisible && initial.audioDelay == 0
-            && initial.subtitleDelay == 0 && !initial.alwaysOnTop && initial.viewScale == 1 && initial.viewFocus == QPointF(.5, .5), "legacy INI loads the defaults for missing fields");
+            && initial.subtitleDelay == 0 && !initial.alwaysOnTop, "legacy INI loads the defaults for missing fields");
+        require(video->zoomScale() == 1 && video->viewFocus() == QPointF(.5, .5), "startup ignores the legacy zoom and pan");
+        require(until([&] {
+            const QSettings raw(settings.fileName(), QSettings::IniFormat);
+            return !raw.contains("video/viewScale") && !raw.contains("video/focusU") && !raw.contains("video/focusV");
+        }), "automatic settings save removes legacy zoom and pan keys");
         require(initial.shortcuts.value("play.toggle").toStringList() == QStringList{"Ctrl+P"}, "legacy shortcut override is loaded");
         player.setAudioPreferences(37, true);
         open(QStringLiteral("网格 multi.mkv"));
@@ -145,9 +150,11 @@ struct Probe {
         require(until([&] { return near(engineProperty("audio-delay").toDouble(), 3600); }), "set upper delay limit");
         window.findChild<QDoubleSpinBox *>("audioDelaySpin")->setValue(3599.999);
         window.findChild<QDoubleSpinBox *>("subDelaySpin")->setValue(-.375);
+        require(until([&] { return playbackMatches() && near(settings.load().audioDelay, 3599.999); }), "menu changes confirmed by libmpv and saved while open");
+        require(video->grabFramebuffer().save(profile.filePath("view-before.png")), "save the fit-to-window grid reference frame");
+        const auto savedBeforeZoom = QFileInfo(settings.fileName()).lastModified();
         video->zoomSteps(100);
-        require(until([&] { return playbackMatches() && video->zoomScale() == 8; }), "menu changes confirmed by libmpv and zoom reaches 8x");
-        require(until([&] { return near(settings.load().audioDelay, 3599.999); }), "millisecond delay change is saved while open");
+        require(until([&] { return video->zoomScale() == 8; }), "zoom reaches 8x");
 
         const QPoint from = video->rect().center();
         const QPoint to = from + QPoint(100, 70);
@@ -156,7 +163,8 @@ struct Probe {
         QApplication::sendEvent(video, &move);
         QTest::mouseRelease(video, Qt::LeftButton, Qt::NoModifier, to);
         require((video->viewFocus() - QPointF(.5, .5)).manhattanLength() > .01, "drag changes the normalized focus");
-        require(until([&] { return (settings.load().viewFocus - video->viewFocus()).manhattanLength() < .000001; }), "pan alone triggers the merged save");
+        QTest::qWait(900);
+        require(QFileInfo(settings.fileName()).lastModified() == savedBeforeZoom, "zoom and pan do not rewrite settings");
 
         // Apply another setting while a live menu preference changes.
         const auto directory = QFileInfo(settings.fileName()).absoluteDir().filePath(captureDirectoryName);
@@ -178,14 +186,15 @@ struct Probe {
         QTest::qWait(900);
         require(QFileInfo(settings.fileName()).lastModified() == savedAt, "playback position updates do not rewrite settings");
 
-        require(video->grabFramebuffer().save(profile.filePath("view-before.png")), "save paused grid reference frame");
         open("audio.m4a", false);
-        require(playbackMatches() && video->zoomScale() == 8 && !video->canCapture(), "audio-only load retains playback and view preferences");
+        require(playbackMatches() && video->zoomScale() == 8 && !video->canCapture(), "audio-only load retains playback preferences and the current view");
         finish();
         const auto saved = settings.load();
         require(saved.speed == 1.5 && !saved.pitchCorrection && !saved.subtitleVisible && saved.alwaysOnTop
-            && near(saved.audioDelay, 3599.999) && near(saved.subtitleDelay, -.375) && saved.viewScale == 8
-            && (saved.viewFocus - QPointF(.5, .5)).manhattanLength() > .01, "all new values saved with history off");
+            && near(saved.audioDelay, 3599.999) && near(saved.subtitleDelay, -.375), "playback preferences saved with history off");
+        const QSettings raw(settings.fileName(), QSettings::IniFormat);
+        require(!raw.contains("video/viewScale") && !raw.contains("video/focusU") && !raw.contains("video/focusV"),
+            "normal close leaves no zoom or pan in the INI");
     }
 
     void read()
@@ -193,6 +202,7 @@ struct Probe {
         const auto saved = settings.load();
         require(player.path().isEmpty() && playlist->model().rowCount() == 0 && !saved.recordHistory
             && history.entries().isEmpty(), "startup leaves the queue and history empty");
+        require(video->zoomScale() == 1 && video->viewFocus() == QPointF(.5, .5), "fresh process starts with a centered 1x view");
         require(window.windowFlags().testFlag(Qt::WindowStaysOnTopHint)
             && actions->get(PlayerActions::AlwaysOnTop)->isChecked(), "startup restores native topmost and menu state");
         require(until([&] { return playbackMatches() && engineProperty("mute").toBool()
@@ -200,38 +210,41 @@ struct Probe {
 
         for (const auto &file : {QStringLiteral("网格 multi.mkv"), QStringLiteral("portrait.mp4"), QStringLiteral("motion-1080.mp4")}) {
             open(file);
-            require(playbackMatches() && video->zoomScale() == 8 && (video->viewFocus() - saved.viewFocus).manhattanLength() < .000001
-                && window.findChild<QLabel *>("zoomLabel")->isVisible(), "each video applies the saved view and playback preferences");
+            require(playbackMatches() && video->zoomScale() == 1 && video->viewFocus() == QPointF(.5, .5)
+                && !window.findChild<QLabel *>("zoomLabel")->isVisible(), "each video fits the window and applies the saved playback preferences");
             if (file == QStringLiteral("网格 multi.mkv")) {
-                const auto restored = video->grabFramebuffer();
-                require(restored.save(profile.filePath("view-after.png")), "save restored paused grid frame");
-                require(sameFrame(restored, profile.filePath("view-before.png")), "restored paused grid matches the saved framing");
+                const auto frame = video->grabFramebuffer();
+                require(frame.save(profile.filePath("view-after.png")), "save the paused grid frame after restart");
+                require(sameFrame(frame, profile.filePath("view-before.png")), "paused grid matches the 1x framing from before zooming");
             } else if (file == "portrait.mp4") {
                 require(video->grabFramebuffer().save(profile.filePath("view-portrait.png")), "save framing on rotated media");
             }
         }
 
+        const QPointF focus(.38, .61);
+        video->restoreView(8, focus);
         window.resize(840, 560);
-        require(video->viewFocus() == saved.viewFocus, "resize keeps the requested content point");
+        require(video->viewFocus() == focus, "resize keeps the requested content point");
         const auto generation = player.generation();
         const auto epoch = player.renderEpoch();
         player.setRendererReady(false);
         player.setRendererReady(true);
         require(until([&] { return player.lastLoadWasRecovery() && !player.recovering() && player.state() == Player::State::Loaded; }), "renderer reload completed");
         require(player.generation() == generation && player.renderEpoch() > epoch && player.paused()
-            && playbackMatches() && video->zoomScale() == 8 && video->viewFocus() == saved.viewFocus, "renderer reload preserves playback and view");
+            && playbackMatches() && video->zoomScale() == 8 && video->viewFocus() == focus, "renderer reload preserves playback and view");
 
         open(QStringLiteral("网格 multi.mkv"));
+        require(video->zoomScale() == 8 && video->viewFocus() == focus, "opening another video in the same session keeps the current view by default");
         require(until([&] { return actions->get(PlayerActions::SubDelayReset)->isEnabled(); }), "delay reset actions enabled");
         actions->get(PlayerActions::AudioDelayReset)->trigger();
         actions->get(PlayerActions::SubDelayReset)->trigger();
         actions->get(PlayerActions::RateReset)->trigger();
         actions->get(PlayerActions::ResetView)->trigger();
+        require(video->zoomScale() == 1 && video->viewFocus() == QPointF(.5, .5), "reset view restores the centered 1x framing");
         finish();
 
         const auto reset = settings.load();
-        require(reset.audioDelay == 0 && reset.subtitleDelay == 0 && reset.speed == 1 && reset.viewScale == 1
-            && reset.viewFocus == QPointF(.5, .5), "immediate normal close saves explicit reset commands");
+        require(reset.audioDelay == 0 && reset.subtitleDelay == 0 && reset.speed == 1, "immediate normal close saves explicit playback resets");
         require(history.entries().isEmpty() && !QFile::exists(history.fileName()), "history remains off with no media records on disk");
         QFile ini(settings.fileName());
         require(ini.open(QIODevice::ReadOnly), "open saved INI for privacy check");
@@ -257,9 +270,12 @@ int main(int argc, char **argv)
         if (args[1] == "write") {
             require(!QFile::exists(args[3] + "/config/settings.ini") && QDir().mkpath(args[3] + "/config"), "create an isolated profile");
             QSettings legacy(args[3] + "/config/settings.ini", QSettings::IniFormat);
-            legacy.setValue("schemaVersion", 1);
+            legacy.setValue("schemaVersion", 2);
             legacy.setValue("future/preserved", "sentinel");
             legacy.setValue("shortcuts/play.toggle", QStringList{"Ctrl+P"});
+            legacy.setValue("video/viewScale", 2.5);
+            legacy.setValue("video/focusU", .35);
+            legacy.setValue("video/focusV", .65);
             legacy.sync();
             require(legacy.status() == QSettings::NoError, "seed the legacy profile");
         }

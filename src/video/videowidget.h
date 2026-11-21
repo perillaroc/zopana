@@ -43,7 +43,6 @@ signals:
     void playbackToggleRequested();
     void fullscreenRequested();
     void zoomChanged(double scale);
-    void viewChanged();
 
 protected:
     void initializeGL() override;

@@ -687,19 +687,20 @@ private:
         video_->restoreView(2, {.31,.64});
         key(Qt::Key_2);
         require(until([&] { return window_.sizePolicy() == WindowSizePolicy::VideoScale; }), "saved window policy set by viewing shortcut");
+        require(video_->zoomScale() == 2 && (video_->viewFocus() - QPointF(.31,.64)).manhattanLength() < .00001,
+            "the window policy change preserves the current crop");
         session_.clearHistory();
         window_.close();
         const auto p = settings_.load();
-        require(!p.recordHistory && p.userRotationDeg == 270 && p.viewScale == 2 && p.sizePolicy == WindowSizePolicy::VideoScale
-            && p.lastVideoScale == 1 && (p.viewFocus - QPointF(.31,.64)).manhattanLength() < .00001,
-            "rotation, window policy and normalized view persist with history disabled");
+        require(!p.recordHistory && p.userRotationDeg == 270 && p.sizePolicy == WindowSizePolicy::VideoScale && p.lastVideoScale == 1,
+            "rotation and window policy persist with history disabled");
     }
 
 public:
     void readPreferences()
     {
         const auto p = session_.preferences();
-        require(player_.path().isEmpty() && !p.recordHistory && p.userRotationDeg == 270 && video_->zoomScale() == 2
+        require(player_.path().isEmpty() && !p.recordHistory && p.userRotationDeg == 270
             && window_.sizePolicy() == WindowSizePolicy::VideoScale && window_.lastVideoScale() == 1,
             "a fresh process restores preferences and starts without a media item");
         player_.openFile(fixtures_.filePath("sar-90.mp4"),42);
@@ -709,8 +710,9 @@ public:
             window_.windowHandle()->frameMargins(), window_.minimumSize(), window_.height()-video_->height(), 0, 900);
         require(!display_.isEmpty() && until([&] { return window_.size() == expected.client.size(); }),
             "saved 100 percent policy sizes the ordinary window after effective dimensions arrive");
-        require(video_->zoomScale() == 2 && (video_->viewFocus() - QPointF(.31,.64)).manhattanLength() < .00001,
-            "the restored crop follows the unrotated content point");
+        require(video_->zoomScale() == 1 && video_->viewFocus() == QPointF(.5,.5),
+            "the first video starts with a centered view despite the previous crop");
+        video_->restoreView(2, {.31,.64});
         auto *settings = action(PlayerActions::Settings);
         QTimer::singleShot(120, &window_, [this] {
             auto *dialog = window_.findChild<QDialog *>("settingsDialog");

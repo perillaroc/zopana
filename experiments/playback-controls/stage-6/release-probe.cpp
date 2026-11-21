@@ -261,10 +261,10 @@ public:
                        && !p.subtitleVisible && closeTo(p.subtitleScale, 1.4) && closeTo(p.audioDelay, .145, .001)
                        && closeTo(p.subtitleDelay, -.225, .001) && p.audioLanguages == "eng" && p.subtitleLanguages == "eng",
                        "all playback, audio and subtitle fields restored");
-        report.require(p.userRotationDeg == 90 && p.resetViewOnOpen && closeTo(video.zoomScale(), 2.25)
-                       && (video.viewFocus() - QPointF(.38, .61)).manhattanLength() < .02
+        report.require(p.userRotationDeg == 90 && p.resetViewOnOpen
                        && window.sizePolicy() == WindowSizePolicy::VideoScale && window.lastVideoScale() == 1.5,
-                       "additional angle, normalized content point, reset flag, policy and ratio restored");
+                       "additional angle, reset flag, window policy and ratio restored");
+        report.require(video.zoomScale() == 1 && video.viewFocus() == QPointF(.5, .5), "restart resets zoom and pan to the centered 1x view");
         report.details["windowGeometry"] = QJsonArray{p.mainGeometry.x(), p.mainGeometry.y(), p.mainGeometry.width(), p.mainGeometry.height()};
         report.require(p.mainGeometry.isValid() && window.windowedGeometry() == p.mainGeometry &&
                        p.maximized && window.isMaximized() && window.windowFlags().testFlag(Qt::WindowStaysOnTopHint)

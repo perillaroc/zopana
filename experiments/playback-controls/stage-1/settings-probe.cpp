@@ -116,8 +116,8 @@ void stores(const QDir &output)
         {"playback/seekLargeSeconds","2.5"}, {"playback/speed","Inf"}, {"playback/pitchCorrection","maybe"},
         {"skip/enabled","True"}, {"skip/introSeconds",-1}, {"skip/outroSeconds",86401},
         {"playback/repeatMode","other"}, {"playback/shuffleEnabled","enabled"}, {"playlist/sortField","customField"},
-        {"playlist/sortDirection","sideways"}, {"video/userRotationDeg",45}, {"video/viewScale",9},
-        {"video/focusU","NaN"}, {"video/focusV",1.25}, {"window/sizePolicy","unrecognized"}, {"window/lastVideoScale",.75},
+        {"playlist/sortDirection","sideways"}, {"video/userRotationDeg",45},
+        {"window/sizePolicy","unrecognized"}, {"window/lastVideoScale",.75},
         {"tracks/audioDelay",3601}, {"tracks/subtitleDelay",-3600}, {"future/extra","keep"}});
     auto expected = SettingsStore::defaults();
     expected.skipEnabled = true;
@@ -249,6 +249,8 @@ void ui(const QDir &output, const QString &mediaPath)
     custom.shortcuts["play.toggle"] = QStringList{"Ctrl+P"};
     require(s.controller.applyPreferences(custom), "restore a custom binding before global reset");
 
+    auto *video = s.window.findChild<VideoWidget *>();
+    video->restoreView(2, {.3, .6});
     s.edit([&](QDialog &dialog, QDialogButtonBox &buttons) {
         QTimer::singleShot(0, &dialog, [&] {
             auto *confirm = dialog.findChild<QMessageBox *>();
@@ -261,9 +263,9 @@ void ui(const QDir &output, const QString &mediaPath)
         buttons.button(QDialogButtonBox::Apply)->click();
     });
     const auto reset = s.settings.load();
-    require(reset.speed == 1 && reset.subtitleScale == 1 && reset.volume == 100 && reset.viewScale == 1 && !reset.alwaysOnTop
+    require(reset.speed == 1 && reset.subtitleScale == 1 && reset.volume == 100 && !reset.alwaysOnTop
         && !reset.maximized && !reset.detached && !reset.recordHistory && reset.audioLanguages.isEmpty() && reset.shortcuts == merged.shortcuts
-        && s.player.propertyTarget("speed").toDouble() == 1 && s.window.findChild<VideoWidget *>()->zoomScale() == 1
+        && s.player.propertyTarget("speed").toDouble() == 1 && video->zoomScale() == 1 && video->viewFocus() == QPointF(.5, .5)
         && !s.window.isMaximized() && !s.window.windowFlags().testFlag(Qt::WindowStaysOnTopHint)
         && s.actions->get(PlayerActions::PlayPause)->shortcut() == QKeySequence(Qt::Key_Space)
         && !s.window.findChild<PlaylistHost *>()->detached(), "confirmed full reset restores preferences and known bindings");

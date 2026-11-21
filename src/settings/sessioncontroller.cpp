@@ -71,7 +71,6 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     connect(playlist_,&PlaylistController::playbackOrderChanged,this,&SessionController::scheduleSave);
     connect(playlist_,&PlaylistController::sortPreferenceChanged,this,&SessionController::scheduleSave);
     connect(mediaControls,&MediaControls::alwaysOnTopChanged,this,&SessionController::scheduleSave);
-    connect(video_,&VideoWidget::viewChanged,this,&SessionController::scheduleSave);
     connect(&player_,&Player::preferenceTargetChanged,this,&SessionController::scheduleSave);
     connect(&player_,&Player::volumeChanged,this,&SessionController::scheduleSave);
     connect(&player_,&Player::mutedChanged,this,&SessionController::scheduleSave);
@@ -158,7 +157,6 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     ensureVisibleWindows(); if(preferences_.maximized) window_.setWindowState(Qt::WindowMaximized);
     host_->restore(preferences_.detached,preferences_.playlistVisible,preferences_.dockWidth);
     applyPlaybackSettings(preferences_);
-    video_->restoreView(preferences_.viewScale, preferences_.viewFocus);
     window_.setWindowSizing(preferences_.sizePolicy, preferences_.lastVideoScale);
     rebuildRecent(); restoring_=false;
     if(settingsNeedWrite_) settingsTimer_.start();
@@ -180,8 +178,6 @@ void SessionController::captureRuntime(Preferences &p) const
     p.subtitleVisible=player_.propertyTarget("sub-visibility").toBool();
     p.audioDelay=player_.propertyTarget("audio-delay").toDouble();
     p.subtitleDelay=player_.propertyTarget("sub-delay").toDouble();
-    p.viewScale=video_->zoomScale();
-    p.viewFocus=video_->viewFocus();
     p.userRotationDeg = player_.propertyTarget("video-rotate").toInt();
     p.sizePolicy = window_.sizePolicy();
     p.lastVideoScale = window_.lastVideoScale();

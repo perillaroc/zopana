@@ -112,7 +112,6 @@ void VideoWidget::resetView()
     cancelGestures();
     view_.reset();
     emit zoomChanged(view_.scale());
-    emit viewChanged();
     update();
 }
 
@@ -221,7 +220,6 @@ void VideoWidget::advanceZoom()
     if (progress == 1)
         zoomTimer_.stop();
     emit zoomChanged(view_.scale());
-    emit viewChanged();
     update();
 }
 
@@ -268,7 +266,6 @@ void VideoWidget::dragTo(QPointF position)
     dragged.moveTo(dragOrigin_ + position - pressPosition_);
     if (dragged.topLeft() == view_.topLeft()) return;
     view_ = dragged;
-    emit viewChanged();
     update();
 }
 
