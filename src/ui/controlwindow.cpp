@@ -166,7 +166,11 @@ QWidget *ControlWindow::createPlaybackPage(PlayerActions &actions, QMenu &chapte
     menu->addAction(actions.get(Id::UndoSeek));
     navigation->setMenu(menu);
     navigation->setPopupMode(QToolButton::InstantPopup);
-    seekLayout->addWidget(navigation, 0, Qt::AlignLeft);
+    auto *navigationRow = new QHBoxLayout;
+    navigationRow->addWidget(navigation);
+    navigationRow->addWidget(actionButton(actions, Id::FrameBackward, "controlFrameBackward"));
+    navigationRow->addStretch();
+    seekLayout->addLayout(navigationRow);
     layout->addWidget(seek);
 
     auto *speed = new QGroupBox(QStringLiteral("倍速"));

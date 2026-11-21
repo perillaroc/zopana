@@ -57,6 +57,7 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(action(PlayerActions::Pitch), &QAction::triggered, this, [this] { player_.setMediaProperty("audio-pitch-correction",!player_.propertyTarget("audio-pitch-correction").toBool()); refresh(); });
     connect(action(PlayerActions::SubLoad), &QAction::triggered, this, &MediaControls::loadSubtitle);
     connect(action(PlayerActions::FrameForward), &QAction::triggered, &player_, &Player::frameStep);
+    connect(action(PlayerActions::FrameBackward), &QAction::triggered, &player_, &Player::frameBackStep);
     connect(action(PlayerActions::LoopA), &QAction::triggered, &player_, &Player::setLoopA);
     connect(action(PlayerActions::LoopB), &QAction::triggered, &player_, &Player::setLoopB);
     connect(action(PlayerActions::LoopClear), &QAction::triggered, &player_, &Player::clearLoop);
@@ -78,6 +79,8 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(&player_, &Player::videoSizeChanged, this, queueRefresh);
     connect(&player_, &Player::videoTransformChanged, this, queueRefresh);
     connect(&player_, &Player::seekableChanged, this, queueRefresh);
+    connect(&player_, &Player::seekActivityChanged, this, &MediaControls::updateFrameActions);
+    connect(&player_, &Player::pausedChanged, this, &MediaControls::updateFrameActions);
     connect(&player_, &Player::seekActivityChanged, this, &MediaControls::updateLoopActions);
     connect(&player_, &Player::durationChanged, this, &MediaControls::updateLoopActions);
     connect(&player_, &Player::audioAvailableChanged, this, &MediaControls::updateLoopActions);
@@ -124,6 +127,7 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     for (auto [id,rate] : rates) rateMenu_->addAction(action(id));
     rateMenu_->addSeparator(); for (auto id : {PlayerActions::RateLess,PlayerActions::RateMore,PlayerActions::Pitch}) rateMenu_->addAction(action(id));
     play->addAction(action(PlayerActions::FrameForward));
+    play->addAction(action(PlayerActions::FrameBackward));
     for (auto id : {PlayerActions::LoopA,PlayerActions::LoopB,PlayerActions::LoopClear}) play->addAction(action(id));
     auto *picture = window.findChild<QMenu *>("pictureMenu"); picture->addSeparator();
     picture->addAction(action(PlayerActions::CaptureSource)); picture->addAction(action(PlayerActions::CaptureViewport)); picture->addAction(action(PlayerActions::CaptureFolder));
@@ -179,7 +183,7 @@ void MediaControls::refresh()
     bar_.setPlaybackRate(speed, loaded || player_.recovering());
     captureReady_ = player_.videoTransformReady() && video_.canCaptureTransform(player_.videoTransformVersion());
     for (auto id : {PlayerActions::CaptureSource,PlayerActions::CaptureViewport}) actions_.get(id)->setEnabled(loaded && captureReady_);
-    actions_.get(PlayerActions::FrameForward)->setEnabled(loaded && video_.canCapture());
+    updateFrameActions();
     updateLoopActions();
     actions_.get(PlayerActions::CaptureFolder)->setEnabled(!captures_->lastSaved().isEmpty());
     actions_.get(PlayerActions::MediaInfo)->setEnabled(!player_.path().isEmpty()); actions_.get(PlayerActions::FileLocation)->setEnabled(QFileInfo::exists(player_.path()));
@@ -191,6 +195,13 @@ void MediaControls::refresh()
     updateSeekNavigation();
     tracksMenu(audioTracks_,"audio"); tracksMenu(subtitleTracks_,"sub"); actions_.refreshIcons();
 }
+void MediaControls::updateFrameActions()
+{
+    actions_.get(PlayerActions::FrameForward)->setEnabled(player_.state() == Player::State::Loaded
+        && video_.canCapture() && !player_.frameBackStepInProgress());
+    actions_.get(PlayerActions::FrameBackward)->setEnabled(captureReady_ && player_.canFrameBackStep());
+}
+
 void MediaControls::updateLoopActions()
 {
     const bool settable = player_.canSetLoopPoint();

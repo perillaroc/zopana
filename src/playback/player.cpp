@@ -404,10 +404,15 @@ void Player::flushSeek()
     const QByteArray target = QByteArray::number(submittedSeek_->target, 'f', 6);
     const char *args[] = {"seek", target.constData(), "absolute+exact", nullptr};
     std::fprintf(stderr, "seek submitted: %s s\n", target.constData());
+    submitSeek(args);
+}
+
+void Player::submitSeek(const char **args, Command command)
+{
     seekStarted_ = seekRestarted_ = false;
     seekRequest_ = nextRequest_;
     seekTimeout_.start();
-    if (!submitControl(Command::Seek, args)) settleSeek(std::nullopt);
+    if (!submitControl(command, args)) settleSeek(std::nullopt);
 }
 
 void Player::finishSeek()
@@ -629,6 +634,17 @@ void Player::handleReply(const mpv_event &event)
         }
         submitPendingLoad(); return;
     }
+    if (request.command == Command::ReadBackStepPause) {
+        if (current && event.reply_userdata == seekRequest_) {
+            const auto *property = static_cast<mpv_event_property *>(event.data);
+            const auto *node = property && property->format == MPV_FORMAT_NODE ? static_cast<mpv_node *>(property->data) : nullptr;
+            if (event.error >= 0 && node && node->format == MPV_FORMAT_FLAG && node->u.flag && videoTransformReady() && seekable_) {
+                pauseTarget_ = true;
+                submitFrameBackStep();
+            } else settleSeek(std::nullopt);
+        }
+        submitPendingLoad(); return;
+    }
     if (request.command == Command::ReadProperty) {
         if (current && event.error >= 0) {
             const auto &property = *static_cast<mpv_event_property *>(event.data);
@@ -666,6 +682,10 @@ void Player::handleReply(const mpv_event &event)
         }
         if (request.command == Command::FramePause && current) {
             if (event.error >= 0) readProperty("pause"); else framePending_ = false;
+        }
+        if (request.command == Command::BackStepPause && current && event.reply_userdata == seekRequest_) {
+            seekRequest_ = nextRequest_;
+            if (event.error < 0 || !readProperty("pause", Command::ReadBackStepPause)) settleSeek(std::nullopt);
         }
         if (request.command == Command::Seek && current && event.reply_userdata == seekRequest_) {
             seekRequest_ = 0;
@@ -950,10 +970,46 @@ void Player::nextTrack(const QString &type)
 void Player::frameStep()
 {
     if (state_ != State::Loaded || videoSize_.isEmpty() || startHeld_) return;
-    if (framePending_) return;
+    if (framePending_ || frameBackStepInProgress()) return;
     clearSeek(); pauseTarget_ = true; framePending_ = true;
     if (!issueProperty("pause",true,Command::FramePause)) framePending_ = false;
 }
+
+bool Player::canFrameBackStep() const
+{
+    return !closing_ && videoTransformReady() && seekable_ && !startHeld_ && !seekInProgress()
+        && std::ranges::any_of(tracks_, [](const auto &track) {
+            return track.type == "video" && track.selected && !track.image;
+        });
+}
+
+void Player::frameBackStep()
+{
+    if (!canFrameBackStep() || framePending_) return;
+    // Use the seek's restart and position confirmation without recording an undo point.
+    // Keep the pre-step position available for renderer recovery while the seek is pending.
+    submittedSeek_ = Seek{position_, std::nullopt, false, true};
+    const auto playback = playbackIdentity();
+    emit seekActivityChanged();
+    if (playback != playbackIdentity() || !frameBackStepInProgress()) return;
+
+    const bool pauseChanging = std::ranges::any_of(requests_, [](const auto &request) {
+        return request.command == Command::Pause;
+    });
+    if (paused_ && pauseTarget_ && !pauseChanging) {
+        submitFrameBackStep();
+    } else {
+        const char *args[] = {"set", "pause", "yes", nullptr};
+        submitSeek(args, Command::BackStepPause);
+    }
+}
+
+void Player::submitFrameBackStep()
+{
+    const char *args[] = {"frame-back-step", nullptr};
+    submitSeek(args);
+}
+
 void Player::setLoopA()
 {
     if (!canSetLoopPoint()) return;
@@ -1016,7 +1072,9 @@ void Player::updateTracks()
         track.ordinal = ordinals[track.type]++; track.language = item.value("lang").toString();
         track.title = item.value("title").toString(); track.codec = item.value("codec").toString();
         track.external = item.value("external").toBool(); track.externalPath = item.value("external-filename").toString();
-        track.selected = item.value("selected").toBool(); tracks_.append(track);
+        track.selected = item.value("selected").toBool();
+        track.image = item.value("image").toBool() || item.value("albumart").toBool();
+        tracks_.append(track);
     }
 }
 

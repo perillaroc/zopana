@@ -59,6 +59,18 @@ if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 & ./experiments/playback-controls/stage-1/run-navigation.ps1 -BuildDir $build -QtRoot $qt
 ```
 
+## 逐帧后退
+
+需要 FFprobe、带 `libx264` 的 FFmpeg 和 `zopana-ui-v1` 素材。探针在真实窗口中检查菜单、小窗和自定义快捷键，生成固定帧率、可变帧率和带标记的样片。它用 FFprobe 找到各采样点的上一帧，对照独立定位所得的画面，并将 PNG、日志和 4K 样片的六组用时写入 `frame-step-` 目录。
+
+```powershell
+cmake --build $build --target zopana_playback_frames
+if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+& ./experiments/playback-controls/stage-1/run-frame-step.ps1 -BuildDir $build -FixtureDir $fixtures -QtRoot $qt
+```
+
+`4k-timings.json` 中的时刻使用同一单调时钟。按键时刻取 Qt 收到应用内按键前，引擎完成取 libmpv 的 `PLAYBACK_RESTART`，显示完成取采样像素首次匹配目标帧时的 `QOpenGLWidget::frameSwapped`。显示耗时截至窗口提交画面。
+
 ## 旋转、窗口与元数据验证
 
 构建同一目录下的两个额外目标。准备 Python 3、FFprobe 和含 `libx264`、`libvpx-vp9` 的 FFmpeg。

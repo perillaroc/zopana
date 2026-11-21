@@ -23,6 +23,7 @@ public:
 signals:
     void alwaysOnTopChanged();
 private:
+    void updateFrameActions();
     void updateLoopActions();
     void rebuildChapters();
     void updateSeekNavigation();

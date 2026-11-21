@@ -32,7 +32,7 @@ struct MediaTrack
     qlonglong id = 0;
     int ordinal = 0;
     QString type, language, title, codec, externalPath;
-    bool external = false, selected = false;
+    bool external = false, selected = false, image = false;
     QString fingerprint() const
     {
         if (external) return type + "|external|" + mediaPathKey(externalPath);

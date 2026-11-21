@@ -51,6 +51,9 @@ public:
     void selectTrack(const QString &type, qlonglong id, quint64 generation);
     void nextTrack(const QString &type);
     void frameStep();
+    void frameBackStep();
+    bool canFrameBackStep() const;
+    bool frameBackStepInProgress() const { return submittedSeek_ && submittedSeek_->backwardFrame; }
     void setLoopA();
     void setLoopB();
     void clearLoop();
@@ -132,7 +135,8 @@ private:
     void queueLoad(bool recovery = false);
     void submitPendingLoad();
     enum class Command { Load, Seek, Pause, Volume, Mute, Stop, Subtitle, ResetLoop,
-                         Property, FramePause, Frame, Screenshot, RestoreProperty, RestoreSubtitle, RestoreSeek, ReadProperty, ReadSeekPosition, FinishOutro };
+                         Property, FramePause, Frame, BackStepPause, ReadBackStepPause, Screenshot, RestoreProperty,
+                         RestoreSubtitle, RestoreSeek, ReadProperty, ReadSeekPosition, FinishOutro };
     struct Request {
         Command command;
         uint64_t generation, epoch;
@@ -154,9 +158,11 @@ private:
     void resetFileDetails();
     void invalidateVideoOutput(int target);
     void confirmVideoOutput();
-    struct Seek { double target; std::optional<double> origin; bool undo = false; };
+    struct Seek { double target; std::optional<double> origin; bool undo = false, backwardFrame = false; };
     void queueSeek(Seek seek);
     void flushSeek();
+    void submitSeek(const char **args, Command command = Command::Seek);
+    void submitFrameBackStep();
     void finishSeek();
     void clearSeek();
     void settleSeek(std::optional<double> confirmedPosition);

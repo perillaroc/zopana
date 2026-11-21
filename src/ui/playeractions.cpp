@@ -46,7 +46,8 @@ constexpr Definition definitions[] = {
     {"rate.decrease","减速 0.25×",""}, {"rate.increase","加速 0.25×",""}, {"rate.reset","1.0×",""},
     {"rate.preset.050","0.5×",""}, {"rate.preset.075","0.75×",""}, {"rate.preset.125","1.25×",""},
     {"rate.preset.150","1.5×",""}, {"rate.preset.200","2.0×",""}, {"rate.preset.300","3.0×",""}, {"audio.pitchCorrection","保持音调",""},
-    {"frame.forward","暂停并前进一帧","step-forward"}, {"loop.setA","设置 A 点",""}, {"loop.setB","设置 B 点",""}, {"loop.clear","清除 A–B",""},
+    {"frame.forward","暂停并前进一帧","step-forward"}, {"frame.backward","后退一帧",""},
+    {"loop.setA","设置 A 点",""}, {"loop.setB","设置 B 点",""}, {"loop.clear","清除 A–B",""},
     {"capture.source","完整画面截图","camera"}, {"capture.viewport","当前取景截图","camera"}, {"capture.openFolder","打开截图文件夹","folder-open"},
     {"window.mediaInfo","媒体信息","info"}, {"file.location","打开文件位置","folder-open"}, {"window.alwaysOnTop","窗口置顶","pin"},
     {"window.settings","设置",""}, {"file.clearHistory","清除最近文件和进度",""},
@@ -188,7 +189,8 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     view(RateLess,{QKeySequence(Qt::Key_BracketLeft)},true); view(RateMore,{QKeySequence(Qt::Key_BracketRight)},true);
     view(RateReset,{QKeySequence(Qt::Key_Backspace)});
     for (auto id : {RateReset,RateHalf,RateThreeQuarter,Rate125,Rate150,Rate200,Rate300,Pitch}) get(id)->setCheckable(true);
-    view(FrameForward,{QKeySequence(Qt::Key_D)}); view(LoopA,{QKeySequence(Qt::Key_A)}); view(LoopB,{QKeySequence(Qt::Key_B)}); view(LoopClear,{QKeySequence(Qt::CTRL|Qt::Key_B)});
+    view(FrameForward,{QKeySequence(Qt::Key_D)}); view(FrameBackward,{});
+    view(LoopA,{QKeySequence(Qt::Key_A)}); view(LoopB,{QKeySequence(Qt::Key_B)}); view(LoopClear,{QKeySequence(Qt::CTRL|Qt::Key_B)});
     get(CaptureSource)->setShortcut(QKeySequence(Qt::CTRL|Qt::Key_S)); get(CaptureViewport)->setShortcut(QKeySequence(Qt::CTRL|Qt::SHIFT|Qt::Key_S));
     view(MediaInfo,{QKeySequence(Qt::Key_I)}); view(AlwaysOnTop,{QKeySequence(Qt::Key_T)}); get(AlwaysOnTop)->setCheckable(true);
     get(Settings)->setShortcut(QKeySequence(Qt::Key_F5));
