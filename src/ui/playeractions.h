@@ -14,6 +14,7 @@ class QAction;
 class QKeyEvent;
 class QMenu;
 class QWidget;
+class VideoWidget;
 
 class PlayerActions final : public QObject
 {
@@ -37,8 +38,9 @@ public:
               SortFileNameDesc, SortTitleDesc, SortExtensionDesc, SortFolderDesc, SortPathDesc, SortSizeDesc, SortModifiedDesc,
               SortCreatedDesc, SortDurationDesc, SortResolutionDesc, SortAddedDesc,
               SortAgain, ReverseQueue, ShuffleQueue, CancelSort, ControlWindowToggle,
-              PreviousChapter, NextChapter, UndoSeek, OpenPlaylistFile, AppendPlaylistFile, ExportPlaylistFile, Count };
-    PlayerActions(QWidget &window, QWidget &video, QWidget &surface);
+              PreviousChapter, NextChapter, UndoSeek, OpenPlaylistFile, AppendPlaylistFile, ExportPlaylistFile,
+              HoldFullView, Count };
+    PlayerActions(QWidget &window, VideoWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     QAction *repeatModeAction(RepeatMode mode) const;
     void addPlaybackOrderActions(QMenu &menu) const;
@@ -82,7 +84,8 @@ private:
     bool watching() const;
     QAction *relativeSeekAction(const QKeyEvent &event) const;
     bool continuesSeekKey(const QKeyEvent &event);
-    QWidget &window_, &video_, &surface_;
+    QWidget &window_, &surface_;
+    QPointer<VideoWidget> video_;
     std::array<QAction *, Count> actions_{};
     std::array<QString, Count> appliedIconNames_;
     qint64 iconPaletteKey_ = 0;
@@ -92,4 +95,6 @@ private:
     std::array<int, 3> seekSteps_{};
     int seekKey_ = 0;
     bool continuingSeekKey_ = false;
+    int fullViewKey_ = 0;
+    quint32 fullViewScanCode_ = 0;
 };

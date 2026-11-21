@@ -65,7 +65,7 @@ void VideoWidget::setInputMode(InputMode mode)
 {
     if (inputMode_ == mode)
         return;
-    cancelGestures();
+    cancelInput();
     inputMode_ = mode;
 }
 
@@ -73,6 +73,7 @@ void VideoWidget::setVideoSize(QSize displaySize, int rotation)
 {
     if (displaySize_ == displaySize && rotation_ == rotation)
         return;
+    cancelFullViewPreview();
     cancelGestures();
     const auto focus = viewFocus();
     const bool rotationChanged = rotation_ != rotation;
@@ -93,6 +94,7 @@ void VideoWidget::setVideoTransform(std::optional<quint64> version)
     videoTransform_ = version;
     paintedTransform_.reset();
     if (version) bufferHasFrame_ = false;
+    cancelFullViewPreview();
     update();
 }
 
@@ -109,13 +111,42 @@ void VideoWidget::restoreView(double scale, QPointF focus)
     update();
 }
 
+bool VideoWidget::beginFullViewPreview(FullViewInput input)
+{
+    if (fullViewPreview_ || !videoTransform_ || !canCaptureTransform(*videoTransform_)) return false;
+    fullViewPreview_ = FullViewPreview{input, zoomScale(), viewFocus()};
+    restoreView(1, {0.5, 0.5});
+    return true;
+}
+
+bool VideoWidget::fullViewPreviewActive(FullViewInput input) const
+{
+    return fullViewPreview_ && fullViewPreview_->input == input;
+}
+
+void VideoWidget::endFullViewPreview(FullViewInput input)
+{
+    if (fullViewPreviewActive(input)) cancelFullViewPreview();
+}
+
+void VideoWidget::cancelFullViewPreview()
+{
+    if (!fullViewPreview_) return;
+    const auto saved = *fullViewPreview_;
+    fullViewPreview_.reset();
+    restoreView(saved.scale, saved.focus);
+}
+
 void VideoWidget::centerView()
 {
-    if (canCapture()) restoreView(view_.scale(), {0.5, 0.5});
+    if (!canCapture()) return;
+    cancelFullViewPreview();
+    restoreView(view_.scale(), {0.5, 0.5});
 }
 
 void VideoWidget::resetView()
 {
+    cancelFullViewPreview();
     cancelGestures();
     view_.reset();
     emit zoomChanged(view_.scale());
@@ -133,7 +164,8 @@ void VideoWidget::cancelGestures()
 
 bool VideoWidget::cancelInput()
 {
-    const bool active = leftPressActive_ || clickTimer_.isActive();
+    const bool active = leftPressActive_ || clickTimer_.isActive() || fullViewPreview_.has_value();
+    cancelFullViewPreview();
     cancelGestures();
     return active;
 }
@@ -195,6 +227,7 @@ void VideoWidget::wheelEvent(QWheelEvent *event)
 void VideoWidget::setZoomScale(double scale)
 {
     if (!canCapture() || leftPressActive_ || !std::isfinite(scale)) return;
+    cancelFullViewPreview();
     zoomTimer_.stop();
     const double previous = view_.scale();
     view_.zoomAt({width() / 2.0, height() / 2.0}, scale);
@@ -209,6 +242,7 @@ void VideoWidget::zoomSteps(double steps) { zoomAt({width() / 2.0, height() / 2.
 void VideoWidget::zoomAt(QPointF pointer, double steps)
 {
     if (!hasFrame_ || !view_.valid() || leftPressActive_) return;
+    cancelFullViewPreview();
     const bool continuing = zoomTimer_.isActive() && (zoomTarget_ - view_.scale()) * steps > 0;
     const double base = continuing ? zoomTarget_ : view_.scale();
     const double target = std::clamp(base * std::pow(1.15, steps), 1.0, 8.0);
@@ -254,6 +288,7 @@ void VideoWidget::mousePressEvent(QMouseEvent *event)
         QOpenGLWidget::mousePressEvent(event);
         return;
     }
+    if (inputMode_ == InputMode::Feature) cancelFullViewPreview();
     leftPressActive_ = true;
     suppressRelease_ = false;
     pressPosition_ = event->position();
@@ -288,9 +323,18 @@ void VideoWidget::dragTo(QPointF position)
     moveViewTo(dragOrigin_ + position - pressPosition_);
 }
 
+bool VideoWidget::canPanBy(QPointF delta) const
+{
+    if (!fullViewPreview_) return view_.canPanBy(delta);
+    auto savedView = view_;
+    savedView.setFocus(fullViewPreview_->scale, rotatedFocus(fullViewPreview_->focus, rotation_));
+    return savedView.canPanBy(delta);
+}
+
 void VideoWidget::panBy(QPointF delta)
 {
     if (!canCapture() || leftPressActive_) return;
+    cancelFullViewPreview();
     zoomTimer_.stop();
     moveViewTo(view_.topLeft() + delta);
 }
@@ -358,6 +402,7 @@ void VideoWidget::initializeGL()
     ownerContext_ = glContext;
     destructionConnection_ = connect(glContext, &QOpenGLContext::aboutToBeDestroyed, this, [this] {
         releaseRenderer();
+        cancelFullViewPreview();
         emit rendererReadyChanged(false);
     }, Qt::DirectConnection);
     mpv_render_context_set_update_callback(renderer_, requestFrameUpdate, this);

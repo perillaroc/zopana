@@ -10,6 +10,7 @@
 #include <QCloseEvent>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
@@ -99,6 +100,9 @@ ControlWindow::ControlWindow(QWidget &main, Player &player, PlayerActions &actio
     tabs_->addTab(createPlaybackPage(actions, chapters), QStringLiteral("播放"));
     framingPage_ = createFramingPage(actions);
     tabs_->addTab(framingPage_, QStringLiteral("缩放与平移"));
+    connect(tabs_, &QTabWidget::currentChanged, this, [this] {
+        if (tabs_->currentWidget() != framingPage_) video_.cancelFullViewPreview();
+    });
     layout->addWidget(tabs_);
     tabs_->setFocus();
 
@@ -276,6 +280,9 @@ QWidget *ControlWindow::createFramingPage(PlayerActions &actions)
     connect(center, &QToolButton::clicked, &video_, &VideoWidget::centerView);
     resetRow->addWidget(center);
     resetRow->addWidget(actionButton(actions, PlayerActions::ResetView, "controlFit"));
+    fullViewButton_ = actionButton(actions, PlayerActions::HoldFullView, "controlFullView");
+    fullViewButton_->installEventFilter(this);
+    resetRow->addWidget(fullViewButton_);
     resetRow->addStretch();
     layout->addLayout(resetRow);
     layout->addStretch();
@@ -354,9 +361,12 @@ bool ControlWindow::viewAvailable() const
 
 void ControlWindow::updateView()
 {
+    using Input = VideoWidget::FullViewInput;
     viewReady_ = viewAvailable();
     if (!viewReady_) cancelPan();
     framingPage_->setEnabled(viewReady_);
+    fullViewButton_->defaultAction()->setEnabled(viewReady_);
+    fullViewButton_->setDown(video_.fullViewPreviewActive(Input::ControlMouse) || video_.fullViewPreviewActive(Input::ControlKey));
     const QSignalBlocker blocker(zoom_);
     zoom_->setValue(qRound(video_.zoomScale() * 100));
     zoomValue_->setText(viewReady_ ? QStringLiteral("%1×").arg(video_.zoomScale(), 0, 'f', 2) : QStringLiteral("—"));
@@ -383,6 +393,7 @@ bool ControlWindow::handlePanPad(QEvent *event)
     if (event->type() == QEvent::MouseButtonPress) {
         auto *mouse = static_cast<QMouseEvent *>(event);
         if (mouse->button() != Qt::LeftButton || !panPad_->isEnabled()) return false;
+        video_.cancelFullViewPreview();
         dragPosition_ = mouse->position();
         panPad_->setCursor(Qt::ClosedHandCursor);
         return true;
@@ -409,6 +420,44 @@ bool ControlWindow::handlePanPad(QEvent *event)
     return false;
 }
 
+bool ControlWindow::handleFullViewButton(QEvent *event)
+{
+    using Input = VideoWidget::FullViewInput;
+    switch (event->type()) {
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::MouseButtonRelease:
+        if (static_cast<QMouseEvent *>(event)->button() != Qt::LeftButton) return false;
+        if (event->type() == QEvent::MouseButtonRelease) {
+            video_.endFullViewPreview(Input::ControlMouse);
+        } else if (fullViewButton_->isEnabled()) {
+            fullViewButton_->setFocus(Qt::MouseFocusReason);
+            video_.beginFullViewPreview(Input::ControlMouse);
+        }
+        return true;
+    case QEvent::KeyPress:
+    case QEvent::KeyRelease: {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() != Qt::Key_Space) return false;
+        if (key->isAutoRepeat()) return true;
+        if (event->type() == QEvent::KeyRelease) video_.endFullViewPreview(Input::ControlKey);
+        else if (fullViewButton_->isEnabled()) video_.beginFullViewPreview(Input::ControlKey);
+        return true;
+    }
+    case QEvent::UngrabMouse:
+        video_.endFullViewPreview(Input::ControlMouse);
+        break;
+    case QEvent::FocusOut:
+    case QEvent::Hide:
+        video_.endFullViewPreview(Input::ControlMouse);
+        video_.endFullViewPreview(Input::ControlKey);
+        break;
+    default:
+        break;
+    }
+    return false;
+}
+
 void ControlWindow::closeEvent(QCloseEvent *event)
 {
     event->ignore();
@@ -417,7 +466,10 @@ void ControlWindow::closeEvent(QCloseEvent *event)
 
 bool ControlWindow::event(QEvent *event)
 {
-    if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::Hide) cancelPan();
+    if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::Hide) {
+        cancelPan();
+        video_.cancelFullViewPreview();
+    }
     return QWidget::event(event);
 }
 
@@ -428,6 +480,8 @@ bool ControlWindow::eventFilter(QObject *object, QEvent *event)
             syncVisibility();
     } else if (object == panPad_) {
         if (handlePanPad(event)) return true;
+    } else if (object == fullViewButton_) {
+        if (handleFullViewButton(event)) return true;
     } else if (event->type() == QEvent::FocusOut || event->type() == QEvent::UngrabMouse) {
         cancelPan();
     }

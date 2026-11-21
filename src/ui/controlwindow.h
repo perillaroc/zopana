@@ -38,6 +38,7 @@ private:
     void updateView();
     void cancelPan();
     bool handlePanPad(QEvent *event);
+    bool handleFullViewButton(QEvent *event);
 
     QWidget &main_;
     Player &player_;
@@ -49,6 +50,7 @@ private:
     QLabel *zoomValue_, *panPad_ = nullptr;
     QSlider *zoom_;
     QWidget *framingPage_;
+    QToolButton *fullViewButton_;
     std::array<QToolButton *, 4> panButtons_{};
     std::optional<QPointF> dragPosition_;
     QTimer noticeTimer_;

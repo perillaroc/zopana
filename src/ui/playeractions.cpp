@@ -1,6 +1,7 @@
 #include "playeractions.h"
 #include "settingsstore.h"
 #include "theme.h"
+#include "videowidget.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -11,6 +12,7 @@
 #include <QScopedValueRollback>
 #include <QSet>
 #include <QWidget>
+#include <algorithm>
 
 namespace {
 struct Definition { const char *id; const char *text; const char *icon; };
@@ -70,7 +72,8 @@ constexpr Definition definitions[] = {
     {"chapter.previous", "上一章", ""}, {"chapter.next", "下一章", ""},
     {"seek.undo", "撤销上次定位", ""},
     {"file.openPlaylist", "打开片单…", ""}, {"file.appendPlaylist", "追加片单…", ""},
-    {"file.exportPlaylist", "导出片单…", ""}
+    {"file.exportPlaylist", "导出片单…", ""},
+    {"view.holdFullView", "按住看全图", ""}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},
@@ -101,8 +104,8 @@ bool timelineNavigationKey(QKeyCombination key)
 }
 }
 
-PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
-    : QObject(&window), window_(window), video_(video), surface_(surface)
+PlayerActions::PlayerActions(QWidget &window, VideoWidget &video, QWidget &surface)
+    : QObject(&window), window_(window), surface_(surface), video_(&video)
 {
     static_assert(std::size(definitions) == Count);
     for (int i = 0; i < Count; ++i) {
@@ -131,6 +134,9 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     };
     view(PlayPause, {QKeySequence(Qt::Key_Space)});
     view(ResetView, {QKeySequence(Qt::Key_R)});
+    view(HoldFullView, {});
+    get(HoldFullView)->setEnabled(false);
+    get(HoldFullView)->setStatusTip(QStringLiteral("按住临时查看全图，松开返回原取景"));
     view(Stop, {QKeySequence(Qt::Key_S)});
     view(BackSmall, {QKeySequence(Qt::Key_Left)}, true); view(ForwardSmall, {QKeySequence(Qt::Key_Right)}, true);
     view(BackMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Left)}, true); view(ForwardMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Right)}, true);
@@ -218,6 +224,7 @@ PlayerActions::PlayerActions(QWidget &window, QWidget &video, QWidget &surface)
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
         if (now != composing_) composing_.clear();
         seekKey_ = 0;
+        if (video_) video_->endFullViewPreview(VideoWidget::FullViewInput::ViewingKey);
     });
     refreshIcons();
 }
@@ -483,24 +490,47 @@ void PlayerActions::attachPlaylist(QWidget &window, QWidget &view)
 bool PlayerActions::watching() const
 {
     auto *focus = QApplication::focusWidget();
-    return viewingInputAllowed() && (!focus || focus == &video_ || focus == &surface_ || focus == &window_);
+    return viewingInputAllowed() && (!focus || focus == video_ || focus == &surface_ || focus == &window_);
 }
 
 bool PlayerActions::eventFilter(QObject *object, QEvent *event)
 {
+    using Input = VideoWidget::FullViewInput;
     if (event->type() == QEvent::InputMethod) {
         const auto *input = static_cast<QInputMethodEvent *>(event);
         if (input->preeditString().isEmpty()) { if (composing_ == object) composing_.clear(); }
         else composing_ = object;
     }
     if (event->type() == QEvent::KeyRelease) {
-        const auto *key = static_cast<QKeyEvent *>(event);
+        auto *key = static_cast<QKeyEvent *>(event);
         if (!key->isAutoRepeat() && key->key() == seekKey_) seekKey_ = 0;
-    } else if (object == &window_ && event->type() == QEvent::WindowDeactivate) {
+        const bool fullViewRelease = fullViewKey_ && (fullViewScanCode_ && key->nativeScanCode()
+            ? fullViewScanCode_ == key->nativeScanCode()
+            : fullViewKey_ == normalized(QKeySequence(key->keyCombination())).key());
+        if (fullViewRelease) {
+            if (!key->isAutoRepeat()) {
+                fullViewKey_ = 0;
+                if (video_) video_->endFullViewPreview(Input::ViewingKey);
+            }
+            if (watching()) { key->accept(); return true; }
+        }
+    } else if (object == &window_ && (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::Hide)) {
         seekKey_ = 0;
+        if (video_) video_->endFullViewPreview(Input::ViewingKey);
     }
     if ((event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) && watching()) {
         auto *key = static_cast<QKeyEvent *>(event);
+        const auto pressed = normalized(QKeySequence(key->keyCombination()));
+        const auto *preview = get(HoldFullView);
+        if (std::ranges::any_of(preview->shortcuts(), [pressed](const auto &sequence) { return normalized(sequence) == pressed; })) {
+            key->accept();
+            if (event->type() == QEvent::KeyPress && !key->isAutoRepeat() && preview->isEnabled()
+                && video_ && video_->beginFullViewPreview(Input::ViewingKey)) {
+                fullViewKey_ = pressed.key();
+                fullViewScanCode_ = key->nativeScanCode();
+            }
+            return true;
+        }
         if (auto *action = relativeSeekAction(*key)) {
             key->accept();
             if (event->type() == QEvent::KeyPress) triggerSeekKey(*action, *key);

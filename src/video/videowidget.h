@@ -19,6 +19,7 @@ class VideoWidget final : public QOpenGLWidget
 
 public:
     enum class InputMode { Feature, Standard };
+    enum class FullViewInput { ViewingKey, ControlMouse, ControlKey };
 
     explicit VideoWidget(mpv_handle *handle, QWidget *parent = nullptr);
     ~VideoWidget() override;
@@ -28,13 +29,17 @@ public:
     void setVideoSize(QSize displaySize, int rotation = 0);
     void setVideoTransform(std::optional<quint64> version);
     void restoreView(double scale, QPointF focus);
+    bool beginFullViewPreview(FullViewInput input);
+    void endFullViewPreview(FullViewInput input);
+    void cancelFullViewPreview();
+    bool fullViewPreviewActive(FullViewInput input) const;
     void resetView();
     void centerView();
     void setZoomScale(double scale);
     void zoomSteps(double steps);
     double zoomScale() const { return view_.scale(); }
     QPointF viewFocus() const;
-    bool canPanBy(QPointF delta) const { return view_.canPanBy(delta); }
+    bool canPanBy(QPointF delta) const;
     void panBy(QPointF delta);
     bool cancelInput();
     bool gestureActive() const { return leftPressActive_; }
@@ -86,6 +91,12 @@ private:
     QSize displaySize_;
     int rotation_ = 0;
     ViewGeometry view_;
+    struct FullViewPreview {
+        FullViewInput input;
+        double scale;
+        QPointF focus;
+    };
+    std::optional<FullViewPreview> fullViewPreview_;
     ViewGeometry zoomStart_;
     QTimer zoomTimer_;
     QTimer clickTimer_;

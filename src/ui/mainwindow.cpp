@@ -240,8 +240,10 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
         context->popup(video_->mapToGlobal(point.x() < 0 ? video_->rect().center() : point));
     });
     connect(video_, &VideoWidget::fullscreenRequested, action(PlayerActions::Fullscreen), &QAction::trigger);
+    connect(video_, &VideoWidget::viewChanged, this, [this] {
+        showMultiplier(zoomLabel_, QStringLiteral("缩放"), videoSize_.isEmpty() ? 1 : video_->zoomScale());
+    });
     connect(video_, &VideoWidget::zoomChanged, this, [this](double scale) {
-        showMultiplier(zoomLabel_, QStringLiteral("缩放"), scale);
         surface_->showOsd("zoom", QStringLiteral("画面 %1×").arg(scale, 0, 'f', 2));
     });
     connect(video_, &VideoWidget::rendererReadyChanged, &player_, &Player::setRendererReady);
@@ -286,7 +288,6 @@ MainWindow::MainWindow(Player &player, QWidget *parent) : QMainWindow(parent), p
         const bool resized = videoSize_ != size;
         videoSize_ = size;
         video_->setVideoSize(size, player_.videoRotation());
-        showMultiplier(zoomLabel_, QStringLiteral("缩放"), size.isEmpty() ? 1 : video_->zoomScale());
         updatePresentation();
         if (resized) scheduleVideoResize();
     });

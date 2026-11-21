@@ -8,14 +8,21 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QKeyEvent>
+#include <QKeySequenceEdit>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QPushButton>
 #include <QScreen>
 #include <QSignalSpy>
 #include <QSlider>
+#include <QTableWidget>
 #include <QTabWidget>
 #include <QTest>
 #include <QToolButton>
@@ -86,8 +93,22 @@ public:
         lifecycle();
         for (const auto mode : {Id::FeatureMode, Id::StandardMode}) playback(mode);
         framing();
+        fullViewPreview();
         window_.close();
         require(until([&] { return !window_.isVisible() && !small_->isVisible(); }), "closing the main player hides the independent control window");
+        player_.shutdown();
+    }
+
+    void verifyRestart()
+    {
+        require(!session_.preferences().resetViewOnOpen && action(Id::HoldFullView)->shortcuts().size() == 2,
+                "the new process reads the saved bindings and inherits framing on file changes");
+        player_.skipNextResume();
+        player_.openFile(fixtures_.filePath("../zopana-ui-m2-v1/long-grid.mp4"));
+        require(until([&] { return zoom()->isEnabled() && player_.videoRotation() == 90; })
+            && video_->zoomScale() == 1 && video_->viewFocus() == QPointF(.5, .5),
+            "a new process starts at 1× centered with the saved 90° rotation");
+        window_.close();
         player_.shutdown();
     }
 
@@ -126,6 +147,8 @@ private:
         auto *toggle = action(Id::ControlWindowToggle);
         auto *toolbar = window_.findChild<QToolButton *>("controlWindowButton");
         auto *view = window_.findChild<QMenu *>("viewMenu");
+        require(!button("controlFullView")->isEnabled() && !action(Id::HoldFullView)->isEnabled(),
+                "the hold action and button are disabled before video is available");
         require(small_->isWindow() && view->actions().contains(toggle) && toolbar->defaultAction() == toggle
             && toggle->shortcut() == QKeySequence(Qt::Key_F7), "independent window, toolbar and View menu share the default F7 action");
         video_->setFocus();
@@ -415,6 +438,8 @@ private:
         queue_->play(ids_[1]);
         require(!right->isDown() && until([&] { return player_.itemId() == ids_[1] && player_.canSeek(); })
             && !zoom()->isEnabled() && !pad->isEnabled() && emptyLoop(), "switching to audio cancels the gesture and clears framing and loop state");
+        require(!button("controlFullView")->isEnabled() && !action(Id::HoldFullView)->isEnabled(),
+                "audio leaves both hold-to-fit inputs disabled");
         auto *play = button("controlPlayPause");
         require(play->isEnabled() && play->isVisible() && label("controlCurrentTime")->isVisible()
             && label("controlDuration")->isVisible(), "the framing tab still shows playback and times for audio");
@@ -425,6 +450,224 @@ private:
         QTest::mouseRelease(right, Qt::LeftButton);
         queue_->play(ids_[0]);
         require(until([&] { return player_.itemId() == ids_[0] && zoom()->isEnabled() && !right->isDown(); }), "video framing controls recover on the next video");
+    }
+
+    bool fitted() const { return video_->zoomScale() == 1 && video_->viewFocus() == QPointF(.5, .5); }
+
+    void bindFullViewShortcut()
+    {
+        bool editorWorked = false;
+        QTimer::singleShot(0, &window_, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            dialog->findChild<QTabWidget *>("settingsTabs")->setCurrentIndex(1);
+            auto *filter = dialog->findChild<QLineEdit *>("shortcutFilter");
+            filter->setFocus();
+            QTest::keyClick(filter, Qt::Key_W);
+            const bool filterWorked = filter->text() == "w" && video_->zoomScale() == 8;
+            filter->setText(QStringLiteral("按住看全图"));
+            auto *table = dialog->findChild<QTableWidget *>("shortcutTable");
+            auto *first = dialog->findChild<QKeySequenceEdit *>("shortcutFirst");
+            auto *second = dialog->findChild<QKeySequenceEdit *>("shortcutSecond");
+            if (table->rowCount() == 1 && first->keySequence().isEmpty()) {
+                first->setFocus();
+                QTest::keyClick(first, Qt::Key_W);
+                second->setFocus();
+                QTest::keyClick(second, Qt::Key_J, Qt::ControlModifier);
+                dialog->findChild<QPushButton *>("setBindingButton")->click();
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+                editorWorked = filterWorked && video_->zoomScale() == 8;
+                filter->clear();
+                filter->setFocus();
+                QTest::keyClick(filter, Qt::Key_W);
+                editorWorked &= filter->text() == "w" && video_->zoomScale() == 8;
+            }
+            dialog->reject();
+        });
+        action(Id::Settings)->trigger();
+        require(editorWorked && action(Id::HoldFullView)->shortcuts() == QList<QKeySequence>{
+            QKeySequence(Qt::Key_W), QKeySequence(Qt::CTRL | Qt::Key_J)}, "settings records both bindings and keeps the filter editable");
+    }
+
+    void fullViewPreview()
+    {
+        const QPointF focus(.525, .432);
+        auto *hold = button("controlFullView");
+        require(action(Id::HoldFullView)->shortcuts().isEmpty() && action(Id::ResetView)->shortcut() == QKeySequence(Qt::Key_R),
+                "hold-to-fit is unbound by default and R is still the one-shot fit");
+        player_.seek(30.24);
+        player_.setPaused(true);
+        require(until([&] { return player_.paused() && !player_.seekInProgress() && near(player_.position(), 30.24, .001); }),
+                "settle on one marked frame at 30.24 seconds");
+        tabs()->setCurrentIndex(1);
+        activate(small_);
+        zoom()->setValue(800);
+        video_->restoreView(8, focus);
+        const auto unchanged = [&] {
+            return video_->zoomScale() == 8 && (video_->viewFocus() - focus).manhattanLength() < .00001;
+        };
+        const auto samePausedFrame = [&] {
+            return player_.paused() && near(player_.position(), 30.24, .001) && player_.videoRotation() == 90;
+        };
+        const auto markerVisible = [this](const QImage &image, double scale, QPointF center) {
+            ViewGeometry framing;
+            framing.setSizes(video_->size(), QSizeF(540, 960));
+            framing.setFocus(scale, {1 - center.y(), center.x()});
+            const QPointF point = framing.topLeft() + QPointF((1 - 212.0 / 540) * framing.frameSize().width(),
+                                                            .55 * framing.frameSize().height());
+            const QPoint pixel(qRound(point.x() * image.width() / video_->width()),
+                               qRound(point.y() * image.height() / video_->height()));
+            if (!image.rect().contains(pixel)) return false;
+            const auto color = image.pixelColor(pixel);
+            return color.red() > 190 && color.green() > 55 && color.green() < 175 && color.blue() < 125;
+        };
+        const auto before = video_->grabFramebuffer();
+        require(hold->isEnabled() && samePausedFrame() && markerVisible(before, 8, focus),
+                "the off-center orange marker is visible on the rotated 8× crop");
+        QTest::mousePress(hold, Qt::LeftButton);
+        const auto full = video_->grabFramebuffer();
+        require(fitted() && hold->isDown() && zoom()->value() == 100 && markerVisible(full, 1, {.5, .5})
+            && samePausedFrame(), "press shows the full rotated picture and keeps the paused frame");
+        require(before.save(output_.filePath("before-hold.png")) && full.save(output_.filePath("during-hold.png"))
+            && small_->grab().save(output_.filePath("hold-control.png")), "save the rotated crop, full picture and held control");
+        dragMove(hold, {-8, -8});
+        require(fitted(), "pointer motion outside the button keeps the preview until release");
+        QTest::mouseRelease(hold, Qt::LeftButton);
+        const auto restored = video_->grabFramebuffer();
+        require(unchanged() && zoom()->value() == 800 && samePausedFrame() && restored == before
+            && restored.save(output_.filePath("after-hold.png")), "mouse release restores the exact paused crop");
+
+        bindFullViewShortcut();
+        activate(&window_);
+        video_->setFocus();
+        QTest::keyPress(video_, Qt::Key_W);
+        for (const auto type : {QEvent::KeyRelease, QEvent::KeyPress}) {
+            QKeyEvent repeat(type, Qt::Key_W, Qt::NoModifier, "w", true);
+            QApplication::sendEvent(video_, &repeat);
+        }
+        require(fitted() && video_->grabFramebuffer() == full, "holding the configured key shows the same frame through keyboard auto-repeat");
+        QTest::keyRelease(video_, Qt::Key_W);
+        require(unchanged() && samePausedFrame() && video_->grabFramebuffer() == before, "key release restores the exact paused crop");
+
+        action(Id::Playlist)->setChecked(false);
+        action(Id::Playlist)->trigger();
+        auto *search = window_.findChild<QLineEdit *>("playlistSearch");
+        search->setFocus();
+        QTest::keyClick(search, Qt::Key_W);
+        require(search->text() == "w" && unchanged(), "the playlist search receives a bound letter as text");
+        search->clear();
+        action(Id::Playlist)->trigger();
+        video_->setFocus();
+
+        QTest::keyPress(video_, Qt::Key_W);
+        QTest::keyClick(video_, Qt::Key_Minus);
+        const double reduced = 8 / 1.15;
+        require(until([&] { return near(video_->zoomScale(), reduced, .00001); }), "zoom steps start from the saved 8× framing");
+        QTest::keyPress(video_, Qt::Key_J, Qt::ControlModifier);
+        QTest::keyRelease(video_, Qt::Key_W);
+        require(fitted(), "release of the interrupted key leaves the new hold active");
+        QTest::keyRelease(video_, Qt::Key_Control);
+        QTest::keyRelease(video_, Qt::Key_J);
+        require(near(video_->zoomScale(), reduced, .00001), "the new hold ends when its main key is released");
+
+        video_->restoreView(8, focus);
+        QTest::keyPress(video_, Qt::Key_W);
+        const auto origin = video_->rect().center();
+        QTest::mousePress(video_, Qt::LeftButton, Qt::NoModifier, origin);
+        dragMove(video_, origin + QPoint(40, 30));
+        QTest::mouseRelease(video_, Qt::LeftButton, Qt::NoModifier, origin + QPoint(40, 30));
+        const auto moved = video_->viewFocus();
+        QTest::keyRelease(video_, Qt::Key_W);
+        require(video_->zoomScale() == 8 && moved != focus && video_->viewFocus() == moved,
+                "a main video drag continues from the original zoom and survives the old key release");
+        QTest::keyPress(video_, Qt::Key_W);
+        QTest::keyClick(video_, Qt::Key_R);
+        QTest::keyRelease(video_, Qt::Key_W);
+        require(fitted(), "R stays at fit after an interrupted preview");
+        video_->restoreView(8, focus);
+        QTest::keyPress(video_, Qt::Key_W);
+        QTest::keyClick(video_, Qt::Key_K, Qt::AltModifier);
+        require(until([&] { return player_.videoRotation() == 180 && zoom()->isEnabled(); }) && unchanged(),
+                "rotation restores framing before changing the angle");
+        QTest::keyRelease(video_, Qt::Key_W);
+        QTest::keyClick(video_, Qt::Key_K, Qt::AltModifier | Qt::ShiftModifier);
+        require(until([&] { return player_.videoRotation() == 90 && zoom()->isEnabled(); }) && unchanged(),
+                "late release and reverse rotation preserve the original content point");
+
+        activate(small_);
+        hold->setFocus();
+        QTest::keyPress(hold, Qt::Key_Space);
+        require(fitted(), "Space holds the focused control");
+        button("controlCenter")->click();
+        QTest::keyRelease(hold, Qt::Key_Space);
+        require(video_->zoomScale() == 8 && video_->viewFocus() == QPointF(.5, .5),
+                "Center keeps the saved 8× zoom and the old release leaves it centered");
+        video_->restoreView(8, focus);
+        QTest::mousePress(hold, Qt::LeftButton);
+        tabs()->setCurrentIndex(0);
+        require(!hold->isDown() && unchanged(), "leaving the framing tab ends the hold");
+        QTest::mouseRelease(hold, Qt::LeftButton);
+        tabs()->setCurrentIndex(1);
+        QTest::mousePress(hold, Qt::LeftButton);
+        small_->close();
+        require(!hold->isDown() && unchanged(), "hiding the control window ends the hold");
+        QTest::mouseRelease(hold, Qt::LeftButton);
+        showSmall();
+        QTest::mousePress(hold, Qt::LeftButton);
+        activate(&window_);
+        video_->setFocus();
+        require(!hold->isDown() && unchanged(), "switching focus ends the mouse hold");
+        QTest::keyPress(video_, Qt::Key_W);
+        QTest::mouseRelease(hold, Qt::LeftButton);
+        require(fitted(), "a late mouse release leaves the viewing shortcut active");
+        activate(small_);
+        require(unchanged(), "switching focus ends the viewing shortcut hold");
+        QTest::keyRelease(video_, Qt::Key_W);
+
+        activate(&window_);
+        video_->setFocus();
+        player_.setPaused(false);
+        require(until([&] { return !player_.paused(); }), "resume the marked clip");
+        const auto position = player_.position();
+        QTest::keyPress(video_, Qt::Key_W);
+        require(until([&] { return player_.position() > position + .2; }) && !player_.paused() && fitted(),
+                "playback advances through the held full view");
+        QTest::keyRelease(video_, Qt::Key_W);
+        require(unchanged() && !player_.paused(), "release restores the crop while playback continues");
+
+        const auto other = queue_->addFiles({fixtures_.filePath("grid.mp4")}, false).value(0);
+        QTest::keyPress(video_, Qt::Key_W);
+        queue_->play(other);
+        require(until([&] { return player_.itemId() == other && zoom()->isEnabled(); }) && unchanged(),
+                "switching clips inherits the pre-preview framing");
+        QTest::keyRelease(video_, Qt::Key_W);
+        require(unchanged(), "an old shortcut release leaves the new clip alone");
+
+        auto preferences = session_.preferences();
+        preferences.resetViewOnOpen = true;
+        preferences.userRotationDeg = 90;
+        require(session_.applyPreferences(preferences), "enable Fit on open");
+        showSmall();
+        QTest::mousePress(hold, Qt::LeftButton);
+        queue_->play(ids_[0]);
+        require(until([&] { return player_.itemId() == ids_[0] && zoom()->isEnabled(); }) && fitted() && !hold->isDown(),
+                "Fit on open resets a clip change during a mouse hold");
+        QTest::mouseRelease(hold, Qt::LeftButton);
+        require(fitted(), "the old mouse release leaves the new clip at fit");
+
+        video_->restoreView(8, focus);
+        QTest::mousePress(hold, Qt::LeftButton);
+        player_.setRendererReady(false);
+        require(unchanged() && !hold->isDown() && !hold->isEnabled(), "renderer recovery clears the preview");
+        player_.setRendererReady(true);
+        require(until([&] { return hold->isEnabled(); }) && unchanged(), "the recovered renderer shows the saved framing");
+        QTest::mouseRelease(hold, Qt::LeftButton);
+        QTest::mousePress(hold, Qt::LeftButton);
+        player_.stop();
+        require(!hold->isDown() && !hold->isEnabled() && unchanged(), "stopping clears the preview and disables the control");
+        QTest::mouseRelease(hold, Qt::LeftButton);
+        preferences.resetViewOnOpen = false;
+        require(session_.applyPreferences(preferences) && unchanged(), "retain the 8× framing before exiting with inheritance enabled");
     }
 
     QDir fixtures_, output_;
@@ -447,10 +690,12 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     app.setApplicationName("zopana control window probe");
     const auto arguments = app.arguments();
-    if (arguments.size() != 3 || !QDir().mkpath(arguments[2])) return 2;
+    const bool restart = arguments.size() == 4 && arguments.at(3) == "--restart";
+    if ((!restart && arguments.size() != 3) || !QDir().mkpath(arguments[2])) return 2;
     try {
         Suite suite(arguments[1], arguments[2]);
-        suite.run();
+        if (restart) suite.verifyRestart();
+        else suite.run();
         return 0;
     } catch (const std::exception &error) {
         std::fprintf(stderr, "FAIL %s\n", error.what());
