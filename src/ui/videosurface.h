@@ -4,6 +4,7 @@
 #include <QTimer>
 
 class QAction;
+class QImage;
 class QLabel;
 class QToolButton;
 class VideoWidget;
@@ -15,6 +16,7 @@ public:
     explicit VideoSurface(VideoWidget *video, QWidget *parent = nullptr);
     void present(const QString &title, const QString &body, QAction *primary, QAction *secondary = nullptr);
     void showVideo();
+    void setReferenceFrame(const QImage &image, const QString &notice);
     void setControls(QWidget *controls);
     void setFullscreen(bool fullscreen, int topInset);
     int overlayTop() const { return 24 + topInset_; }
@@ -30,7 +32,9 @@ protected:
 
 private:
     void arrange();
+    void positionNotices();
     VideoWidget *video_;
+    QLabel *referenceImage_, *referenceNotice_;
     QWidget *card_;
     QLabel *title_, *body_;
     QToolButton *primary_, *secondary_;

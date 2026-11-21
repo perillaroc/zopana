@@ -71,6 +71,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
 `4k-timings.json` 中的时刻使用同一单调时钟。按键时刻取 Qt 收到应用内按键前，引擎完成取 libmpv 的 `PLAYBACK_RESTART`，显示完成取采样像素首次匹配目标帧时的 `QOpenGLWidget::frameSwapped`。显示耗时截至窗口提交画面。
 
+加 `-Reference` 运行参考帧对照用例。探针使用带标记的样片，验证 90°、8× 下的双向逐帧、显示切换、撤销定位和参考帧清理，并在 `reference-` 目录保留两种显示的剪贴板图像及对应 PNG。此模式会写入系统剪贴板。
+
 ## 旋转、窗口与元数据验证
 
 构建同一目录下的两个额外目标。准备 Python 3、FFprobe 和含 `libx264`、`libvpx-vp9` 的 FFmpeg。

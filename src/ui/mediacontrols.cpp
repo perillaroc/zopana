@@ -57,8 +57,14 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(action(PlayerActions::SubToggle), &QAction::triggered, this, [this] { player_.setMediaProperty("sub-visibility",!player_.propertyTarget("sub-visibility").toBool()); refresh(); });
     connect(action(PlayerActions::Pitch), &QAction::triggered, this, [this] { player_.setMediaProperty("audio-pitch-correction",!player_.propertyTarget("audio-pitch-correction").toBool()); refresh(); });
     connect(action(PlayerActions::SubLoad), &QAction::triggered, this, &MediaControls::loadSubtitle);
-    connect(action(PlayerActions::FrameForward), &QAction::triggered, &player_, &Player::frameStep);
-    connect(action(PlayerActions::FrameBackward), &QAction::triggered, &player_, &Player::frameBackStep);
+    connect(action(PlayerActions::FrameForward), &QAction::triggered, this, [this] {
+        captures_->showLiveViewport();
+        player_.frameStep();
+    });
+    connect(action(PlayerActions::FrameBackward), &QAction::triggered, this, [this] {
+        captures_->showLiveViewport();
+        player_.frameBackStep();
+    });
     connect(action(PlayerActions::LoopA), &QAction::triggered, &player_, &Player::setLoopA);
     connect(action(PlayerActions::LoopB), &QAction::triggered, &player_, &Player::setLoopB);
     connect(action(PlayerActions::LoopClear), &QAction::triggered, &player_, &Player::clearLoop);
@@ -71,6 +77,15 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
         clipboard->setImage(image);
         if (clipboard->ownsClipboard()) surface_.showOsd("capture", QStringLiteral("已复制当前取景"));
         else surface_.showOsd("error", QStringLiteral("无法写入剪贴板"), 3000);
+    });
+    connect(action(PlayerActions::PinReferenceFrame), &QAction::triggered, this, [this] {
+        if (captures_->pinReference()) surface_.showOsd("reference", QStringLiteral("已固定参考帧"));
+    });
+    connect(action(PlayerActions::ToggleReferenceFrame), &QAction::triggered, captures_, &CaptureService::toggleReference);
+    connect(action(PlayerActions::ClearReferenceFrame), &QAction::triggered, captures_, &CaptureService::clearReference);
+    connect(captures_, &CaptureService::referenceChanged, this, &MediaControls::updateReferenceDisplay);
+    connect(captures_, &CaptureService::referenceInvalidated, this, [this] {
+        surface_.showOsd("reference", QStringLiteral("取景已改变，请重新固定参考帧"), 3000);
     });
     connect(action(PlayerActions::CaptureFolder), &QAction::triggered, this, [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(captures_->lastSaved()).absolutePath())); });
     connect(action(PlayerActions::FileLocation), &QAction::triggered, this, [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(player_.path()).absolutePath())); });
@@ -89,12 +104,14 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     connect(&player_, &Player::videoTransformChanged, this, queueRefresh);
     connect(&player_, &Player::seekableChanged, this, queueRefresh);
     connect(&player_, &Player::seekActivityChanged, this, &MediaControls::updateFrameActions);
+    connect(&player_, &Player::seekActivityChanged, this, &MediaControls::updateReferenceActions);
     connect(&player_, &Player::pausedChanged, this, &MediaControls::updateFrameActions);
     connect(&player_, &Player::seekActivityChanged, this, &MediaControls::updateLoopActions);
     connect(&player_, &Player::durationChanged, this, &MediaControls::updateLoopActions);
     connect(&player_, &Player::audioAvailableChanged, this, &MediaControls::updateLoopActions);
     connect(&player_, &Player::mediaChanged, this, &MediaControls::updateVideoActions);
     connect(&player_, &Player::videoTransformChanged, this, &MediaControls::updateVideoActions);
+    connect(&video_, &VideoWidget::viewChanged, this, &MediaControls::updateReferenceActions);
     connect(&video_, &QOpenGLWidget::frameSwapped, this, [this] {
         if (captures_->canCaptureViewport() != captureReady_) updateVideoActions();
     });
@@ -142,6 +159,9 @@ MediaControls::MediaControls(Player &player, PlayerActions &actions, VideoWidget
     for (auto id : {PlayerActions::LoopA,PlayerActions::LoopB,PlayerActions::LoopClear}) play->addAction(action(id));
     auto *picture = window.findChild<QMenu *>("pictureMenu"); picture->addSeparator();
     for (auto id : {PlayerActions::CaptureSource, PlayerActions::CaptureViewport, PlayerActions::CopyViewport, PlayerActions::CaptureFolder})
+        picture->addAction(action(id));
+    picture->addSeparator();
+    for (auto id : {PlayerActions::PinReferenceFrame, PlayerActions::ToggleReferenceFrame, PlayerActions::ClearReferenceFrame})
         picture->addAction(action(id));
     auto *view = window.findChild<QMenu *>("viewMenu"); view->addAction(action(PlayerActions::AlwaysOnTop)); view->addAction(action(PlayerActions::MediaInfo));
     window.findChild<QMenu *>("fileMenu")->addAction(action(PlayerActions::FileLocation));
@@ -209,9 +229,31 @@ void MediaControls::refresh()
 void MediaControls::updateVideoActions()
 {
     captureReady_ = captures_->canCaptureViewport();
-    for (auto id : {PlayerActions::CaptureSource, PlayerActions::CaptureViewport, PlayerActions::CopyViewport})
-        actions_.get(id)->setEnabled(captureReady_);
+    actions_.get(PlayerActions::CaptureSource)->setEnabled(captureReady_);
+    for (auto id : {PlayerActions::CaptureViewport, PlayerActions::CopyViewport})
+        actions_.get(id)->setEnabled(captureReady_ || captures_->shownReference());
     updateFrameActions();
+    updateReferenceActions();
+}
+
+void MediaControls::updateReferenceActions()
+{
+    auto *toggle = actions_.get(PlayerActions::ToggleReferenceFrame);
+    toggle->setEnabled(captures_->hasReference() && !video_.fullViewPreviewActive());
+    toggle->setText(captures_->shownReference() ? QStringLiteral("返回当前画面") : QStringLiteral("查看参考帧"));
+    actions_.get(PlayerActions::PinReferenceFrame)->setEnabled(captures_->canPinReference());
+    actions_.get(PlayerActions::ClearReferenceFrame)->setEnabled(captures_->hasReference());
+}
+
+void MediaControls::updateReferenceDisplay()
+{
+    if (const auto *reference = captures_->shownReference()) {
+        surface_.setReferenceFrame(reference->image,
+            QStringLiteral("正在查看参考帧 · %1").arg(PlaybackDialogs::timestamp(reference->position)));
+    } else {
+        surface_.setReferenceFrame({}, {});
+    }
+    updateVideoActions();
 }
 
 void MediaControls::updateFrameActions()

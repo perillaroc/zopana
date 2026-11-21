@@ -1,14 +1,16 @@
 param(
     [Parameter(Mandatory)] [string]$BuildDir,
     [Parameter(Mandatory)] [string]$FixtureDir,
-    [string]$QtRoot = 'C:/lang/qt/6.11.3/msvc2022_64'
+    [string]$QtRoot = 'C:/lang/qt/6.11.3/msvc2022_64',
+    [switch]$Reference
 )
 
 $ErrorActionPreference = 'Stop'
 $buildPath = (Resolve-Path -LiteralPath $BuildDir).Path
 $fixtures = (Resolve-Path -LiteralPath $FixtureDir).Path
 $exe = (Resolve-Path -LiteralPath "$buildPath/zopana_playback_frames.exe").Path
-$runPath = Join-Path $buildPath ('frame-step-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$prefix = if ($Reference) { 'reference-' } else { 'frame-step-' }
+$runPath = Join-Path $buildPath ($prefix + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $runPath | Out-Null
 
 function New-Fixture {
@@ -41,15 +43,21 @@ $previousPlatform = $env:QT_QPA_PLATFORM_PLUGIN_PATH
 try {
     $env:PATH = "$QtRoot/bin;$env:PATH"
     $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$QtRoot/plugins/platforms"
-    & $exe $fixtures $runPath 2>&1 | Out-File -LiteralPath $log -Encoding utf8
+    $probeArgs = @($fixtures, $runPath)
+    if ($Reference) { $probeArgs += '--reference' }
+    & $exe @probeArgs 2>&1 | Out-File -LiteralPath $log -Encoding utf8
     if ($LASTEXITCODE) {
         Get-Content -LiteralPath $log -Tail 65 -Encoding utf8
         throw "Frame step probe failed ($LASTEXITCODE)"
     }
     $checks = @(Select-String -LiteralPath $log -Pattern '^PASS ').Count
     $environment = (Select-String -LiteralPath $log -Pattern '^Qt ').Line
-    Write-Output "PASS frame step ($checks checks, $environment)"
-    Select-String -LiteralPath $log -Pattern '^4K ' | ForEach-Object Line
+    if ($Reference) {
+        Write-Output "PASS reference comparison ($checks checks, $environment)"
+    } else {
+        Write-Output "PASS frame step ($checks checks, $environment)"
+        Select-String -LiteralPath $log -Pattern '^4K ' | ForEach-Object Line
+    }
 } finally {
     $env:PATH = $previousPath
     $env:QT_QPA_PLATFORM_PLUGIN_PATH = $previousPlatform

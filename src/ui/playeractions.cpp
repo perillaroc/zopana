@@ -74,7 +74,10 @@ constexpr Definition definitions[] = {
     {"file.openPlaylist", "打开片单…", ""}, {"file.appendPlaylist", "追加片单…", ""},
     {"file.exportPlaylist", "导出片单…", ""},
     {"view.holdFullView", "按住看全图", ""},
-    {"capture.copyViewport", "复制当前取景", ""}
+    {"capture.copyViewport", "复制当前取景", ""},
+    {"view.pinReferenceFrame", "固定当前帧", ""},
+    {"view.toggleReferenceFrame", "查看参考帧", ""},
+    {"view.clearReferenceFrame", "清除参考帧", ""}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},

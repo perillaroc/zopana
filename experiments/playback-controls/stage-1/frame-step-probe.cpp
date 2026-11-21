@@ -2,10 +2,12 @@
 #include "mainwindow.h"
 #include "playeractions.h"
 #include "sessioncontroller.h"
+#include "videosurface.h"
 #include "videowidget.h"
 
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -16,6 +18,7 @@
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QKeySequenceEdit>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QOpenGLContext>
@@ -252,13 +255,15 @@ struct Probe
         QApplication::sendEvent(video, &event);
     }
 
-    void menuBack()
+    void clickMenuAction(const char *name, QAction *action)
     {
-        auto *menu = main.findChild<QMenu *>("playMenu");
+        auto *menu = main.findChild<QMenu *>(name);
         menu->popup(video->mapToGlobal(QPoint(20, 20)));
-        if (!until([&] { return menu->isVisible(); })) throw std::runtime_error("open the playback menu");
-        QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier, menu->actionGeometry(back).center());
+        if (!until([&] { return menu->isVisible(); })) throw std::runtime_error("open the player menu");
+        QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier, menu->actionGeometry(action).center());
     }
+
+    void menuBack() { clickMenuAction("playMenu", back); }
 
     void bindShortcut()
     {
@@ -488,12 +493,14 @@ struct Probe
         check(requests.isEmpty(), "the player also rejects direct reverse stepping on a non-seekable video");
     }
 
-    QImage capture(Id id)
+    QImage capture(Id id, QString *path = nullptr)
     {
         QSignalSpy saved(main.findChild<CaptureService *>(), &CaptureService::saved);
         actions->get(id)->trigger();
         check(until([&] { return saved.size() == 1; }), "production capture saves a PNG");
-        return QImage(saved.front()[0].toString());
+        const auto savedPath = saved.front()[0].toString();
+        if (path) *path = savedPath;
+        return QImage(savedPath);
     }
 
     void framing()
@@ -535,6 +542,181 @@ struct Probe
         actions->get(Id::RotateReset)->trigger();
         check(until([&] { return player.videoRotation() == 0 && back->isEnabled(); }), "restore orientation for timing");
         video->resetView();
+    }
+
+    void referenceComparison()
+    {
+        auto *captures = main.findChild<CaptureService *>();
+        auto *pin = actions->get(Id::PinReferenceFrame);
+        auto *toggle = actions->get(Id::ToggleReferenceFrame);
+        auto *clear = actions->get(Id::ClearReferenceFrame);
+        auto *picture = main.findChild<QMenu *>("pictureMenu");
+        auto *layer = main.findChild<QLabel *>("referenceFrameImage");
+        auto *notice = main.findChild<QLabel *>("referenceFrameNotice");
+        auto *pinButton = control->findChild<QToolButton *>("controlPinReferenceFrame");
+        auto *toggleButton = control->findChild<QToolButton *>("controlToggleReferenceFrame");
+        auto *clearButton = control->findChild<QToolButton *>("controlClearReferenceFrame");
+        const auto visible = [&] { return layer->isVisible() && notice->isVisible(); };
+        const auto noReference = [&] {
+            return !captures->hasReference() && !toggle->isEnabled() && !clear->isEnabled()
+                && !visible() && layer->pixmap().isNull();
+        };
+        check(!pin->isEnabled() && noReference(), "reference operations are disabled without video");
+        check(pinButton->defaultAction() == pin && toggleButton->defaultAction() == toggle
+            && clearButton->defaultAction() == clear && picture->actions().contains(pin)
+            && picture->actions().contains(toggle) && picture->actions().contains(clear),
+            "the Picture menu and framing tab share all three reference actions");
+
+        openVideo(evidence.filePath("marker.mkv"));
+        actions->get(Id::RotateNext)->trigger();
+        check(until([&] { return player.videoRotation() == 90 && pin->isEnabled(); }), "the rotated video can be pinned");
+        video->restoreView(8, {.505, .46});
+        prime(.96);
+        player.seek(1);
+        at(1, "seek to the green marker and establish an undo point");
+        const auto rgb = [](const QImage &image) { return image.convertToFormat(QImage::Format_RGB32); };
+        const auto viewport = [&] { return rgb(captures->viewportImage()); };
+        const auto green = viewport();
+        check(greenMarker(green).isValid() && green.size() == video->framing().viewportPixels
+            && video->zoomScale() == 8 && player.canUndoSeek(), "the 90-degree 8× crop contains the green marker");
+        actions->get(Id::ControlWindowToggle)->setChecked(true);
+        activate(*control);
+        control->findChild<QTabWidget *>("controlTabs")->setCurrentIndex(1);
+        QTest::mouseClick(pinButton, Qt::LeftButton);
+        check(toggleButton->isEnabled() && clearButton->isEnabled() && !visible(),
+            "pinning from the framing tab leaves the current view visible");
+
+        activate(main);
+        const auto playback = player.playbackIdentity();
+        const auto beforeToggle = requests.size();
+        clickMenuAction("pictureMenu", toggle);
+        check(visible() && notice->text().contains("00:00:01.000")
+            && toggleButton->text() == QStringLiteral("返回当前画面")
+            && rgb(layer->grab().toImage()) == green, "the Picture menu shows the exact reference pixels with a separate time label");
+        check(playback == player.playbackIdentity() && player.paused() && near(player.position(), 1)
+            && player.canUndoSeek() && requests.size() == beforeToggle, "toggling the reference queues no playback operation");
+
+        activate(*control);
+        QTest::mouseClick(control->findChild<QToolButton *>("controlReferenceFrameForward"), Qt::LeftButton);
+        check(!visible() && toggle->isEnabled(), "the framing-tab forward step returns to live and retains the reference");
+        at(1.04, "forward step reaches the blue-marker frame");
+        const auto blue = viewport();
+        check(!blue.isNull() && blue != green && !greenMarker(blue).isValid(),
+            "the next frame differs from the pinned green-marker frame");
+
+        const auto checkOutputs = [&](const QImage &expected, const QString &name, const QString &time) {
+            QTest::mouseClick(control->findChild<QToolButton *>("controlCopyViewport"), Qt::LeftButton);
+            const auto clipboard = rgb(QApplication::clipboard()->image());
+            QString file;
+            const auto screenshot = rgb(capture(Id::CaptureViewport, &file));
+            check(clipboard == expected && screenshot == expected
+                && QFileInfo(file).fileName().contains('-' + time + "s-viewport-"),
+                "clipboard and viewport PNG match the shown frame, with its time in the filename");
+            check(clipboard.save(evidence.filePath(name + "-clipboard.png"))
+                && QFile::copy(file, evidence.filePath(name + "-viewport.png")), "retain image output evidence");
+        };
+        checkOutputs(blue, "live", "1.040");
+        const auto liveSource = capture(Id::CaptureSource);
+        QTest::mouseClick(toggleButton, Qt::LeftButton);
+        check(visible() && viewport() == green && near(player.position(), 1.04) && player.paused(),
+            "the pinned green view can be compared against the blue frame without moving playback");
+        main.findChild<VideoSurface *>()->dismissOsd();
+        check(main.grab().save(evidence.filePath("reference-window.png"))
+            && control->grab().save(evidence.filePath("reference-controls.png")), "retain the reference display and controls");
+        checkOutputs(green, "reference", "1.000");
+        check(capture(Id::CaptureSource) == liveSource && liveSource.size() == QSize(360, 640),
+            "the full-frame screenshot still comes from the current live frame");
+
+        QTest::mouseClick(control->findChild<QToolButton *>("controlReferenceFrameBackward"), Qt::LeftButton);
+        check(!visible() && toggle->isEnabled(), "the framing-tab backward step also returns to live");
+        at(1, "backward step returns to the original green frame");
+        check(greenMarker(viewport()) == greenMarker(green) && player.canUndoSeek(), "reverse step restores the marker without replacing the undo point");
+        toggle->trigger();
+        actions->get(Id::UndoSeek)->trigger();
+        check(!visible() && toggle->isEnabled(), "undo returns to live while keeping the reference available");
+        at(.96, "undo reaches the position recorded before fixing the reference");
+        toggle->trigger();
+        player.seek(1.04);
+        check(!visible() && toggle->isEnabled(), "a manual seek returns to live and keeps the reference");
+        at(1.04, "manual seek returns to the blue marker");
+
+        toggle->trigger();
+        video->setVideoTransform(std::nullopt);
+        check(!captures->pinReference() && viewport() == green && visible(),
+            "an unavailable live capture leaves the shown reference in place");
+        video->setVideoTransform(player.videoTransformVersion());
+        check(until([&] { return video->canCaptureTransform(player.videoTransformVersion()); }), "live output becomes available for replacement");
+        pin->trigger();
+        check(visible() && viewport() == blue && notice->text().contains("00:00:01.040"),
+            "pinning over a reference replaces it with the actual live frame");
+
+        auto *hold = control->findChild<QToolButton *>("controlFullView");
+        QTest::mousePress(hold, Qt::LeftButton);
+        check(!visible() && !toggle->isEnabled() && video->zoomScale() == 1, "hold to fit starts from live video");
+        QTest::mouseRelease(hold, Qt::LeftButton);
+        check(!visible() && toggle->isEnabled() && video->zoomScale() == 8,
+            "releasing hold to fit restores the crop and keeps the reference");
+        toggle->trigger();
+        video->restoreView(video->zoomScale(), video->viewFocus());
+        check(visible() && viewport() == blue, "an unchanged view preserves the pinned reference");
+
+        player.setPaused(false);
+        check(until([&] { return !player.paused() && player.position() > 1.16; }) && visible() && viewport() == blue,
+            "live playback advances while the pinned frame remains visible");
+        toggle->trigger();
+        check(!visible() && !player.paused() && viewport() != blue, "returning to live shows the advancing video");
+        player.setPaused(true);
+        check(until([&] { return player.paused(); }), "pause for framing and lifecycle checks");
+
+        const auto pinAndShow = [&] {
+            check(until([&] { return pin->isEnabled(); }), "live frame available before pinning");
+            pin->trigger();
+            toggle->trigger();
+            check(visible(), "show the pinned frame before the next operation");
+        };
+        toggle->trigger();
+        actions->get(Id::ZoomOut)->trigger();
+        check(until([&] { return noReference() && near(video->zoomScale(), 8 / 1.15); })
+            && main.findChild<QLabel *>("playerOsd")->text().contains(QStringLiteral("重新固定")),
+            "a zoom change discards the reference and shows a repin hint");
+        pinAndShow();
+        const auto beforePan = video->framing();
+        video->panBy({35, 28});
+        check(video->framing() != beforePan && noReference(), "a visible pan discards the reference");
+        pinAndShow();
+        const auto beforeResize = video->framing().viewportPixels;
+        main.resize(main.width() - 100, main.height());
+        check(until([&] { return video->framing().viewportPixels != beforeResize && noReference(); }),
+            "a physical viewport resize discards the reference");
+        pinAndShow();
+        actions->get(Id::RotateNext)->trigger();
+        check(until([&] { return player.videoRotation() == 180 && noReference(); }), "a confirmed rotation discards the reference");
+
+        pinAndShow();
+        player.openFile(fixtures.filePath("grid.mp4"));
+        player.openFile(fixtures.filePath("portrait.mp4"));
+        check(noReference() && !pin->isEnabled(), "rapid file replacement releases the old reference immediately");
+        check(until([&] { return player.path() == fixtures.filePath("portrait.mp4") && pin->isEnabled(); })
+            && noReference(), "the replacement file starts without a reference");
+        pinAndShow();
+        const auto epoch = player.renderEpoch();
+        auto *parent = video->parentWidget();
+        const auto geometry = video->geometry();
+        QWidget otherWindow;
+        video->setParent(&otherWindow);
+        const bool clearedOnRebuild = player.renderEpoch() > epoch && noReference() && !pin->isEnabled();
+        video->setParent(parent);
+        video->setGeometry(geometry);
+        video->lower();
+        video->show();
+        check(clearedOnRebuild, "destroying the OpenGL context releases the reference");
+        check(until([&] { return pin->isEnabled(); }) && noReference(), "the recovered renderer starts without a reference");
+        pinAndShow();
+        QTest::mouseClick(clearButton, Qt::LeftButton);
+        check(noReference() && pin->isEnabled(), "clearing from the framing tab returns to live and releases the image");
+        pinAndShow();
+        player.stop();
+        check(noReference() && !pin->isEnabled(), "stopping releases the reference and disables the controls");
     }
 
     void time4K()
@@ -610,9 +792,14 @@ int main(int argc, char **argv)
     app.setApplicationName("zopana");
     std::setlocale(LC_NUMERIC, "C");
     const auto args = app.arguments();
-    if (args.size() != 3) return 2;
+    const bool reference = args.size() == 4 && args[3] == "--reference";
+    if (!reference && args.size() != 3) return 2;
     try {
         Probe probe(args[1], args[2]);
+        if (reference) {
+            probe.referenceComparison();
+            return 0;
+        }
         probe.bindShortcut();
         probe.compareFrames("cfr");
         probe.compareFrames("vfr");

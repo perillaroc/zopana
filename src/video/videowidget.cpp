@@ -103,6 +103,12 @@ QPointF VideoWidget::viewFocus() const
     return rotatedFocus(view_.focus(), -rotation_);
 }
 
+VideoWidget::Framing VideoWidget::framing() const
+{
+    const QSize pixels = size() * devicePixelRatioF();
+    return {pixels, displaySize_, pictureBounds(pixels), view_.scale(), rotation_};
+}
+
 void VideoWidget::restoreView(double scale, QPointF focus)
 {
     cancelGestures();
@@ -485,6 +491,19 @@ void VideoWidget::prepareVideoBuffer()
         std::fprintf(stderr, "Video texture reduced to %dx%d\n", pixels.width(), pixels.height());
 }
 
+QRect VideoWidget::pictureBounds(QSize pixels) const
+{
+    if (!view_.valid() || size().isEmpty()) return {};
+    const auto origin = view_.topLeft();
+    const auto frame = view_.frameSize();
+    const double dx = double(pixels.width()) / width();
+    const double dy = double(pixels.height()) / height();
+    const int left = qRound(origin.x() * dx);
+    const int top = qRound(origin.y() * dy);
+    return {left, top, qRound((origin.x() + frame.width()) * dx) - left,
+                       qRound((origin.y() + frame.height()) * dy) - top};
+}
+
 void VideoWidget::paintGL()
 {
     paintedTransform_.reset();
@@ -520,17 +539,11 @@ void VideoWidget::paintGL()
     if (bufferHasFrame_) {
         // Composite one complete view of the full-resolution frame. GL clips
         // the destination at the viewport edges while preserving its scale.
-        const auto origin = view_.topLeft();
-        const auto frame = view_.frameSize();
-        const double dx = double(pixels.width()) / width();
-        const double dy = double(pixels.height()) / height();
-        const int left = qRound(origin.x() * dx);
-        const int right = qRound((origin.x() + frame.width()) * dx);
-        const int bottom = pixels.height() - qRound((origin.y() + frame.height()) * dy);
-        const int top = pixels.height() - qRound(origin.y() * dy);
+        const auto picture = pictureBounds(pixels);
+        const int top = pixels.height() - picture.y();
         gl->glBindFramebuffer(GL_READ_FRAMEBUFFER, videoBuffer_->handle());
-        gl->glBlitFramebuffer(0, 0, source.width(), source.height(), left, bottom, right, top,
-                              GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        gl->glBlitFramebuffer(0, 0, source.width(), source.height(),
+            picture.x(), top - picture.height(), picture.x() + picture.width(), top, GL_COLOR_BUFFER_BIT, GL_LINEAR);
         paintedTransform_ = videoTransform_;
     }
     gl->glBindFramebuffer(GL_FRAMEBUFFER, destination);

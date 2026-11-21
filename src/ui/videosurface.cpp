@@ -3,7 +3,9 @@
 
 #include <QAction>
 #include <QHBoxLayout>
+#include <QImage>
 #include <QLabel>
+#include <QPixmap>
 #include <QResizeEvent>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -12,6 +14,17 @@ VideoSurface::VideoSurface(VideoWidget *video, QWidget *parent) : QWidget(parent
 {
     setObjectName("videoSurface");
     video_->setParent(this);
+    referenceImage_ = new QLabel(this);
+    referenceImage_->setObjectName("referenceFrameImage");
+    referenceImage_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    referenceImage_->setScaledContents(true);
+    referenceImage_->hide();
+    referenceNotice_ = new QLabel(this);
+    referenceNotice_->setObjectName("referenceFrameNotice");
+    referenceNotice_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    referenceNotice_->setTextFormat(Qt::PlainText);
+    referenceNotice_->setMargin(10);
+    referenceNotice_->hide();
     card_ = new QWidget(this); card_->setObjectName("stateCard");
     auto *layout = new QVBoxLayout(card_); layout->setContentsMargins(24, 20, 24, 20); layout->setSpacing(14);
     title_ = new QLabel; title_->setObjectName("cardTitle"); title_->setAlignment(Qt::AlignCenter);
@@ -44,18 +57,19 @@ void VideoSurface::setFullscreen(bool fullscreen, int topInset)
     fullscreen_ = fullscreen;
     if (topInset_ != topInset) {
         topInset_ = topInset;
-        osd_->move(24, overlayTop());
-        captureFolder_->move(24, osd_->geometry().bottom() + 6);
+        positionNotices();
         emit overlayTopChanged();
     }
     arrange();
 }
 void VideoSurface::showOsd(const QString &kind, const QString &text, int milliseconds)
 {
+    if (kind == "zoom" && osd_->isVisible() && osd_->property("kind") == "reference") return;
     captureFolder_->hide();
     osd_->setProperty("kind", kind); osd_->setText(text); osd_->setAccessibleDescription(text);
     osd_->setFixedWidth(qMin(480, qMax(180, width() - 48))); osd_->adjustSize();
-    osd_->move(24, overlayTop()); osd_->show(); osd_->raise(); osdTimer_.start(milliseconds);
+    positionNotices();
+    osd_->show(); osd_->raise(); osdTimer_.start(milliseconds);
 }
 bool VideoSurface::dismissOsd()
 {
@@ -66,7 +80,7 @@ void VideoSurface::showCaptureSaved(const QString &path, QAction *openFolder)
 {
     showOsd("capture",QStringLiteral("已保存：%1").arg(path),4000);
     captureFolder_->setDefaultAction(openFolder); captureFolder_->setAccessibleName(openFolder->text());
-    captureFolder_->adjustSize(); captureFolder_->move(24,osd_->geometry().bottom()+6); captureFolder_->show(); captureFolder_->raise();
+    captureFolder_->adjustSize(); captureFolder_->show(); captureFolder_->raise();
 }
 
 void VideoSurface::present(const QString &title, const QString &body, QAction *primary, QAction *secondary)
@@ -81,6 +95,32 @@ void VideoSurface::present(const QString &title, const QString &body, QAction *p
 
 void VideoSurface::showVideo() { card_->hide(); }
 
+void VideoSurface::setReferenceFrame(const QImage &image, const QString &notice)
+{
+    const bool showing = !image.isNull();
+    if (showing) {
+        referenceImage_->setPixmap(QPixmap::fromImage(image));
+        referenceImage_->lower();
+        video_->lower();
+        referenceNotice_->setText(notice);
+        referenceNotice_->adjustSize();
+        referenceNotice_->raise();
+    } else {
+        referenceImage_->clear();
+        referenceNotice_->clear();
+    }
+    referenceImage_->setVisible(showing);
+    referenceNotice_->setVisible(showing);
+    positionNotices();
+}
+
+void VideoSurface::positionNotices()
+{
+    referenceNotice_->move(24, overlayTop());
+    osd_->move(24, referenceNotice_->isHidden() ? overlayTop() : referenceNotice_->geometry().bottom() + 7);
+    captureFolder_->move(24, osd_->geometry().bottom() + 6);
+}
+
 void VideoSurface::arrange()
 {
     QRect viewport = rect();
@@ -91,6 +131,7 @@ void VideoSurface::arrange()
         controls_->raise();
     }
     video_->setGeometry(viewport);
+    referenceImage_->setGeometry(viewport);
     const int width = qMin(520, qMax(200, this->width() - 48));
     card_->setFixedWidth(width);
     card_->adjustSize();

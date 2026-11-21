@@ -20,6 +20,14 @@ class VideoWidget final : public QOpenGLWidget
 public:
     enum class InputMode { Feature, Standard };
     enum class FullViewInput { ViewingKey, ControlMouse, ControlKey };
+    struct Framing {
+        QSize viewportPixels;
+        QSize displaySize;
+        QRect picture;
+        double scale;
+        int rotation;
+        bool operator==(const Framing &) const = default;
+    };
 
     explicit VideoWidget(mpv_handle *handle, QWidget *parent = nullptr);
     ~VideoWidget() override;
@@ -32,7 +40,9 @@ public:
     bool beginFullViewPreview(FullViewInput input);
     void endFullViewPreview(FullViewInput input);
     void cancelFullViewPreview();
+    bool fullViewPreviewActive() const { return fullViewPreview_.has_value(); }
     bool fullViewPreviewActive(FullViewInput input) const;
+    Framing framing() const;
     void resetView();
     void centerView();
     void setZoomScale(double scale);
@@ -70,6 +80,7 @@ private:
     void releaseRenderer();
     void cancelGestures();
     void prepareVideoBuffer();
+    QRect pictureBounds(QSize pixels) const;
     bool renderFrame(int fbo, QSize pixels);
     void skipFrame();
     void advanceZoom();

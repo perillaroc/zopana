@@ -39,7 +39,7 @@ public:
               SortCreatedDesc, SortDurationDesc, SortResolutionDesc, SortAddedDesc,
               SortAgain, ReverseQueue, ShuffleQueue, CancelSort, ControlWindowToggle,
               PreviousChapter, NextChapter, UndoSeek, OpenPlaylistFile, AppendPlaylistFile, ExportPlaylistFile,
-              HoldFullView, CopyViewport, Count };
+              HoldFullView, CopyViewport, PinReferenceFrame, ToggleReferenceFrame, ClearReferenceFrame, Count };
     PlayerActions(QWidget &window, VideoWidget &video, QWidget &surface);
     QAction *get(Id id) const { return actions_[id]; }
     QAction *repeatModeAction(RepeatMode mode) const;

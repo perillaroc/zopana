@@ -24,6 +24,8 @@ signals:
     void alwaysOnTopChanged();
 private:
     void updateVideoActions();
+    void updateReferenceActions();
+    void updateReferenceDisplay();
     void updateFrameActions();
     void updateLoopActions();
     void rebuildChapters();

@@ -286,6 +286,23 @@ QWidget *ControlWindow::createFramingPage(PlayerActions &actions)
     resetRow->addStretch();
     resetRow->addWidget(actionButton(actions, PlayerActions::CopyViewport, "controlCopyViewport"));
     layout->addLayout(resetRow);
+
+    auto *reference = new QGroupBox(QStringLiteral("参考帧"));
+    auto *referenceLayout = new QVBoxLayout(reference);
+    auto *referenceRow = new QHBoxLayout;
+    for (auto *button : {actionButton(actions, PlayerActions::PinReferenceFrame, "controlPinReferenceFrame"),
+            actionButton(actions, PlayerActions::ToggleReferenceFrame, "controlToggleReferenceFrame"),
+            actionButton(actions, PlayerActions::ClearReferenceFrame, "controlClearReferenceFrame")}) {
+        button->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+        referenceRow->addWidget(button, 1);
+    }
+    referenceLayout->addLayout(referenceRow);
+    auto *stepRow = new QHBoxLayout;
+    stepRow->addWidget(actionButton(actions, PlayerActions::FrameBackward, "controlReferenceFrameBackward"));
+    stepRow->addWidget(actionButton(actions, PlayerActions::FrameForward, "controlReferenceFrameForward"));
+    stepRow->addStretch();
+    referenceLayout->addLayout(stepRow);
+    layout->addWidget(reference);
     layout->addStretch();
     return page;
 }
