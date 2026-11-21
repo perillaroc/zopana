@@ -199,6 +199,76 @@
       "gitBlob": "04bc7cb604b4705f22b44a15666a4f4615351048",
       "sha256": "55e8e5e04bcb671179fc1dd589abf09cf6a1e71301ff14eb739419cfab6011e7",
       "modifications": null
+    },
+    {
+      "upstream": "icons/chevrons-left.svg",
+      "local": "resources/icons/lucide/chevrons-left.svg",
+      "gitBlob": "94b37487cb2d3830532b2d8f84ee0b8ac52587e8",
+      "sha256": "ec966bce841337a305fc7fbc0dab04c650dc9fb7f313d78645ea33378bef06e7",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/chevrons-right.svg",
+      "local": "resources/icons/lucide/chevrons-right.svg",
+      "gitBlob": "0d2d8ec9c3d49d76b2ee99df6a7ac17ae8c65a83",
+      "sha256": "3491f9fe180bf75a058d480f32a0d26ff6a97c6c9a70315c77df7c6b75329d91",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/step-back.svg",
+      "local": "resources/icons/lucide/step-back.svg",
+      "gitBlob": "62c2e67bffd8cb78b72321c0c121bb64b6a67dcc",
+      "sha256": "aaeb883bd737e64a3c46651d2a9610bfe78d658415fa56bdfcc6f026303aaaf7",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/minus.svg",
+      "local": "resources/icons/lucide/minus.svg",
+      "gitBlob": "75093e27c20965c9e37fb9dcef9f939746c67578",
+      "sha256": "a0c743ab6dbf545d8a6e19ef3874f48ede686ce68d25e231bd81f540d97b1f19",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/plus.svg",
+      "local": "resources/icons/lucide/plus.svg",
+      "gitBlob": "41f92bb93eb6626368d71c9884127bbcf7d3ccdf",
+      "sha256": "7f6af73bf1ff6c4bca3f18351c8d1bdec6749c0c2530c4de5da85d520c21df17",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/x.svg",
+      "local": "resources/icons/lucide/x.svg",
+      "gitBlob": "e31794349d3eecea1b3ae8e974b68bb8f4becda7",
+      "sha256": "4a9cdab38fbb96162e7dace28e33f4ca0e49d8963a6162abc3d4691b7d675117",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/crosshair.svg",
+      "local": "resources/icons/lucide/crosshair.svg",
+      "gitBlob": "bcd378cea9af57bcb84966a14d6b95dc6c9f98bc",
+      "sha256": "ae9ed8583286ea03bffae85bb69aee5227540e588b0370cf185f2141ebe25e8d",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/eye.svg",
+      "local": "resources/icons/lucide/eye.svg",
+      "gitBlob": "e5e78706b2be5dd6510cbcf20f6207486c037c34",
+      "sha256": "5bf90197dd7629cad64a2e48d1186a71559deb6121207d10e3dc5b19ebaffdcf",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/pin-off.svg",
+      "local": "resources/icons/lucide/pin-off.svg",
+      "gitBlob": "a072f03d52ee7e35ecf587aba810eea196ca60bb",
+      "sha256": "149a4fb01201562c05dd7eb53573090cd3a0ba5b111686c45e2df8c6cd04a3be",
+      "modifications": null
+    },
+    {
+      "upstream": "icons/copy.svg",
+      "local": "resources/icons/lucide/copy.svg",
+      "gitBlob": "f62ce99c1f34989a5f70cd15192f8adf9140f4ed",
+      "sha256": "ea80e566c7a12628a447cb53179b19aea4f60b9143e2becd0d0f20bf260e5718",
+      "modifications": null
     }
   ]
 }

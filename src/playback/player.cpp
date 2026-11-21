@@ -1021,7 +1021,7 @@ void Player::setLoopA()
     if (!canSetLoopPoint()) return;
     const double position = position_;
     setMediaProperty("ab-loop-b","no"); setMediaProperty("ab-loop-a",position);
-    emit notice(QStringLiteral("已设置 A 点：%1 秒").arg(position,0,'f',3));
+    emit notice(QStringLiteral("已设置 A 点：%1 秒").arg(position,0,'f',3), true);
 }
 void Player::setLoopB()
 {
@@ -1031,7 +1031,7 @@ void Player::setLoopB()
     const double position = position_;
     if (position - a.toDouble() < .5) { emit notice(QStringLiteral("B 必须比 A 晚至少 0.5 秒")); return; }
     setMediaProperty("ab-loop-b",position);
-    emit notice(QStringLiteral("A–B 区间：%1 — %2 秒").arg(a.toDouble(),0,'f',3).arg(position,0,'f',3));
+    emit notice(QStringLiteral("A–B 区间：%1 — %2 秒").arg(a.toDouble(),0,'f',3).arg(position,0,'f',3), true);
 }
 void Player::clearLoop() { setMediaProperty("ab-loop-a","no"); setMediaProperty("ab-loop-b","no"); }
 bool Player::loopActive() const

@@ -239,8 +239,10 @@ void MediaControls::updateVideoActions()
 void MediaControls::updateReferenceActions()
 {
     auto *toggle = actions_.get(PlayerActions::ToggleReferenceFrame);
+    const bool showing = captures_->shownReference() != nullptr;
     toggle->setEnabled(captures_->hasReference() && !video_.fullViewPreviewActive());
-    toggle->setText(captures_->shownReference() ? QStringLiteral("返回当前画面") : QStringLiteral("查看参考帧"));
+    toggle->setChecked(showing);
+    toggle->setText(showing ? QStringLiteral("返回当前画面") : QStringLiteral("查看参考帧"));
     actions_.get(PlayerActions::PinReferenceFrame)->setEnabled(captures_->canPinReference());
     actions_.get(PlayerActions::ClearReferenceFrame)->setEnabled(captures_->hasReference());
 }

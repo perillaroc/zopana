@@ -29,4 +29,14 @@
 <file>icons/lucide/camera.svg</file>
 <file>icons/lucide/pin.svg</file>
 <file>icons/lucide/sliders-horizontal.svg</file>
+<file>icons/lucide/chevrons-left.svg</file>
+<file>icons/lucide/chevrons-right.svg</file>
+<file>icons/lucide/step-back.svg</file>
+<file>icons/lucide/minus.svg</file>
+<file>icons/lucide/plus.svg</file>
+<file>icons/lucide/x.svg</file>
+<file>icons/lucide/crosshair.svg</file>
+<file>icons/lucide/eye.svg</file>
+<file>icons/lucide/pin-off.svg</file>
+<file>icons/lucide/copy.svg</file>
 </qresource></RCC>

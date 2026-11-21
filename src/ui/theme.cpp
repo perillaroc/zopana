@@ -85,6 +85,14 @@ QToolButton#playPauseButton, QToolButton#cardPrimary { background:palette(highli
 QToolButton#playPauseButton:disabled, QToolButton#cardPrimary:disabled { background:palette(alternate-base); }
 QToolButton#playPauseButton[keyboardFocus="true"]:focus, QToolButton#cardPrimary[keyboardFocus="true"]:focus { border-bottom-color:palette(highlighted-text); }
 QToolButton#windowCloseButton:hover { background:#a82b35; color:white; }
+QWidget#controlWindow QGroupBox { border:1px solid palette(mid); border-radius:6px; margin-top:9px; }
+QWidget#controlWindow QGroupBox::title { subcontrol-origin:margin; left:10px; padding:0 4px; }
+QWidget#controlWindow QToolButton { background:palette(button); border-color:palette(mid); }
+QWidget#controlWindow QToolButton:hover { background:palette(alternate-base); }
+QWidget#controlWindow QToolButton:pressed, QWidget#controlWindow QToolButton:checked { background:palette(mid); }
+QWidget#controlWindow QToolButton:disabled { background:palette(window); }
+QWidget#controlWindow QToolButton[keyboardFocus="true"]:focus { border-bottom-color:palette(highlight); }
+QLabel#controlPanPad { background:palette(button); border:1px dashed palette(mid); border-radius:5px; }
 QLabel#zoomLabel, QLabel#rateLabel, QLabel#cardBody { color:palette(placeholder-text); }
 QListView#playlistView { outline:0; selection-background-color:palette(mid); selection-color:palette(text); }
 QWidget#stateCard { background:palette(window); border:1px solid palette(mid); border-radius:8px; }

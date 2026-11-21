@@ -3,6 +3,7 @@
 #include "player.h"
 #include "playeractions.h"
 #include "settingsstore.h"
+#include "theme.h"
 #include "videowidget.h"
 
 #include <QAction>
@@ -20,6 +21,7 @@
 #include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 #include <cmath>
 
 namespace {
@@ -40,26 +42,32 @@ QToolButton *toolButton(const char *name)
     button->setObjectName(name);
     button->setToolButtonStyle(Qt::ToolButtonTextOnly);
     button->setFocusPolicy(Qt::StrongFocus);
-    button->setMinimumSize(32, 32);
+    button->setMinimumSize(32, 36);
+    button->setIconSize({18, 18});
     return button;
 }
 
-QToolButton *actionButton(PlayerActions &actions, PlayerActions::Id id, const char *name)
+QToolButton *actionButton(PlayerActions &actions, PlayerActions::Id id, const char *name,
+    Qt::ToolButtonStyle style = Qt::ToolButtonIconOnly)
 {
     auto *button = toolButton(name);
-    button->setDefaultAction(actions.get(id));
+    auto *action = actions.get(id);
+    button->setDefaultAction(action);
+    button->setToolButtonStyle(style);
+    const auto syncAccessibility = [button, action] {
+        button->setAccessibleName(action->text());
+        button->setAccessibleDescription(action->toolTip());
+    };
+    QObject::connect(action, &QAction::changed, button, syncAccessibility);
+    syncAccessibility();
     return button;
 }
 
-QLabel *valueLabel(const char *name, const QString &description)
+void useMonospace(QWidget &widget)
 {
-    auto *label = new QLabel;
-    label->setObjectName(name);
-    label->setAccessibleName(description);
-    auto font = label->font();
+    auto font = widget.font();
     font.setFamilies({"Cascadia Mono", "Consolas", font.family()});
-    label->setFont(font);
-    return label;
+    widget.setFont(font);
 }
 
 QString loopPoint(const QVariant &value)
@@ -83,18 +91,6 @@ ControlWindow::ControlWindow(QWidget &main, Player &player, PlayerActions &actio
     addAction(toggle_);
 
     auto *layout = new QVBoxLayout(this);
-    auto *header = new QHBoxLayout;
-    auto *play = actionButton(actions, PlayerActions::PlayPause, "controlPlayPause");
-    play->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    current_ = valueLabel("controlCurrentTime", QStringLiteral("当前播放时间"));
-    duration_ = valueLabel("controlDuration", QStringLiteral("总时长"));
-    header->addWidget(play);
-    header->addStretch();
-    header->addWidget(current_);
-    header->addWidget(new QLabel("/"));
-    header->addWidget(duration_);
-    layout->addLayout(header);
-
     tabs_ = new QTabWidget;
     tabs_->setObjectName("controlTabs");
     tabs_->addTab(createPlaybackPage(actions, chapters), QStringLiteral("播放"));
@@ -107,10 +103,16 @@ ControlWindow::ControlWindow(QWidget &main, Player &player, PlayerActions &actio
     tabs_->setFocus();
 
     noticeTimer_.setSingleShot(true);
-    connect(&noticeTimer_, &QTimer::timeout, notice_, &QLabel::clear);
-    connect(&player_, &Player::notice, this, [this](const QString &message) {
-        if (!isVisible() || !isActiveWindow() || tabs_->currentIndex() != 0) return;
+    connect(&noticeTimer_, &QTimer::timeout, notice_, &QWidget::hide);
+    connect(&player_, &Player::notice, this, [this](const QString &message, bool loopPointConfirmation) {
+        if (loopPointConfirmation) {
+            noticeTimer_.stop();
+            notice_->hide();
+            return;
+        }
+        if (!isVisible() || tabs_->currentIndex() != 0) return;
         notice_->setText(message);
+        notice_->show();
         noticeTimer_.start(3500);
     });
     connect(toggle_, &QAction::toggled, this, &ControlWindow::syncVisibility);
@@ -118,11 +120,9 @@ ControlWindow::ControlWindow(QWidget &main, Player &player, PlayerActions &actio
     connect(qApp, &QGuiApplication::screenRemoved, this, [this] {
         if (placed_) QTimer::singleShot(0, this, &ControlWindow::ensureOnScreen);
     });
-    const auto clearGesture = [this] { cancelPan(); notice_->clear(); };
+    const auto clearGesture = [this] { cancelPan(); notice_->hide(); };
     connect(&player_, &Player::fileOpening, this, clearGesture);
     connect(&player_, &Player::stopping, this, clearGesture);
-    connect(&player_, &Player::positionChanged, this, &ControlWindow::updateTime);
-    connect(&player_, &Player::durationChanged, this, &ControlWindow::updateTime);
     connect(&player_, &Player::detailsChanged, this, &ControlWindow::updatePlayback);
     connect(&player_, &Player::mediaChanged, this, [this] { updatePlayback(); updateView(); });
     connect(&player_, &Player::videoTransformChanged, this, &ControlWindow::updateView);
@@ -146,7 +146,7 @@ QWidget *ControlWindow::createPlaybackPage(PlayerActions &actions, QMenu &chapte
     auto *seekRow = new QHBoxLayout;
     seekLayout->addLayout(seekRow);
     const auto seekButton = [&](Id id, const char *name, std::optional<Id> medium = {}) {
-        auto *button = actionButton(actions, id, name);
+        auto *button = actionButton(actions, id, name, Qt::ToolButtonTextBesideIcon);
         if (medium) {
             auto *menu = new QMenu(button);
             menu->addAction(actions.get(*medium));
@@ -159,8 +159,7 @@ QWidget *ControlWindow::createPlaybackPage(PlayerActions &actions, QMenu &chapte
     seekButton(Id::BackSmall, "controlBackSmall", Id::BackMedium);
     seekButton(Id::ForwardSmall, "controlForwardSmall", Id::ForwardMedium);
     seekButton(Id::ForwardLarge, "controlForwardLarge");
-    auto *navigation = toolButton("controlNavigationButton");
-    navigation->setText(QStringLiteral("章节与撤销"));
+    auto *navigation = iconButton("controlNavigationButton", "list-video", QStringLiteral("章节与撤销"));
     auto *menu = new QMenu(navigation);
     menu->setObjectName("controlNavigationMenu");
     menu->addAction(actions.get(Id::PreviousChapter));
@@ -172,44 +171,46 @@ QWidget *ControlWindow::createPlaybackPage(PlayerActions &actions, QMenu &chapte
     navigation->setPopupMode(QToolButton::InstantPopup);
     auto *navigationRow = new QHBoxLayout;
     navigationRow->addWidget(navigation);
-    navigationRow->addWidget(actionButton(actions, Id::FrameBackward, "controlFrameBackward"));
     navigationRow->addStretch();
+    navigationRow->addWidget(actionButton(actions, Id::FrameBackward, "controlFrameBackward"));
+    navigationRow->addWidget(actionButton(actions, Id::PlayPause, "controlPlayPause"));
+    navigationRow->addWidget(actionButton(actions, Id::FrameForward, "controlFrameForward"));
     seekLayout->addLayout(navigationRow);
     layout->addWidget(seek);
 
     auto *speed = new QGroupBox(QStringLiteral("倍速"));
     auto *speedRow = new QHBoxLayout(speed);
-    rate_ = valueLabel("controlSpeed", QStringLiteral("当前倍速"));
-    speedRow->addWidget(actionButton(actions, Id::RateLess, "controlRateLess"));
-    speedRow->addWidget(rate_);
-    speedRow->addWidget(actionButton(actions, Id::RateMore, "controlRateMore"));
+    auto *rateDown = actionButton(actions, Id::RateLess, "controlRateLess");
+    rate_ = actionButton(actions, Id::RateReset, "controlRateReset", Qt::ToolButtonTextOnly);
+    auto *rateUp = actionButton(actions, Id::RateMore, "controlRateMore");
+    useMonospace(*rate_);
+    rateDown->setMinimumWidth(44);
+    rate_->setMinimumWidth(76);
+    rateUp->setMinimumWidth(44);
     speedRow->addStretch();
-    speedRow->addWidget(actionButton(actions, Id::RateReset, "controlRateReset"));
+    for (auto *button : {rateDown, rate_, rateUp}) speedRow->addWidget(button);
+    speedRow->addStretch();
     layout->addWidget(speed);
 
     auto *loop = new QGroupBox(QStringLiteral("A–B 循环"));
     auto *loopLayout = new QVBoxLayout(loop);
-    auto *points = new QGridLayout;
-    loopA_ = valueLabel("controlLoopA", QStringLiteral("A 点时间"));
-    loopB_ = valueLabel("controlLoopB", QStringLiteral("B 点时间"));
-    points->addWidget(new QLabel("A"), 0, 0);
-    points->addWidget(loopA_, 0, 1);
-    points->addWidget(new QLabel("B"), 0, 2);
-    points->addWidget(loopB_, 0, 3);
-    points->setColumnStretch(1, 1);
-    points->setColumnStretch(3, 1);
-    loopLayout->addLayout(points);
+    loopA_ = actionButton(actions, Id::LoopA, "controlSetA", Qt::ToolButtonTextOnly);
+    loopB_ = actionButton(actions, Id::LoopB, "controlSetB", Qt::ToolButtonTextOnly);
     auto *loopButtons = new QHBoxLayout;
-    loopButtons->addWidget(actionButton(actions, Id::LoopA, "controlSetA"), 1);
-    loopButtons->addWidget(actionButton(actions, Id::LoopB, "controlSetB"), 1);
-    loopButtons->addWidget(actionButton(actions, Id::LoopClear, "controlClearLoop"), 1);
+    for (auto *button : {loopA_, loopB_}) {
+        useMonospace(*button);
+        button->setMinimumWidth(button->fontMetrics().horizontalAdvance(QStringLiteral("A 00:00:00.000")) + 20);
+        loopButtons->addWidget(button, 1);
+    }
+    loopButtons->addWidget(actionButton(actions, Id::LoopClear, "controlClearLoop"));
     loopLayout->addLayout(loopButtons);
     notice_ = new QLabel;
     notice_->setObjectName("controlLoopNotice");
     notice_->setAccessibleName(QStringLiteral("播放操作提示"));
     notice_->setWordWrap(true);
-    notice_->setMinimumHeight(notice_->fontMetrics().lineSpacing());
     loopLayout->addWidget(notice_);
+    notice_->hide();
+    connect(actions.get(Id::LoopClear), &QAction::triggered, notice_, &QWidget::hide);
     layout->addWidget(loop);
     layout->addStretch();
     return page;
@@ -217,38 +218,35 @@ QWidget *ControlWindow::createPlaybackPage(PlayerActions &actions, QMenu &chapte
 
 QWidget *ControlWindow::createFramingPage(PlayerActions &actions)
 {
+    using Id = PlayerActions::Id;
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
-    auto *zoomGroup = new QGroupBox(QStringLiteral("缩放"));
-    auto *zoomLayout = new QVBoxLayout(zoomGroup);
+    auto *framing = new QGroupBox(QStringLiteral("取景"));
+    auto *framingLayout = new QVBoxLayout(framing);
     auto *zoomRow = new QHBoxLayout;
-    auto *less = toolButton("controlZoomOut");
-    less->setText(QStringLiteral("−"));
-    less->setAccessibleName(QStringLiteral("缩小画面"));
-    auto *more = toolButton("controlZoomIn");
-    more->setText(QStringLiteral("＋"));
-    more->setAccessibleName(QStringLiteral("放大画面"));
     zoom_ = new QSlider(Qt::Horizontal);
     zoom_->setObjectName("controlZoomSlider");
     zoom_->setAccessibleName(QStringLiteral("缩放倍率（百分比）"));
     zoom_->setRange(100, 800);
     zoom_->setSingleStep(5);
     zoom_->setPageStep(25);
-    zoomValue_ = valueLabel("controlZoomValue", QStringLiteral("当前缩放倍率"));
-    zoomRow->addWidget(less);
+    zoomValue_ = new QLabel;
+    zoomValue_->setObjectName("controlZoomValue");
+    zoomValue_->setAccessibleName(QStringLiteral("当前缩放倍率"));
+    useMonospace(*zoomValue_);
+    zoomValue_->setMinimumWidth(zoomValue_->fontMetrics().horizontalAdvance(QStringLiteral("8.00×")));
+    zoomValue_->setAlignment(Qt::AlignCenter);
+    zoomRow->addWidget(actionButton(actions, Id::ZoomOut, "controlZoomOut"));
     zoomRow->addWidget(zoom_, 1);
-    zoomRow->addWidget(more);
+    zoomRow->addWidget(actionButton(actions, Id::ZoomIn, "controlZoomIn"));
     zoomRow->addWidget(zoomValue_);
-    zoomLayout->addLayout(zoomRow);
-    connect(less, &QToolButton::clicked, this, [this] { video_.zoomSteps(-1); });
-    connect(more, &QToolButton::clicked, this, [this] { video_.zoomSteps(1); });
+    zoomRow->addWidget(actionButton(actions, Id::ResetView, "controlFit"));
+    framingLayout->addLayout(zoomRow);
     connect(zoom_, &QSlider::valueChanged, this, [this](int percent) { video_.setZoomScale(percent / 100.0); });
-    layout->addWidget(zoomGroup);
 
-    auto *pan = new QGroupBox(QStringLiteral("平移"));
-    auto *panRow = new QHBoxLayout(pan);
+    auto *panRow = new QHBoxLayout;
     auto *arrows = new QGridLayout;
-    arrows->setSpacing(2);
+    arrows->setSpacing(4);
     for (size_t i = 0; i < panButtons_.size(); ++i) {
         const auto &direction = directions[i];
         auto *button = panButtons_[i] = toolButton(direction.name);
@@ -262,49 +260,53 @@ QWidget *ControlWindow::createFramingPage(PlayerActions &actions)
         arrows->addWidget(button, direction.row, direction.column);
         connect(button, &QToolButton::clicked, this, [this, delta = direction.delta] { video_.panBy(delta * 12); });
     }
+    auto *center = iconButton("controlCenter", "crosshair", QStringLiteral("画面居中"));
+    connect(center, &QToolButton::clicked, &video_, &VideoWidget::centerView);
+    arrows->addWidget(center, 1, 1);
     panRow->addLayout(arrows);
-    panPad_ = new QLabel(QStringLiteral("按住左键拖动"));
+    panPad_ = new QLabel(QStringLiteral("拖动平移 · 滚轮缩放"));
     panPad_->setObjectName("controlPanPad");
-    panPad_->setAccessibleName(QStringLiteral("平移拖动区"));
+    panPad_->setAccessibleName(QStringLiteral("缩放与平移操作区"));
+    panPad_->setToolTip(QStringLiteral("按住左键拖动画面，滚动鼠标滚轮调整缩放"));
     panPad_->setAlignment(Qt::AlignCenter);
     panPad_->setFrameStyle(QFrame::StyledPanel | QFrame::Sunken);
     panPad_->setMinimumWidth(130);
     panPad_->setMouseTracking(true);
     panPad_->installEventFilter(this);
-    panRow->addWidget(panPad_, 1);
-    layout->addWidget(pan);
-
-    auto *resetRow = new QHBoxLayout;
-    auto *center = toolButton("controlCenter");
-    center->setText(QStringLiteral("画面居中"));
-    connect(center, &QToolButton::clicked, &video_, &VideoWidget::centerView);
-    resetRow->addWidget(center);
-    resetRow->addWidget(actionButton(actions, PlayerActions::ResetView, "controlFit"));
-    fullViewButton_ = actionButton(actions, PlayerActions::HoldFullView, "controlFullView");
+    fullViewButton_ = actionButton(actions, Id::HoldFullView, "controlFullView", Qt::ToolButtonTextOnly);
     fullViewButton_->installEventFilter(this);
-    resetRow->addWidget(fullViewButton_);
-    resetRow->addStretch();
-    resetRow->addWidget(actionButton(actions, PlayerActions::CopyViewport, "controlCopyViewport"));
-    layout->addLayout(resetRow);
+    auto *padLayout = new QVBoxLayout;
+    padLayout->addWidget(panPad_, 1);
+    padLayout->addWidget(fullViewButton_, 0, Qt::AlignRight);
+    panRow->addLayout(padLayout, 1);
+    framingLayout->addLayout(panRow);
+    layout->addWidget(framing);
 
     auto *reference = new QGroupBox(QStringLiteral("参考帧"));
-    auto *referenceLayout = new QVBoxLayout(reference);
-    auto *referenceRow = new QHBoxLayout;
-    for (auto *button : {actionButton(actions, PlayerActions::PinReferenceFrame, "controlPinReferenceFrame"),
-            actionButton(actions, PlayerActions::ToggleReferenceFrame, "controlToggleReferenceFrame"),
-            actionButton(actions, PlayerActions::ClearReferenceFrame, "controlClearReferenceFrame")}) {
-        button->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
-        referenceRow->addWidget(button, 1);
-    }
-    referenceLayout->addLayout(referenceRow);
-    auto *stepRow = new QHBoxLayout;
-    stepRow->addWidget(actionButton(actions, PlayerActions::FrameBackward, "controlReferenceFrameBackward"));
-    stepRow->addWidget(actionButton(actions, PlayerActions::FrameForward, "controlReferenceFrameForward"));
-    stepRow->addStretch();
-    referenceLayout->addLayout(stepRow);
+    auto *referenceRow = new QHBoxLayout(reference);
+    referenceRow->addWidget(actionButton(actions, Id::FrameBackward, "controlReferenceFrameBackward"));
+    referenceRow->addWidget(actionButton(actions, Id::FrameForward, "controlReferenceFrameForward"));
+    referenceRow->addSpacing(6);
+    referenceRow->addWidget(actionButton(actions, Id::PinReferenceFrame, "controlPinReferenceFrame"));
+    referenceRow->addWidget(actionButton(actions, Id::ToggleReferenceFrame, "controlToggleReferenceFrame"));
+    referenceRow->addWidget(actionButton(actions, Id::ClearReferenceFrame, "controlClearReferenceFrame"));
+    referenceRow->addStretch();
+    referenceRow->addWidget(actionButton(actions, Id::CopyViewport, "controlCopyViewport"));
     layout->addWidget(reference);
     layout->addStretch();
     return page;
+}
+
+QToolButton *ControlWindow::iconButton(const char *name, const char *icon, const QString &description)
+{
+    auto *button = toolButton(name);
+    button->setProperty("iconName", QString::fromLatin1(icon));
+    button->setIcon(Theme::icon(QString::fromLatin1(icon), palette()));
+    button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    button->setAccessibleName(description);
+    button->setToolTip(description);
+    button->installEventFilter(this);
+    return button;
 }
 
 void ControlWindow::syncVisibility(bool activate)
@@ -355,21 +357,21 @@ void ControlWindow::ensureOnScreen()
     if (visible.topLeft() != frame.topLeft()) move(visible.topLeft());
 }
 
-void ControlWindow::updateTime()
-{
-    const bool hasTime = player_.state() == Player::State::Loaded || player_.state() == Player::State::Ended;
-    current_->setText(PlaybackDialogs::timestamp(hasTime ? player_.position() : 0));
-    duration_->setText(hasTime && player_.duration() > 0 ? PlaybackDialogs::timestamp(player_.duration()) : QStringLiteral("—"));
-}
-
 void ControlWindow::updatePlayback()
 {
-    updateTime();
     const double speed = player_.mediaProperty("speed").toDouble();
-    rate_->setText(QStringLiteral("%1×").arg(speed > 0 ? speed : 1, 0, 'f', 2));
+    const auto rate = QStringLiteral("%1×").arg(speed > 0 ? speed : 1, 0, 'f', 2);
+    rate_->defaultAction()->setIconText(rate);
+    rate_->defaultAction()->setToolTip(QStringLiteral("当前倍速 %1，点击恢复 1.0×").arg(rate));
     const bool loaded = player_.state() == Player::State::Loaded;
-    loopA_->setText(loaded ? loopPoint(player_.mediaProperty("ab-loop-a")) : QStringLiteral("—"));
-    loopB_->setText(loaded ? loopPoint(player_.mediaProperty("ab-loop-b")) : QStringLiteral("—"));
+    const auto updatePoint = [this, loaded](QToolButton *button, QChar point, const char *property) {
+        const auto time = loaded ? loopPoint(player_.mediaProperty(property)) : QStringLiteral("—");
+        auto *action = button->defaultAction();
+        action->setIconText(QStringLiteral("%1  %2").arg(point).arg(time));
+        action->setToolTip(QStringLiteral("%1 · %2").arg(action->text(), time));
+    };
+    updatePoint(loopA_, 'A', "ab-loop-a");
+    updatePoint(loopB_, 'B', "ab-loop-b");
 }
 
 bool ControlWindow::viewAvailable() const
@@ -388,29 +390,36 @@ void ControlWindow::updateView()
     const QSignalBlocker blocker(zoom_);
     zoom_->setValue(qRound(video_.zoomScale() * 100));
     zoomValue_->setText(viewReady_ ? QStringLiteral("%1×").arg(video_.zoomScale(), 0, 'f', 2) : QStringLiteral("—"));
-    bool canPan = false;
+    panAvailable_ = false;
     for (size_t i = 0; i < panButtons_.size(); ++i) {
         const bool enabled = viewReady_ && video_.canPanBy(directions[i].delta);
         panButtons_[i]->setEnabled(enabled);
-        canPan |= enabled;
+        panAvailable_ |= enabled;
     }
-    panPad_->setEnabled(canPan);
-    if (!canPan) dragPosition_.reset();
-    panPad_->setCursor(dragPosition_ ? Qt::ClosedHandCursor : canPan ? Qt::OpenHandCursor : Qt::ArrowCursor);
+    if (!panAvailable_) dragPosition_.reset();
+    panPad_->setCursor(dragPosition_ ? Qt::ClosedHandCursor : panAvailable_ ? Qt::OpenHandCursor : Qt::ArrowCursor);
 }
 
 void ControlWindow::cancelPan()
 {
     dragPosition_.reset();
-    if (panPad_) panPad_->setCursor(panPad_->isEnabled() ? Qt::OpenHandCursor : Qt::ArrowCursor);
+    if (panPad_) panPad_->setCursor(panAvailable_ ? Qt::OpenHandCursor : Qt::ArrowCursor);
     for (auto *button : panButtons_) if (button) button->setDown(false);
 }
 
 bool ControlWindow::handlePanPad(QEvent *event)
 {
+    if (event->type() == QEvent::Wheel && viewReady_) {
+        auto *wheel = static_cast<QWheelEvent *>(event);
+        const double steps = wheel->pixelDelta().isNull() ? wheel->angleDelta().y() / 60.0 : wheel->pixelDelta().y() / 120.0;
+        if (steps == 0) return false;
+        if (!dragPosition_) video_.zoomSteps(steps);
+        wheel->accept();
+        return true;
+    }
     if (event->type() == QEvent::MouseButtonPress) {
         auto *mouse = static_cast<QMouseEvent *>(event);
-        if (mouse->button() != Qt::LeftButton || !panPad_->isEnabled()) return false;
+        if (mouse->button() != Qt::LeftButton || !panAvailable_) return false;
         video_.cancelFullViewPreview();
         dragPosition_ = mouse->position();
         panPad_->setCursor(Qt::ClosedHandCursor);
@@ -500,6 +509,11 @@ bool ControlWindow::eventFilter(QObject *object, QEvent *event)
         if (handlePanPad(event)) return true;
     } else if (object == fullViewButton_) {
         if (handleFullViewButton(event)) return true;
+    } else if (event->type() == QEvent::PaletteChange) {
+        if (auto *button = qobject_cast<QToolButton *>(object)) {
+            const auto icon = button->property("iconName").toString();
+            if (!icon.isEmpty()) button->setIcon(Theme::icon(icon, button->palette()));
+        }
     } else if (event->type() == QEvent::FocusOut || event->type() == QEvent::UngrabMouse) {
         cancelPan();
     }

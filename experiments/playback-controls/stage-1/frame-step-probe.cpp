@@ -566,6 +566,9 @@ struct Probe
             && clearButton->defaultAction() == clear && picture->actions().contains(pin)
             && picture->actions().contains(toggle) && picture->actions().contains(clear),
             "the Picture menu and framing tab share all three reference actions");
+        for (auto *button : {pinButton, toggleButton, clearButton})
+            check(button->toolButtonStyle() == Qt::ToolButtonIconOnly && !button->icon().isNull()
+                && !button->accessibleName().isEmpty(), "the reference controls use labeled icons");
 
         openVideo(evidence.filePath("marker.mkv"));
         actions->get(Id::RotateNext)->trigger();
@@ -591,14 +594,15 @@ struct Probe
         const auto beforeToggle = requests.size();
         clickMenuAction("pictureMenu", toggle);
         check(visible() && notice->text().contains("00:00:01.000")
-            && toggleButton->text() == QStringLiteral("返回当前画面")
+            && toggleButton->isChecked() && toggleButton->accessibleName() == QStringLiteral("返回当前画面")
             && rgb(layer->grab().toImage()) == green, "the Picture menu shows the exact reference pixels with a separate time label");
         check(playback == player.playbackIdentity() && player.paused() && near(player.position(), 1)
             && player.canUndoSeek() && requests.size() == beforeToggle, "toggling the reference queues no playback operation");
 
         activate(*control);
         QTest::mouseClick(control->findChild<QToolButton *>("controlReferenceFrameForward"), Qt::LeftButton);
-        check(!visible() && toggle->isEnabled(), "the framing-tab forward step returns to live and retains the reference");
+        check(!visible() && !toggleButton->isChecked() && toggle->isEnabled(),
+            "the framing-tab forward step returns to live and retains the reference");
         at(1.04, "forward step reaches the blue-marker frame");
         const auto blue = viewport();
         check(!blue.isNull() && blue != green && !greenMarker(blue).isValid(),

@@ -102,7 +102,7 @@ signals:
     void detailsChanged();
     void chaptersChanged();
     void preferenceTargetChanged();
-    void notice(const QString &message);
+    void notice(const QString &message, bool loopPointConfirmation = false);
     void sourceImageReady(const QImage &image, quint64 generation, quint64 renderEpoch, quint64 transformVersion,
                           int rotation, const QString &path, double position);
     void requestSubmitted(quint64 requestId, quint64 generation, quint64 renderEpoch, const QString &operation);

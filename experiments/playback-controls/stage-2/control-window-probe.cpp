@@ -264,7 +264,8 @@ private:
     QLabel *label(const char *name) { return small_->findChild<QLabel *>(name); }
     QSlider *zoom() { return small_->findChild<QSlider *>("controlZoomSlider"); }
     QTabWidget *tabs() { return small_->findChild<QTabWidget *>("controlTabs"); }
-    bool emptyLoop() { return label("controlLoopA")->text() == QStringLiteral("—") && label("controlLoopB")->text() == QStringLiteral("—"); }
+    QString loopTime(const char *name) { return button(name)->text().section(' ', -1); }
+    bool emptyLoop() { return loopTime("controlSetA") == QStringLiteral("—") && loopTime("controlSetB") == QStringLiteral("—"); }
 
     void activate(QWidget *window)
     {
@@ -301,6 +302,14 @@ private:
         QTest::keyClick(video_, Qt::Key_F7);
         require(until([&] { return QApplication::activeWindow() == small_; }) && small_->isVisible()
             && toggle->isChecked() && tabs()->currentIndex() == 0 && tabs()->count() == 2, "F7 opens the single window on the playback tab");
+        auto *play = button("controlPlayPause");
+        require(tabs()->widget(0)->isAncestorOf(play) && play->toolButtonStyle() == Qt::ToolButtonIconOnly
+            && !label("controlCurrentTime") && !label("controlDuration"), "the playback tab contains the play icon with no shared time header");
+        require(small_->grab().save(output_.filePath("playback-idle.png")), "save the idle playback layout");
+        tabs()->setCurrentIndex(1);
+        require(!play->isVisible() && !zoom()->isEnabled(), "the idle framing tab shows only its unavailable framing controls");
+        require(small_->grab().save(output_.filePath("framing-idle.png")), "save the idle framing layout");
+        tabs()->setCurrentIndex(0);
         const QPoint original = small_->pos();
         small_->move(original + QPoint(-30, 25));
         require(small_->pos() != original && window_.findChildren<ControlWindow *>().size() == 1, "control window moves independently");
@@ -330,8 +339,10 @@ private:
         preferences.shortcuts.remove("window.controls");
         require(session_.applyPreferences(preferences), "restore default shortcut");
 
-        activate(&window_);
         action(Id::Fullscreen)->trigger();
+        require(until([&] { return window_.isFullScreen(); }), "main player enters full screen");
+        activate(&window_);
+        video_->setFocus();
         QTest::keyClick(video_, Qt::Key_F7);
         require(until([&] { return window_.isFullScreen() && small_->isVisible() && QApplication::activeWindow() == small_; }),
             "control window opens above the full-screen player");
@@ -373,8 +384,11 @@ private:
         tabs()->setCurrentIndex(0);
 
         auto *play = button("controlPlayPause");
-        require(play->defaultAction() == action(Id::PlayPause) && label("controlDuration")->text() == "00:02:17.000",
-            "shared play button and current media duration displayed");
+        auto *navigation = button("controlNavigationButton");
+        require(play->defaultAction() == action(Id::PlayPause) && !play->icon().isNull()
+            && !button("controlFrameBackward")->icon().isNull() && !button("controlFrameForward")->icon().isNull()
+            && !navigation->icon().isNull() && navigation->menu()->actions().contains(action(Id::UndoSeek)),
+            "the transport icons share playback actions and expose chapter navigation and undo");
         play->setFocus(Qt::TabFocusReason);
         QTest::keyClick(play, Qt::Key_Tab);
         require(QApplication::focusWidget() && QApplication::focusWidget() != play
@@ -389,7 +403,9 @@ private:
         auto *smallBack = button("controlBackSmall");
         auto *largeForward = button("controlForwardLarge");
         auto *largeBack = button("controlBackLarge");
-        require(largeForward->toolTip().contains("45") && smallForward->toolTip().contains("3")
+        require(largeForward->text() == "45s" && smallForward->text() == "3s"
+            && !largeForward->icon().isNull() && !smallBack->icon().isNull()
+            && largeForward->accessibleName().contains("45") && smallForward->toolTip().contains("3")
             && smallBack->popupMode() == QToolButton::MenuButtonPopup && smallForward->popupMode() == QToolButton::MenuButtonPopup
             && smallBack->menu()->actions() == QList<QAction *>{action(Id::BackMedium)}
             && smallForward->menu()->actions() == QList<QAction *>{action(Id::ForwardMedium)}
@@ -411,47 +427,64 @@ private:
         auto *rateMenu = window_.findChild<QMenu *>("rateMenu");
         auto *rateButton = window_.findChild<QToolButton *>("playbackRateButton");
         auto *rateUp = button("controlRateMore");
+        auto *rateDown = button("controlRateLess");
+        auto *rateReset = button("controlRateReset");
         require(rateButton->menu() == rateMenu && rateMenu->actions().contains(rateUp->defaultAction())
-            && rateUp->defaultAction() == action(Id::RateMore), "main menu, bottom bar and control window share speed actions");
+            && rateUp->defaultAction() == action(Id::RateMore) && rateReset->defaultAction() == action(Id::RateReset)
+            && !rateUp->icon().isNull() && !rateDown->icon().isNull(), "the plus, minus and rate display share the main speed actions");
         if (mode == Id::FeatureMode) {
-            for (int i = 0; i < 8; ++i) button("controlRateLess")->click();
-            require(until([&] { return label("controlSpeed")->text() == QStringLiteral("0.25×"); }), "decreasing rate clamps at 0.25×");
+            for (int i = 0; i < 8; ++i) rateDown->click();
+            require(until([&] { return rateReset->text() == QStringLiteral("0.25×"); }), "decreasing rate clamps at 0.25×");
             for (int i = 0; i < 14; ++i) rateUp->click();
-            require(until([&] { return label("controlSpeed")->text() == QStringLiteral("3.00×"); }), "increasing rate clamps at 3×");
+            require(until([&] { return rateReset->text() == QStringLiteral("3.00×"); }), "increasing rate clamps at 3×");
         }
-        button("controlRateReset")->click();
-        require(until([&] { return near(player_.mediaProperty("speed").toDouble(), 1, .001); }), "reset to 1× with the control window");
+        rateReset->click();
+        require(until([&] { return near(player_.mediaProperty("speed").toDouble(), 1, .001)
+            && rateReset->text() == QStringLiteral("1.00×"); }), "clicking the current rate resets it to 1×");
         rateUp->setFocus(Qt::TabFocusReason);
         QTest::keyClick(rateUp, Qt::Key_Space);
-        require(until([&] { return label("controlSpeed")->text() == QStringLiteral("1.25×") && rateButton->text() == label("controlSpeed")->text()
-            && rateMenu->title().contains(label("controlSpeed")->text()); }) && player_.paused() && toggles.count() == 1,
+        require(until([&] { return rateReset->text() == QStringLiteral("1.25×") && rateButton->text() == rateReset->text()
+            && rateMenu->title().contains(rateReset->text()); }) && player_.paused() && toggles.count() == 1,
             "Space on the speed button only adjusts the confirmed rate across both windows");
 
         auto *loopB = button("controlSetB");
         auto *loopA = button("controlSetA");
+        auto *loopClear = button("controlClearLoop");
+        require(emptyLoop() && loopA->text().startsWith('A') && loopB->text().startsWith('B')
+            && qAbs(loopA->geometry().center().y() - loopB->geometry().center().y()) <= 2
+            && qAbs(loopB->geometry().center().y() - loopClear->geometry().center().y()) <= 2
+            && !loopClear->icon().isNull()
+            && loopA->defaultAction() == action(Id::LoopA) && loopB->defaultAction() == action(Id::LoopB),
+            "both endpoint buttons combine their timestamps and set actions in the same row");
         activate(small_);
         loopB->click();
         const double a = player_.position();
-        require(until([&] { return label("controlLoopA")->text() == PlaybackDialogs::timestamp(a)
-            && label("controlLoopB")->text() == QStringLiteral("—"); })
+        require(until([&] { return loopTime("controlSetA") == PlaybackDialogs::timestamp(a)
+            && loopTime("controlSetB") == QStringLiteral("—"); })
             && label("controlLoopNotice")->text().contains(QStringLiteral("请继续设置 B")), "B without A sets A and shows the existing prompt in the small window");
         player_.seek(a + .24);
-        require(until([&] { return player_.canSetLoopPoint() && near(player_.position(), a + .24); }), "prepare a B point less than half a second after A");
+        require(until([&] { return player_.canSetLoopPoint() && loopB->isEnabled()
+            && near(player_.position(), a + .24); }), "prepare a B point less than half a second after A");
+        activate(&window_);
         loopB->click();
-        require(label("controlLoopB")->text() == QStringLiteral("—") && label("controlLoopNotice")->text().contains("0.5"), "half-second minimum rejects a short interval");
+        require(loopTime("controlSetB") == QStringLiteral("—") && label("controlLoopNotice")->isVisible()
+            && label("controlLoopNotice")->text().contains("0.5"), "a short interval is rejected and the visible tool shows the hint");
+        activate(small_);
         seekWith(smallForward, 3);
         const double b = player_.position();
         loopB->click();
-        require(until([&] { return player_.loopActive() && label("controlLoopB")->text() == PlaybackDialogs::timestamp(b); })
-            && player_.paused() && near(player_.position(), b, .001), "valid B shows milliseconds and preserves the paused frame");
+        require(until([&] { return player_.loopActive() && loopTime("controlSetB") == PlaybackDialogs::timestamp(b)
+            && loopB->accessibleDescription().contains(PlaybackDialogs::timestamp(b)); })
+            && player_.paused() && near(player_.position(), b, .001) && !label("controlLoopNotice")->isVisible(),
+            "valid B shows milliseconds on the endpoint button and preserves the paused frame");
         require(small_->grab().save(output_.filePath(mode == Id::FeatureMode ? "playback.png" : "playback-standard.png")), "save playback tab evidence");
         play->click();
         require(until([&] { return !player_.paused() && player_.position() < b - 1; }), "resuming from the small window plays the A–B interval");
         play->click();
         require(until([&] { return player_.paused(); }), "pause again from the small window");
         loopA->click();
-        require(until([&] { return label("controlLoopB")->text() == QStringLiteral("—") && !player_.loopActive(); }), "setting A again clears the old B");
-        button("controlClearLoop")->click();
+        require(until([&] { return loopTime("controlSetB") == QStringLiteral("—") && !player_.loopActive(); }), "setting A again clears the old B");
+        loopClear->click();
         require(until([&] { return emptyLoop(); }), "clear removes both endpoint labels");
         small_->close();
     }
@@ -469,7 +502,23 @@ private:
         auto *left = button("panLeft");
         auto *pad = small_->findChild<QWidget *>("controlPanPad");
         button("controlFit")->click();
-        require(video_->zoomScale() == 1 && !right->isEnabled() && !pad->isEnabled(), "1× view disables panning on a fully fitted frame");
+        require(video_->zoomScale() == 1 && !right->isEnabled() && pad->isEnabled(), "the pad remains available for zooming at 1×");
+        const auto padCenter = pad->rect().center();
+        QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, padCenter);
+        require(pad->cursor().shape() != Qt::ClosedHandCursor, "the fully fitted video cannot start a pad drag");
+        QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, padCenter);
+        const auto wheelPad = [&](QPoint angle, QPoint pixels = {}) {
+            QWheelEvent wheel(padCenter, pad->mapToGlobal(padCenter), pixels, angle, Qt::NoButton,
+                Qt::NoModifier, Qt::NoScrollPhase, false);
+            wheel.setAccepted(false);
+            QApplication::sendEvent(pad, &wheel);
+            return wheel.isAccepted();
+        };
+        require(wheelPad({0, 120}) && until([&] { return near(video_->zoomScale(), 1.3225, .0001)
+            && zoom()->value() == 132; }), "scrolling the pad zooms from fit and updates the slider");
+        require(wheelPad({}, {0, -120}) && until([&] { return near(video_->zoomScale(), 1.15, .0001); }),
+            "pixel-based wheel input zooms out on the same pad in standard mode");
+        button("controlFit")->click();
         button("controlZoomIn")->click();
         require(until([&] { return near(video_->zoomScale(), 1.15, .0001) && zoom()->value() == 115; }),
                 "zoom plus uses the same 15 percent step as the main view");
@@ -482,11 +531,18 @@ private:
             && label("controlZoomValue")->text() == QStringLiteral("4.00×"), "slider zooms from 1× to 4× around the main viewport center");
         QTest::mouseClick(right, Qt::LeftButton);
         require(video_->viewFocus().y() > .5, "right arrow moves the rotated picture to screen right");
+        activate(small_);
         const double nudge = video_->viewFocus().y();
+        QSignalSpy repeats(right, &QToolButton::clicked);
         QTest::mousePress(right, Qt::LeftButton);
-        require(until([&] { return video_->viewFocus().y() > nudge; }), "holding an arrow pans continuously");
-        require(until([&] { return !right->isEnabled(); }) && left->isEnabled(), "the reached edge disables only its direction");
+        require(until([&] { return repeats.size() >= 2 && video_->viewFocus().y() > nudge; }), "holding an arrow pans continuously");
         QTest::mouseRelease(right, Qt::LeftButton);
+
+        const double pictureLeft = video_->framing().picture.left() / video_->devicePixelRatioF();
+        video_->panBy({-pictureLeft - 6, 0});
+        require(right->isEnabled(), "right arrow remains available one nudge from the edge");
+        QTest::mouseClick(right, Qt::LeftButton);
+        require(!right->isEnabled() && left->isEnabled(), "the reached edge disables only its direction");
         QTest::mouseClick(left, Qt::LeftButton);
         require(right->isEnabled(), "reverse direction immediately leaves the edge");
 
@@ -577,8 +633,8 @@ private:
         button("controlSetA")->click();
         seekWith(button("controlForwardSmall"), 3);
         button("controlSetB")->click();
-        require(until([&] { return player_.loopActive() && label("controlLoopA")->text() != QStringLiteral("—")
-            && label("controlLoopB")->text() != QStringLiteral("—"); }), "both loop markers are set before switching media");
+        require(until([&] { return player_.loopActive() && loopTime("controlSetA") != QStringLiteral("—")
+            && loopTime("controlSetB") != QStringLiteral("—"); }), "both loop markers are set before switching media");
         tabs()->setCurrentIndex(1);
         QTest::mousePress(right, Qt::LeftButton);
         queue_->play(ids_[1]);
@@ -587,11 +643,11 @@ private:
         require(!button("controlFullView")->isEnabled() && !action(Id::HoldFullView)->isEnabled(),
                 "audio leaves both hold-to-fit inputs disabled");
         auto *play = button("controlPlayPause");
-        require(play->isEnabled() && play->isVisible() && label("controlCurrentTime")->isVisible()
-            && label("controlDuration")->isVisible(), "the framing tab still shows playback and times for audio");
-        play->click();
-        require(until([&] { return player_.paused(); }), "audio pauses using the framing tab header");
+        require(!play->isVisible(), "the framing tab has no shared playback row");
         tabs()->setCurrentIndex(0);
+        require(play->isVisible() && play->isEnabled(), "the playback icon is available for audio");
+        play->click();
+        require(until([&] { return player_.paused(); }), "audio pauses using the playback tab");
         require(button("controlForwardSmall")->isEnabled() && button("controlRateMore")->isEnabled(), "seek and speed remain available for seekable audio");
         QTest::mouseRelease(right, Qt::LeftButton);
         queue_->play(ids_[0]);

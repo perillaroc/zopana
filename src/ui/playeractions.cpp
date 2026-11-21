@@ -26,7 +26,7 @@ constexpr Definition definitions[] = {
     {"play.stop", "停止", "square"},
     {"seek.backSmall", "后退", "skip-back"}, {"seek.forwardSmall", "前进", "skip-forward"},
     {"seek.backMedium", "后退", ""}, {"seek.forwardMedium", "前进", ""},
-    {"seek.backLarge", "后退", ""}, {"seek.forwardLarge", "前进", ""},
+    {"seek.backLarge", "后退", "chevrons-left"}, {"seek.forwardLarge", "前进", "chevrons-right"},
     {"seek.start", "跳到开头", ""}, {"seek.end", "跳到最后画面", ""},
     {"seek.goto", "跳转时间…", ""},
     {"audio.volumeUp", "增大音量", ""}, {"audio.volumeDown", "减小音量", ""},
@@ -45,11 +45,11 @@ constexpr Definition definitions[] = {
     {"sub.load","加载外挂字幕…","captions"}, {"sub.toggle","显示字幕",""}, {"sub.nextTrack","下一字幕轨",""},
     {"sub.delayLess","字幕提前 0.1 秒",""}, {"sub.delayMore","字幕推迟 0.1 秒",""}, {"sub.delayReset","字幕延迟归零",""},
     {"sub.scaleUp","字幕放大 0.1",""}, {"sub.scaleDown","字幕缩小 0.1",""}, {"sub.scaleReset","字幕缩放恢复 1.0",""},
-    {"rate.decrease","减速 0.25×",""}, {"rate.increase","加速 0.25×",""}, {"rate.reset","1.0×",""},
+    {"rate.decrease","减速 0.25×","minus"}, {"rate.increase","加速 0.25×","plus"}, {"rate.reset","1.0×",""},
     {"rate.preset.050","0.5×",""}, {"rate.preset.075","0.75×",""}, {"rate.preset.125","1.25×",""},
     {"rate.preset.150","1.5×",""}, {"rate.preset.200","2.0×",""}, {"rate.preset.300","3.0×",""}, {"audio.pitchCorrection","保持音调",""},
-    {"frame.forward","暂停并前进一帧","step-forward"}, {"frame.backward","后退一帧",""},
-    {"loop.setA","设置 A 点",""}, {"loop.setB","设置 B 点",""}, {"loop.clear","清除 A–B",""},
+    {"frame.forward","暂停并前进一帧","step-forward"}, {"frame.backward","后退一帧","step-back"},
+    {"loop.setA","设置 A 点",""}, {"loop.setB","设置 B 点",""}, {"loop.clear","清除 A–B","x"},
     {"capture.source","完整画面截图","camera"}, {"capture.viewport","当前取景截图","camera"}, {"capture.openFolder","打开截图文件夹","folder-open"},
     {"window.mediaInfo","媒体信息","info"}, {"file.location","打开文件位置","folder-open"}, {"window.alwaysOnTop","窗口置顶","pin"},
     {"window.settings","设置",""}, {"file.clearHistory","清除最近文件和进度",""},
@@ -74,10 +74,10 @@ constexpr Definition definitions[] = {
     {"file.openPlaylist", "打开片单…", ""}, {"file.appendPlaylist", "追加片单…", ""},
     {"file.exportPlaylist", "导出片单…", ""},
     {"view.holdFullView", "按住看全图", ""},
-    {"capture.copyViewport", "复制当前取景", ""},
-    {"view.pinReferenceFrame", "固定当前帧", ""},
-    {"view.toggleReferenceFrame", "查看参考帧", ""},
-    {"view.clearReferenceFrame", "清除参考帧", ""}
+    {"capture.copyViewport", "复制当前取景", "copy"},
+    {"view.pinReferenceFrame", "固定当前帧", "pin"},
+    {"view.toggleReferenceFrame", "查看参考帧", "eye"},
+    {"view.clearReferenceFrame", "清除参考帧", "pin-off"}
 };
 constexpr PlayerActions::Id seekPairs[][2] = {
     {PlayerActions::BackSmall, PlayerActions::ForwardSmall},
@@ -141,6 +141,8 @@ PlayerActions::PlayerActions(QWidget &window, VideoWidget &video, QWidget &surfa
     view(HoldFullView, {});
     get(HoldFullView)->setEnabled(false);
     get(HoldFullView)->setStatusTip(QStringLiteral("按住临时查看全图，松开返回原取景"));
+    get(HoldFullView)->setToolTip(get(HoldFullView)->statusTip());
+    get(ToggleReferenceFrame)->setCheckable(true);
     view(Stop, {QKeySequence(Qt::Key_S)});
     view(BackSmall, {QKeySequence(Qt::Key_Left)}, true); view(ForwardSmall, {QKeySequence(Qt::Key_Right)}, true);
     view(BackMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Left)}, true); view(ForwardMedium, {QKeySequence(Qt::SHIFT | Qt::Key_Right)}, true);
@@ -607,6 +609,7 @@ void PlayerActions::setSeekSteps(int small, int medium, int large)
             auto *action = get(id);
             const auto name = id == seekPairs[step][0] ? QStringLiteral("后退 %1 秒") : QStringLiteral("前进 %1 秒");
             action->setText(name.arg(seekSteps_[step]));
+            action->setIconText(QStringLiteral("%1s").arg(seekSteps_[step]));
             if (action->isEnabled()) action->setStatusTip(action->text());
         }
     }

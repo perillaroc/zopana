@@ -30,9 +30,9 @@ protected:
 private:
     QWidget *createPlaybackPage(PlayerActions &actions, QMenu &chapters);
     QWidget *createFramingPage(PlayerActions &actions);
+    QToolButton *iconButton(const char *name, const char *icon, const QString &description);
     void syncVisibility(bool activate = false);
     void ensureOnScreen();
-    void updateTime();
     void updatePlayback();
     bool viewAvailable() const;
     void updateView();
@@ -46,7 +46,8 @@ private:
     QAction *toggle_;
     QPointer<QWidget> returnFocus_;
     QTabWidget *tabs_;
-    QLabel *current_, *duration_, *rate_, *loopA_, *loopB_, *notice_;
+    QToolButton *rate_, *loopA_, *loopB_;
+    QLabel *notice_;
     QLabel *zoomValue_, *panPad_ = nullptr;
     QSlider *zoom_;
     QWidget *framingPage_;
@@ -54,5 +55,5 @@ private:
     std::array<QToolButton *, 4> panButtons_{};
     std::optional<QPointF> dragPosition_;
     QTimer noticeTimer_;
-    bool placed_ = false, viewReady_ = false;
+    bool placed_ = false, viewReady_ = false, panAvailable_ = false;
 };
