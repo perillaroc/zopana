@@ -19,3 +19,7 @@ cd docs
 npm.cmd ci
 npm.cmd run docs:dev
 ```
+
+## 许可证
+
+zopana 自有源码采用 Apache License 2.0（`Apache-2.0`）。第三方组件适用各自的许可。[许可证全文](LICENSE) · [第三方许可与来源](packaging/notices/SOURCES.txt)

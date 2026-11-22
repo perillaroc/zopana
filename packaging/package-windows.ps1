@@ -48,6 +48,7 @@ try {
 Copy-Item -Path (Join-Path $crt '*.dll') -Destination $stage
 @('[Paths]', 'Prefix=.', 'Plugins=.') | Set-Content -LiteralPath (Join-Path $stage 'qt.conf') -Encoding ASCII
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.txt') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../LICENSE') -Destination $stage
 New-Item -ItemType Directory -Path (Join-Path $stage 'notices') -Force | Out-Null
 $notices = Join-Path $stage 'notices'
 foreach ($file in 'SOURCES.txt','lucide-LICENSE.txt','LGPL-3.0-only.txt','GPL-3.0-only.txt') {

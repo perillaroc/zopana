@@ -9,7 +9,7 @@ $dist = Join-Path $PWD ('build\package-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 & .\packaging\package-windows.ps1 -BuildDir $build -QtRoot $qt -MpvRoot $mpv -OutputDir $dist
 ```
 
-脚本用 `windeployqt` 部署 Qt 和平台插件，从指定 SDK 复制 libmpv，并从 VS 的 x64 可再发行目录复制 VC++ 运行库。输出 `zopana-windows-x64.zip` 和 `zopana-windows-x64.zip.sha256`。随包 `README.txt` 提供启动和控制说明；`notices/manifest.json` 记录除清单自身外每份文件的字节数与 SHA-256。校验、解压和启动步骤见[快速开始](../quick-start.md)。
+脚本用 `windeployqt` 部署 Qt 和平台插件，从指定 SDK 复制 libmpv，并从 VS 的 x64 可再发行目录复制 VC++ 运行库。输出 `zopana-windows-x64.zip` 和 `zopana-windows-x64.zip.sha256`。随包的 `README.txt` 提供启动和控制说明，`LICENSE` 收录 zopana 自有源码的 Apache 2.0 许可证。`notices/manifest.json` 记录除清单自身外每份文件的字节数与 SHA-256。校验、解压和启动步骤见[快速开始](../quick-start.md)。
 
 ## 在独立 Windows 上验收
 
@@ -26,4 +26,4 @@ $expected = ((Get-Content .\zopana-windows-x64.zip.sha256 -Raw).Trim() -split '\
 
 功能图标来自 Lucide。完整的 ISC 与 Feather MIT 许可可在应用内通过「帮助 → 第三方许可」查看，随包副本位于 `notices/lucide-LICENSE.txt`。
 
-当前便携包供个人使用。包内 `notices/SOURCES.txt` 列出依赖版本、源码和构建来源，同目录收录 libmpv SDK 的许可、Qt 的 LGPLv3/GPLv3 文本和两份 Qt 组件 SPDX 清单。对外发布前需选定 zopana 自身的许可证，并核对分发所需的材料。
+当前便携包供个人使用。包内 `notices/SOURCES.txt` 列出依赖版本、源码和构建来源，同目录收录 libmpv SDK 的许可、Qt 的 LGPLv3/GPLv3 文本和两份 Qt 组件 SPDX 清单。对外发布前需核对第三方组件的分发材料。

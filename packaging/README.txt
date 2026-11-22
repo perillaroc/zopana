@@ -27,5 +27,8 @@ https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
 在打包输出目录的 PowerShell 中运行 Get-FileHash -Algorithm SHA256 .\zopana-windows-x64.zip，核对同目录中的 zopana-windows-x64.zip.sha256。
 可以解压到含中文和空格的目录。完整解压后再运行 zopana.exe，并随程序移动整个目录。
 
+项目许可
+zopana 自有源码采用 Apache License 2.0（Apache-2.0），完整许可文本见同目录的 LICENSE。
+
 第三方许可
 notices/SOURCES.txt 列出依赖版本、来源和许可材料，notices/manifest.json 记录随包文件的大小及 SHA-256。Lucide 图标的完整 ISC 与 Feather MIT 许可可在「帮助 → 第三方许可」查看，也随包保存在 notices/lucide-LICENSE.txt。
