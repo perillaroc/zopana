@@ -6,6 +6,7 @@
 #include <QSaveFile>
 #include <QTemporaryDir>
 #include <QStandardPaths>
+#include <QtConcurrent/QtConcurrentRun>
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -51,7 +52,11 @@ void writeEnum(QSettings &settings, const char *key, Enum value, const std::pair
 }
 }
 
-SettingsStore::SettingsStore(QString directory) : directory_(directory.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) : directory) {}
+SettingsStore::SettingsStore(QString directory, std::function<void()> beforeWrite)
+    : directory_(directory.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) : directory),
+      beforeWrite_(std::move(beforeWrite))
+{
+}
 void SettingsStore::setApplicationIdentity()
 {
     QCoreApplication::setOrganizationName("zopana"); QCoreApplication::setApplicationName("zopana");
@@ -109,17 +114,30 @@ Preferences SettingsStore::load()
 }
 bool SettingsStore::save(const Preferences &p)
 {
-    if(!QDir().mkpath(directory_)) { error_=QStringLiteral("无法创建设置目录：%1").arg(directory_); return false; }
+    return finishSave(write(p));
+}
+QFuture<QString> SettingsStore::saveInBackground(const Preferences &p) const
+{
+    return QtConcurrent::run([store = *this, p] { return store.write(p); });
+}
+bool SettingsStore::finishSave(QString error)
+{
+    error_ = std::move(error);
+    if (!error_.isEmpty()) return false;
+    needsWrite_ = false;
+    return true;
+}
+QString SettingsStore::write(const Preferences &p) const
+{
+    if (!QDir().mkpath(directory_)) return QStringLiteral("无法创建设置目录：%1").arg(directory_);
     // Serialize readable keys into a fresh INI before replacing the destination.
     // QSettings retains FormatError on a malformed source even after sync().
     QTemporaryDir temporary(directory_+"/.settings-XXXXXX");
-    if(!temporary.isValid()) { error_=QStringLiteral("无法创建临时设置文件：%1").arg(directory_); return false; }
+    if (!temporary.isValid()) return QStringLiteral("无法创建临时设置文件：%1").arg(directory_);
     const auto temporaryPath=temporary.path()+"/settings.ini";
     QSettings original(fileName(),QSettings::IniFormat); original.sync();
-    if (original.status() == QSettings::AccessError) {
-        error_ = QStringLiteral("无法读取设置文件：%1").arg(fileName());
-        return false;
-    }
+    if (original.status() == QSettings::AccessError)
+        return QStringLiteral("无法读取设置文件：%1").arg(fileName());
     QSettings s(temporaryPath,QSettings::IniFormat); s.setAtomicSyncRequired(true);
     for(const auto &key:original.allKeys()) s.setValue(key,original.value(key));
     s.setValue("schemaVersion", qMax(schemaVersion, original.value("schemaVersion").toString().toLongLong()));
@@ -153,13 +171,15 @@ bool SettingsStore::save(const Preferences &p)
     s.setValue("playlist/normalGeometry",p.playlistGeometry); s.setValue("playlist/detached",p.detached); s.setValue("playlist/visible",p.playlistVisible); s.setValue("playlist/dockWidth",p.dockWidth);
     s.beginGroup("shortcuts");
     s.remove(""); // The loaded map also retains unknown future command IDs.
-    for(auto it=p.shortcuts.begin();it!=p.shortcuts.end();++it) s.setValue(it.key(),it.value()); s.endGroup(); s.sync();
+    for(auto it=p.shortcuts.begin();it!=p.shortcuts.end();++it) s.setValue(it.key(),it.value());
+    s.endGroup();
+    if (beforeWrite_) beforeWrite_();
+    s.sync();
     QFile encoded(temporaryPath); QSaveFile destination(fileName());
     const bool success=s.status()==QSettings::NoError && encoded.open(QIODevice::ReadOnly) && destination.open(QIODevice::WriteOnly);
     const auto bytes=success?encoded.readAll():QByteArray();
     const bool saved=success && encoded.error()==QFileDevice::NoError && destination.write(bytes)==bytes.size() && destination.commit();
-    if (saved) needsWrite_ = false;
-    error_=saved ? QString() : QStringLiteral("设置保存失败：%1").arg(fileName()); return saved;
+    return saved ? QString() : QStringLiteral("设置保存失败：%1").arg(fileName());
 }
 QRect SettingsStore::visibleGeometry(QRect requested,const QList<QRect> &screens,QSize minimum)
 {

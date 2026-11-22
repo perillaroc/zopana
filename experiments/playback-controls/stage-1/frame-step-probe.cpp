@@ -26,10 +26,13 @@
 #include <QPushButton>
 #include <QScopeGuard>
 #include <QScreen>
+#include <QSemaphore>
 #include <QSignalSpy>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTest>
+#include <QThread>
+#include <QTimer>
 #include <QToolButton>
 #include <mpv/stream_cb.h>
 
@@ -42,6 +45,7 @@
 #include <memory>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 namespace {
 using Id = PlayerActions::Id;
@@ -72,6 +76,33 @@ qint64 now()
 }
 
 double milliseconds(qint64 ticks) { return double(ticks) / 1'000'000; }
+
+constexpr double restartVolume = 67;
+
+struct SettingsWritePause
+{
+    void arm()
+    {
+        entered = 0;
+        resumed = 0;
+        armed = true;
+    }
+
+    void beforeWrite()
+    {
+        if (!armed.exchange(false)) return;
+        onGuiThread = QThread::currentThread() == qApp->thread();
+        entered = now();
+        resume.tryAcquire(1, 8000);
+        resumed = now();
+    }
+
+    bool active() const { return entered.load() != 0 && resumed.load() == 0; }
+
+    QSemaphore resume;
+    std::atomic<bool> armed = false, onGuiThread = false;
+    std::atomic<qint64> entered = 0, resumed = 0;
+};
 
 Player &initialize(Player &player)
 {
@@ -206,9 +237,9 @@ struct Probe
     QSignalSpy requests{&player, &Player::requestSubmitted};
     QSignalSpy replies{&player, &Player::requestFinished};
 
-    Probe(const QString &fixtureDir, const QString &output)
+    Probe(const QString &fixtureDir, const QString &output, std::function<void()> beforeSettingsWrite = {})
         : fixtures(fixtureDir), evidence(output), streamFile(evidence.filePath("cfr.mkv")),
-          settings(output + "/config"), history(output + "/data"), main(initialize(player)),
+          settings(output + "/config", std::move(beforeSettingsWrite)), history(output + "/data"), main(initialize(player)),
           session(player, main, settings, history)
     {
         auto preferences = session.preferences();
@@ -770,6 +801,69 @@ struct Probe
         check(maxChannelDifference(displayedRows(*video), expected) <= 1, "the paused viewport retains the recovered target frame");
     }
 
+    void slowSettings(SettingsWritePause &write)
+    {
+        openVideo(fixtures.filePath("motion-4k.mp4"));
+        activate(main);
+        const auto frames = readTimestamps(evidence.filePath("4k-frames.json"));
+        constexpr double from = 1.266667;
+        const double target = previousFrame(frames, from);
+        prime(target);
+        const auto expected = displayedRows(*video);
+        prime(from);
+        check(maxChannelDifference(displayedRows(*video), expected) > 1, "the 4K start and target frames are distinct");
+
+        session.saveWindows();
+        SettingsStore reader(evidence.filePath("config"));
+        const auto initialVolume = reader.load().volume;
+        const auto release = qScopeGuard([&] { write.resume.release(); });
+        write.arm();
+        player.setVolume(35);
+        check(until([&] { return write.entered.load() != 0; }) && write.active() && !write.onGuiThread.load(),
+            "the delayed settings write reaches the disk pause on a worker");
+
+        QTimer::singleShot(0, &main, [&] { QTest::keyClick(video, Qt::Key_F7); });
+        check(until([&] { return control->isVisible(); }) && write.active(),
+            "the window responds to F7 during the slow settings write");
+        actions->get(Id::ControlWindowToggle)->setChecked(false);
+        activate(main);
+
+        qint64 shown = 0;
+        const auto connection = QObject::connect(video, &QOpenGLWidget::frameSwapped, &main, [&] {
+            if (!shown && maxChannelDifference(displayedRows(*video), expected) <= 1) shown = now();
+        });
+        const auto disconnect = qScopeGuard([&] { QObject::disconnect(connection); });
+        requests.clear();
+        const auto pressed = now();
+        key(QEvent::KeyPress, Qt::Key_Z);
+        key(QEvent::KeyRelease, Qt::Key_Z);
+        check(until([&] { return shown && !player.seekInProgress() && near(player.position(), target); }) && write.active()
+            && player.paused() && operationCount(requests, "frame-back-step ") == 1 && operationCount(requests, "seek ") == 0,
+            "one backward step displays the correct paused 4K frame before the settings write resumes");
+        std::printf("4K %.6f -> %.6f, displayed in %.1f ms during the settings write\n", from, target, milliseconds(shown - pressed));
+
+        player.setVolume(46);
+        player.setVolume(57);
+        QTest::qWait(900);
+        check(write.active() && reader.load().volume == initialVolume, "new settings wait behind the active write");
+        write.resume.release();
+        check(until([&] { return reader.load().volume == 57; }), "the latest queued settings reach disk while the window is open");
+        std::printf("First settings write held for %.1f ms\n", milliseconds(write.resumed.load() - write.entered.load()));
+
+        write.arm();
+        player.setVolume(74);
+        check(until([&] { return write.entered.load() != 0; }) && write.active() && !write.onGuiThread.load(),
+            "an older background write is in progress before closing");
+        player.setAudioPreferences(restartVolume, true);
+        const std::jthread releaseOnClose([&] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            write.resume.release();
+        });
+        check(main.close() && write.resumed.load() != 0, "normal close waits for the active write");
+        const auto saved = reader.load();
+        check(saved.volume == restartVolume && saved.muted, "normal close persists the newest volume and mute state");
+    }
+
     void time4K()
     {
         openVideo(fixtures.filePath("motion-4k.mp4"));
@@ -845,9 +939,24 @@ int main(int argc, char **argv)
     const auto args = app.arguments();
     const bool reference = args.size() == 4 && args[3] == "--reference";
     const bool renderTimeout = args.size() == 4 && args[3] == "--render-timeout";
-    if (!reference && !renderTimeout && args.size() != 3) return 2;
+    const bool slowSettings = args.size() == 4 && args[3] == "--slow-settings";
+    const bool readSettings = args.size() == 4 && args[3] == "--read-slow-settings";
+    if (!reference && !renderTimeout && !slowSettings && !readSettings && args.size() != 3) return 2;
     try {
+        if (slowSettings) {
+            SettingsWritePause write;
+            Probe probe(args[1], args[2], [&] { write.beforeWrite(); });
+            probe.bindShortcut();
+            probe.slowSettings(write);
+            return 0;
+        }
         Probe probe(args[1], args[2]);
+        if (readSettings) {
+            check(probe.player.volumeTarget() == restartVolume && probe.player.muteTarget(),
+                "a new player process restores the last volume and mute state");
+            check(probe.main.close(), "the restarted window closes normally");
+            return 0;
+        }
         if (reference) {
             probe.referenceComparison();
             return 0;

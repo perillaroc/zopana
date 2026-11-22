@@ -21,6 +21,7 @@
 #include <QScreen>
 #include <QVBoxLayout>
 #include <cmath>
+#include <utility>
 
 SessionController::SessionController(Player &player,MainWindow &window,SettingsStore &settings,HistoryStore &history)
     : QObject(&window),player_(player),window_(window),settings_(settings),history_(history),preferences_(settings.load()),savedPreferences_(preferences_)
@@ -63,7 +64,14 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     connect(&history_,&HistoryStore::changed,this,[this] { recentTimer_.start(0); }); connect(recent_,&QMenu::aboutToShow,this,&SessionController::rebuildRecent);
     connect(&history_,&HistoryStore::error,this,[this](const QString &message) { surface_->showOsd("storage",message,5000); });
     progressTimer_.setInterval(5000); connect(&progressTimer_,&QTimer::timeout,this,[this] { flushProgress(); }); progressTimer_.start();
-    settingsTimer_.setSingleShot(true); settingsTimer_.setInterval(700); connect(&settingsTimer_,&QTimer::timeout,this,&SessionController::saveWindows);
+    settingsTimer_.setSingleShot(true); settingsTimer_.setInterval(700);
+    connect(&settingsTimer_, &QTimer::timeout, this, &SessionController::saveDeferredSettings);
+    connect(&settingsWriter_, &QFutureWatcher<QString>::finished, this, [this] {
+        if (!writingPreferences_ || !settingsWriter_.isFinished()) return;
+        const bool changed = preferences_ != *writingPreferences_;
+        finishSettingsSave();
+        if (changed && !settingsTimer_.isActive()) saveDeferredSettings();
+    });
     window.installEventFilter(this); host_->window()->installEventFilter(this); surface_->installEventFilter(this);
     auto *mediaControls=window.findChild<MediaControls *>();
     connect(host_,&PlaylistHost::changed,this,&SessionController::scheduleSave);
@@ -162,6 +170,10 @@ SessionController::SessionController(Player &player,MainWindow &window,SettingsS
     if(settingsNeedWrite_) settingsTimer_.start();
     const auto message=settings_.error().isEmpty()?history_.loadError():settings_.error(); if(!message.isEmpty()) QTimer::singleShot(0,this,[this,message] { surface_->showOsd("storage",message,5000); });
 }
+SessionController::~SessionController()
+{
+    if (writingPreferences_) settingsWriter_.waitForFinished();
+}
 void SessionController::captureRuntime(Preferences &p) const
 {
     if(!window_.isMinimized()) {
@@ -248,12 +260,12 @@ bool SessionController::applyPreferences(Preferences p)
 
 bool SessionController::commitPreferences(Preferences p, bool resetAll)
 {
+    waitForSettingsSave();
     if((settingsNeedWrite_ || p!=savedPreferences_) && !settings_.save(p)) { settingsError(settings_.error()); return false; }
     const bool wasRecording=preferences_.recordHistory;
     settingsTimer_.stop();
     preferences_=std::move(p);
-    savedPreferences_=preferences_;
-    settingsNeedWrite_=false; settingsErrorReported_=false;
+    recordSavedPreferences(preferences_);
     restoring_=true;
     applySettings();
     window_.setWindowSizing(preferences_.sizePolicy, preferences_.lastVideoScale);
@@ -301,12 +313,37 @@ void SessionController::saveWindows()
 {
     if(restoring_) return;
     settingsTimer_.stop();
+    waitForSettingsSave();
     captureRuntime(preferences_);
     if(!settingsNeedWrite_ && preferences_==savedPreferences_) return;
     if(!settings_.save(preferences_)) { settingsError(settings_.error(),preferences_!=savedPreferences_); return; }
-    savedPreferences_=preferences_;
-    settingsNeedWrite_=false;
-    settingsErrorReported_=false;
+    recordSavedPreferences(preferences_);
+}
+void SessionController::saveDeferredSettings()
+{
+    if (restoring_ || writingPreferences_) return;
+    captureRuntime(preferences_);
+    if (!settingsNeedWrite_ && preferences_ == savedPreferences_) return;
+    writingPreferences_ = preferences_;
+    settingsWriter_.setFuture(settings_.saveInBackground(*writingPreferences_));
+}
+void SessionController::finishSettingsSave()
+{
+    const auto written = std::exchange(writingPreferences_, std::nullopt);
+    if (settings_.finishSave(settingsWriter_.result())) recordSavedPreferences(*written);
+    else settingsError(settings_.error(), preferences_ != savedPreferences_);
+}
+void SessionController::waitForSettingsSave()
+{
+    if (!writingPreferences_) return;
+    settingsWriter_.waitForFinished();
+    finishSettingsSave();
+}
+void SessionController::recordSavedPreferences(const Preferences &preferences)
+{
+    savedPreferences_ = preferences;
+    settingsNeedWrite_ = false;
+    settingsErrorReported_ = false;
 }
 void SessionController::ensureVisibleWindows()
 {

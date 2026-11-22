@@ -3,6 +3,7 @@
 #include "historystore.h"
 #include "player.h"
 #include "skippolicy.h"
+#include <QFutureWatcher>
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
@@ -22,6 +23,7 @@ class SessionController final : public QObject
     Q_OBJECT
 public:
     SessionController(Player &player,MainWindow &window,SettingsStore &settings,HistoryStore &history);
+    ~SessionController() override;
     const Preferences &preferences() const { return preferences_; }
     bool applyPreferences(Preferences preferences);
     void clearHistory();
@@ -36,6 +38,10 @@ protected:
 private:
     void captureRuntime(Preferences &preferences) const;
     void scheduleSave();
+    void saveDeferredSettings();
+    void finishSettingsSave();
+    void waitForSettingsSave();
+    void recordSavedPreferences(const Preferences &preferences);
     void applySettings();
     void applyPlaybackSettings(const Preferences &preferences);
     bool applyDialogChanges(const Preferences &draft, const SettingsEdits &edits);
@@ -64,6 +70,8 @@ private:
     HistoryStore &history_;
     Preferences preferences_;
     Preferences savedPreferences_;
+    std::optional<Preferences> writingPreferences_;
+    QFutureWatcher<QString> settingsWriter_;
     PlayerActions *actions_;
     PlaylistController *playlist_;
     PlaylistHost *host_;

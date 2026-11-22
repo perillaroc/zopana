@@ -3,15 +3,18 @@ param(
     [Parameter(Mandatory)] [string]$FixtureDir,
     [string]$QtRoot = 'C:/lang/qt/6.11.3/msvc2022_64',
     [switch]$Reference,
-    [switch]$RenderTimeout
+    [switch]$RenderTimeout,
+    [switch]$SlowSettings
 )
 
 $ErrorActionPreference = 'Stop'
-if ($Reference -and $RenderTimeout) { throw 'Choose one focused frame-step mode.' }
+if (([int]$Reference.IsPresent + [int]$RenderTimeout.IsPresent + [int]$SlowSettings.IsPresent) -gt 1) {
+    throw 'Choose one focused frame-step mode.'
+}
 $buildPath = (Resolve-Path -LiteralPath $BuildDir).Path
 $fixtures = (Resolve-Path -LiteralPath $FixtureDir).Path
 $exe = (Resolve-Path -LiteralPath "$buildPath/zopana_playback_frames.exe").Path
-$prefix = if ($Reference) { 'reference-' } elseif ($RenderTimeout) { 'render-timeout-' } else { 'frame-step-' }
+$prefix = if ($Reference) { 'reference-' } elseif ($RenderTimeout) { 'render-timeout-' } elseif ($SlowSettings) { 'slow-settings-' } else { 'frame-step-' }
 $runPath = Join-Path $buildPath ($prefix + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $runPath | Out-Null
 
@@ -48,6 +51,7 @@ try {
     $probeArgs = @($fixtures, $runPath)
     if ($Reference) { $probeArgs += '--reference' }
     if ($RenderTimeout) { $probeArgs += '--render-timeout' }
+    if ($SlowSettings) { $probeArgs += '--slow-settings' }
     & $exe @probeArgs 2>&1 | Out-File -LiteralPath $log -Encoding utf8
     if ($LASTEXITCODE) {
         Get-Content -LiteralPath $log -Tail 65 -Encoding utf8
@@ -60,6 +64,16 @@ try {
     } elseif ($RenderTimeout) {
         Write-Output "PASS render timeout recovery ($checks checks, $environment)"
         Select-String -LiteralPath $log -Pattern '^4K render stall ' | ForEach-Object Line
+    } elseif ($SlowSettings) {
+        Write-Output "PASS slow settings write ($checks checks, $environment)"
+        Select-String -LiteralPath $log -Pattern '^4K |^First settings write held ' | ForEach-Object Line
+        $restartLog = Join-Path $runPath 'restart.log'
+        & $exe $fixtures $runPath --read-slow-settings 2>&1 | Out-File -LiteralPath $restartLog -Encoding utf8
+        if ($LASTEXITCODE) {
+            Get-Content -LiteralPath $restartLog -Tail 30 -Encoding utf8
+            throw "Settings restart probe failed ($LASTEXITCODE)"
+        }
+        Write-Output 'PASS restart restores last settings'
     } else {
         Write-Output "PASS frame step ($checks checks, $environment)"
         Select-String -LiteralPath $log -Pattern '^4K ' | ForEach-Object Line

@@ -2,9 +2,11 @@
 #include "playlistsort.h"
 #include "repeatmode.h"
 #include "windowsizing.h"
+#include <QFuture>
 #include <QRect>
 #include <QString>
 #include <QVariantMap>
+#include <functional>
 
 struct Preferences {
     static constexpr int minSeekStepSeconds = 1, maxSeekStepSeconds = 3600;
@@ -40,16 +42,20 @@ struct Preferences {
 class SettingsStore
 {
 public:
-    explicit SettingsStore(QString directory = {});
+    explicit SettingsStore(QString directory = {}, std::function<void()> beforeWrite = {});
     static void setApplicationIdentity();
     static Preferences defaults();
     static QRect visibleGeometry(QRect requested, const QList<QRect> &screens, QSize minimum);
     Preferences load();
     bool save(const Preferences &preferences);
+    QFuture<QString> saveInBackground(const Preferences &preferences) const;
+    bool finishSave(QString error);
     QString fileName() const { return directory_ + "/settings.ini"; }
     QString error() const { return error_; }
     bool needsWrite() const { return needsWrite_; }
 private:
+    QString write(const Preferences &preferences) const;
     QString directory_, error_;
+    std::function<void()> beforeWrite_;
     bool needsWrite_ = false;
 };
