@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Qt 6.11.3 MSVC x64
+        shell: pwsh
+        run: |
+          # Qt 6.11.3 publishes this kit in an architecture-specific repository.
+          $feed = 'https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_msvc2022_64'
+          $packageName = 'qt.qt6.6113.win64_msvc2022_64'
+          [xml]$updates = (Invoke-WebRequest -Uri "$feed/Updates.xml" -TimeoutSec 60).Content
+          $package = $updates.Updates.PackageUpdate | Where-Object Name -CEQ $packageName
+          $archives = $package.DownloadableArchives -split ',\s*'
+          $qtRoot = Join-Path $env:RUNNER_TEMP 'zopana-qt/6.11.3/msvc2022_64'
+          $sevenZip = Join-Path $env:ProgramFiles '7-Zip/7z.exe'
+
+          foreach ($module in 'qtbase', 'qtsvg', 'qttools', 'opengl32sw') {
+              $archive = @($archives -like "$module-*.7z")
+              if ($archive.Count -ne 1) { throw "Expected one Qt archive for $module." }
+              $url = "$feed/$packageName/$($package.Version)$($archive[0])"
+              $file = Join-Path $env:RUNNER_TEMP $archive[0]
+              Invoke-WebRequest -Uri "$url.sha1" -OutFile "$file.sha1" -TimeoutSec 60
+              curl.exe --fail --location --silent --show-error --retry 2 --retry-all-errors --max-time 240 --output $file $url
+              if ($LASTEXITCODE -ne 0) { throw "Could not download Qt archive: $module" }
+              $expected = (Get-Content -LiteralPath "$file.sha1" -Raw).Trim()
+              if ((Get-FileHash -LiteralPath $file -Algorithm SHA1).Hash -ne $expected) {
+                  throw "Qt archive checksum mismatch: $module"
+              }
+              & $sevenZip x $file "-o$qtRoot" -y -bso0 -bsp0
+              if ($LASTEXITCODE -ne 0) { throw "Could not extract Qt archive: $module" }
+          }
+
+          @('[Paths]', 'Prefix=..') | Set-Content -LiteralPath (Join-Path $qtRoot 'bin/qt.conf') -Encoding ASCII
+          "QT_ROOT_DIR=$qtRoot" >> $env:GITHUB_ENV
+
+      - name: Download and verify libmpv 0.42.0 LGPL
+        shell: pwsh
+        run: |
+          $asset = 'libmpv-v0.42.0-x86_64-w64-mingw32-lgpl.zip'
+          $zip = Join-Path $env:RUNNER_TEMP $asset
+          $url = "https://github.com/mpv-player/mpv/releases/download/v0.42.0/$asset"
+          curl.exe --fail --location --silent --show-error --retry 2 --retry-all-errors --max-time 240 --output $zip $url
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the libmpv SDK.' }
+          $expected = '8e5f77430efc53ef175804ba6618527e3af0448a0dcabf04d3cc72659d1a6fce'
+          if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $expected) {
+              throw 'libmpv SDK ZIP checksum mismatch.'
+          }
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'zopana-mpv')
+
+      - name: Build and package
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -version '[17,18)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or !$vs) { throw 'Visual Studio 2022 x64 C++ tools were not found.' }
+          & (Join-Path $vs 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+
+          $mpv = Join-Path $env:RUNNER_TEMP 'zopana-mpv'
+          $exports = dumpbin.exe /nologo /exports (Join-Path $mpv 'libmpv-2.dll') | ForEach-Object {
+              if ($_ -match '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(mpv_\w+)\s*$') { $Matches[1] }
+          }
+          if ($LASTEXITCODE -ne 0 -or 'mpv_render_context_create' -notin $exports) {
+              throw 'Could not read the libmpv exports.'
+          }
+          $definition = Join-Path $env:RUNNER_TEMP 'libmpv.def'
+          @('LIBRARY libmpv-2.dll', 'EXPORTS') + $exports | Set-Content -LiteralPath $definition -Encoding ASCII
+          lib.exe /nologo /machine:x64 "/def:$definition" "/out:$mpv/libmpv.lib"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create the libmpv MSVC import library.' }
+
+          $build = Join-Path $env:RUNNER_TEMP 'zopana-build'
+          $dist = Join-Path $env:RUNNER_TEMP 'zopana-dist'
+          cmake -S . -B $build -G Ninja -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE:STRING=Release "-DCMAKE_PREFIX_PATH:PATH=$env:QT_ROOT_DIR" "-DMPV_ROOT:PATH=$mpv"
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+          cmake --build $build --target zopana
+          if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+
+          & ./packaging/package-windows.ps1 -BuildDir $build -QtRoot $env:QT_ROOT_DIR -MpvRoot $mpv -OutputDir $dist
+
+      - name: Verify portable package
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'zopana-dist/zopana-windows-x64.zip'
+          $expected = ((Get-Content -LiteralPath "$zip.sha256" -Raw).Trim() -split '\s+')[0]
+          & ./experiments/m6/check-clean-windows.ps1 -Archive $zip -ExpectedSha256 $expected -InspectOnly
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zopana-windows-x64
+          path: |
+            ${{ runner.temp }}/zopana-dist/zopana-windows-x64.zip
+            ${{ runner.temp }}/zopana-dist/zopana-windows-x64.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true

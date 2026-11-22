@@ -11,6 +11,17 @@ $dist = Join-Path $PWD ('build\package-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 
 脚本用 `windeployqt` 部署 Qt 和平台插件，从指定 SDK 复制 libmpv，并从 VS 的 x64 可再发行目录复制 VC++ 运行库。输出 `zopana-windows-x64.zip` 和 `zopana-windows-x64.zip.sha256`。随包的 `README.txt` 提供启动和控制说明，`LICENSE` 收录 zopana 自有源码的 Apache 2.0 许可证。`notices/manifest.json` 记录除清单自身外每份文件的字节数与 SHA-256。校验、解压和启动步骤见[快速开始](../quick-start.md)。
 
+## 通过 GitHub 发布
+
+分支推送和 Pull Request 会触发 CI。工作流在 Windows Server 2022 上构建并预检便携包，ZIP 和 SHA-256 可从 Actions 页面中的 `zopana-windows-x64` 产物下载。
+
+推送 `vX.Y.Z` 格式的标签会触发 Release。它复用同一构建与预检流程，用仓库提供的 `GITHUB_TOKEN` 发布 ZIP 和 SHA-256，并生成发布说明。提交并推送工作流后，在要发布的提交上创建并推送标签。
+
+```powershell
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
 ## 在独立 Windows 上验收
 
 在干净的 Windows 11 x64 安装或虚拟机中保留系统原生 PATH。准备 ZIP、校验文件和 `experiments/m6/README.md` 所列的验收工具。脚本会核对 ZIP 和包内清单，将包解压到含中文和空格的目录，检查 Qt 和 libmpv 的实际加载路径，再以同一 EXE 的独立工作入口读取测试片的时长和分辨率。图形界面使用单独的验收配置目录，并由操作人验证播放、输入、独立列表、截图和设置。
@@ -26,4 +37,4 @@ $expected = ((Get-Content .\zopana-windows-x64.zip.sha256 -Raw).Trim() -split '\
 
 功能图标来自 Lucide。完整的 ISC 与 Feather MIT 许可可在应用内通过「帮助 → 第三方许可」查看，随包副本位于 `notices/lucide-LICENSE.txt`。
 
-当前便携包供个人使用。包内 `notices/SOURCES.txt` 列出依赖版本、源码和构建来源，同目录收录 libmpv SDK 的许可、Qt 的 LGPLv3/GPLv3 文本和两份 Qt 组件 SPDX 清单。对外发布前需核对第三方组件的分发材料。
+包内 `notices/SOURCES.txt` 列出依赖版本、源码和构建来源，同目录收录 libmpv SDK 的许可、Qt 的 LGPLv3/GPLv3 文本和两份 Qt 组件 SPDX 清单。对外发布前需核对第三方组件的分发材料。

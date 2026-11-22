@@ -1,4 +1,4 @@
-zopana · Windows x64 自用便携版
+zopana · Windows x64 便携版
 
 启动
 1. 在 Windows 11 x64 上解压整个 ZIP，保留 zopana-windows-x64 中的所有文件和子目录。
