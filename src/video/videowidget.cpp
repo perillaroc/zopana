@@ -421,6 +421,9 @@ void VideoWidget::customEvent(QEvent *event)
         QOpenGLWidget::customEvent(event);
         return;
     }
+    // If rendering timed out before this event was delivered, libmpv may
+    // already have promoted the pending frame and cleared the update flag.
+    bufferHasFrame_ = false;
     if (isVisible() && !window()->isMinimized()) {
         update();
         return;
@@ -433,7 +436,6 @@ void VideoWidget::customEvent(QEvent *event)
     if (mpv_render_context_update(renderer_) & MPV_RENDER_UPDATE_FRAME) {
         skipFrame();
         hasFrame_ = true;
-        bufferHasFrame_ = false;
     }
     doneCurrent();
 }

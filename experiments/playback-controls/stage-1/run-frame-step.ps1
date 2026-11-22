@@ -2,14 +2,16 @@ param(
     [Parameter(Mandatory)] [string]$BuildDir,
     [Parameter(Mandatory)] [string]$FixtureDir,
     [string]$QtRoot = 'C:/lang/qt/6.11.3/msvc2022_64',
-    [switch]$Reference
+    [switch]$Reference,
+    [switch]$RenderTimeout
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Reference -and $RenderTimeout) { throw 'Choose one focused frame-step mode.' }
 $buildPath = (Resolve-Path -LiteralPath $BuildDir).Path
 $fixtures = (Resolve-Path -LiteralPath $FixtureDir).Path
 $exe = (Resolve-Path -LiteralPath "$buildPath/zopana_playback_frames.exe").Path
-$prefix = if ($Reference) { 'reference-' } else { 'frame-step-' }
+$prefix = if ($Reference) { 'reference-' } elseif ($RenderTimeout) { 'render-timeout-' } else { 'frame-step-' }
 $runPath = Join-Path $buildPath ($prefix + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $runPath | Out-Null
 
@@ -45,6 +47,7 @@ try {
     $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$QtRoot/plugins/platforms"
     $probeArgs = @($fixtures, $runPath)
     if ($Reference) { $probeArgs += '--reference' }
+    if ($RenderTimeout) { $probeArgs += '--render-timeout' }
     & $exe @probeArgs 2>&1 | Out-File -LiteralPath $log -Encoding utf8
     if ($LASTEXITCODE) {
         Get-Content -LiteralPath $log -Tail 65 -Encoding utf8
@@ -54,6 +57,9 @@ try {
     $environment = (Select-String -LiteralPath $log -Pattern '^Qt ').Line
     if ($Reference) {
         Write-Output "PASS reference comparison ($checks checks, $environment)"
+    } elseif ($RenderTimeout) {
+        Write-Output "PASS render timeout recovery ($checks checks, $environment)"
+        Select-String -LiteralPath $log -Pattern '^4K render stall ' | ForEach-Object Line
     } else {
         Write-Output "PASS frame step ($checks checks, $environment)"
         Select-String -LiteralPath $log -Pattern '^4K ' | ForEach-Object Line

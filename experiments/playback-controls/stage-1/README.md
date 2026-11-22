@@ -73,6 +73,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
 加 `-Reference` 运行参考帧对照用例。探针使用带标记的样片，验证 90°、8× 下的双向逐帧、显示切换、撤销定位和参考帧清理，并在 `reference-` 目录保留两种显示的剪贴板图像及对应 PNG。此模式会写入系统剪贴板。
 
+加 `-RenderTimeout` 运行 4K 渲染超时用例。探针按下逐帧后退快捷键后暂停处理 GUI 事件 950 毫秒，并验证 libmpv 在此期间报告丢帧和播放重启。恢复处理事件后，用例通过窗口交换时采样的像素确认目标帧已显示，并核对仅发送一次逐帧命令。日志写在 `render-timeout-` 目录。
+
 ## 旋转、窗口与元数据验证
 
 构建同一目录下的两个额外目标。准备 Python 3、FFprobe 和含 `libx264`、`libvpx-vp9` 的 FFmpeg。

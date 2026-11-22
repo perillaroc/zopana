@@ -82,14 +82,21 @@ Player &initialize(Player &player)
 class RestartClock
 {
 public:
-    explicit RestartClock(Player &player)
+    explicit RestartClock(Player &player, bool observeFrameDrops = false)
         : client_(mpv_create_client(player.handle(), "frame_timing"), &mpv_destroy)
     {
         if (!client_) throw std::runtime_error("create libmpv timing client");
+        if (observeFrameDrops && mpv_observe_property(client_.get(), 1, "frame-drop-count", MPV_FORMAT_INT64) < 0)
+            throw std::runtime_error("observe dropped video frames");
         listener_ = std::jthread([this](std::stop_token stop) {
             while (!stop.stop_requested()) {
                 const auto *event = mpv_wait_event(client_.get(), -1);
                 if (event->event_id == MPV_EVENT_PLAYBACK_RESTART) lastRestart_.store(now());
+                if (event->event_id == MPV_EVENT_PROPERTY_CHANGE && event->reply_userdata == 1) {
+                    const auto *property = static_cast<const mpv_event_property *>(event->data);
+                    if (property->format == MPV_FORMAT_INT64)
+                        droppedFrames_.store(*static_cast<const int64_t *>(property->data));
+                }
             }
         });
     }
@@ -101,10 +108,12 @@ public:
     }
 
     qint64 lastRestart() const { return lastRestart_.load(); }
+    qint64 droppedFrames() const { return droppedFrames_.load(); }
 
 private:
     std::unique_ptr<mpv_handle, decltype(&mpv_destroy)> client_;
     std::atomic<qint64> lastRestart_ = 0;
+    std::atomic<qint64> droppedFrames_ = -1;
     std::jthread listener_;
 };
 
@@ -723,6 +732,44 @@ struct Probe
         check(noReference() && !pin->isEnabled(), "stopping releases the reference and disables the controls");
     }
 
+    void renderTimeout()
+    {
+        openVideo(fixtures.filePath("motion-4k.mp4"));
+        activate(main);
+        const auto frames = readTimestamps(evidence.filePath("4k-frames.json"));
+        constexpr double from = 1.266667;
+        const double target = previousFrame(frames, from);
+        prime(target);
+        const auto expected = displayedRows(*video);
+        prime(from);
+        check(maxChannelDifference(displayedRows(*video), expected) > 1, "the 4K start and target frames are distinct");
+
+        RestartClock clock(player, true);
+        check(until([&] { return clock.droppedFrames() >= 0; }), "read the video output drop counter");
+        bool shown = false;
+        const auto connection = QObject::connect(video, &QOpenGLWidget::frameSwapped, &main, [&] {
+            if (!shown) shown = maxChannelDifference(displayedRows(*video), expected) <= 1;
+        });
+        const auto disconnect = qScopeGuard([&] { QObject::disconnect(connection); });
+        requests.clear();
+        const auto before = clock.droppedFrames();
+        const auto pressed = now();
+        key(QEvent::KeyPress, Qt::Key_Z);
+        key(QEvent::KeyRelease, Qt::Key_Z);
+
+        // Keep the GUI blocked past the deadline for the frame and any redraw.
+        std::this_thread::sleep_for(std::chrono::milliseconds(950));
+        const auto dropped = clock.droppedFrames();
+        std::printf("4K render stall %.1f ms, dropped frames %lld -> %lld\n", milliseconds(now() - pressed),
+            static_cast<long long>(before), static_cast<long long>(dropped));
+        check(clock.lastRestart() > pressed && dropped > before, "a render deadline expires while the GUI is blocked");
+
+        check(until([&] { return shown && !player.seekInProgress(); }) && near(player.position(), target) && player.paused()
+            && operationCount(requests, "frame-back-step ") == 1 && operationCount(requests, "seek ") == 0,
+            "the window presents the target after the timeout without another seek");
+        check(maxChannelDifference(displayedRows(*video), expected) <= 1, "the paused viewport retains the recovered target frame");
+    }
+
     void time4K()
     {
         openVideo(fixtures.filePath("motion-4k.mp4"));
@@ -797,7 +844,8 @@ int main(int argc, char **argv)
     std::setlocale(LC_NUMERIC, "C");
     const auto args = app.arguments();
     const bool reference = args.size() == 4 && args[3] == "--reference";
-    if (!reference && args.size() != 3) return 2;
+    const bool renderTimeout = args.size() == 4 && args[3] == "--render-timeout";
+    if (!reference && !renderTimeout && args.size() != 3) return 2;
     try {
         Probe probe(args[1], args[2]);
         if (reference) {
@@ -805,6 +853,10 @@ int main(int argc, char **argv)
             return 0;
         }
         probe.bindShortcut();
+        if (renderTimeout) {
+            probe.renderTimeout();
+            return 0;
+        }
         probe.compareFrames("cfr");
         probe.compareFrames("vfr");
         probe.transport();
