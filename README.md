@@ -5,12 +5,13 @@
 简体中文 · [English](README.en.md)
 
 [![Windows CI 状态](https://github.com/perillaroc/zopana/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/perillaroc/zopana/actions/workflows/ci.yml)
+[![Netlify 部署状态](https://api.netlify.com/api/v1/badges/7c9edead-41ad-4d7f-a56a-5513faa03346/deploy-status)](https://app.netlify.com/sites/zopana/deploys)
 [![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4)](#安装)
 [![Apache 2.0 许可证](https://img.shields.io/github/license/perillaroc/zopana)](LICENSE)
 
 zopana 是一款 Windows 本地视频播放器，可以放大鼠标指向的区域，拖动画面查看细节。
 
-[发布与下载](https://github.com/perillaroc/zopana/releases) · [安装](#安装) · [使用手册](docs/guide/playback.md)
+[项目网站](https://zopana.netlify.app/) · [发布与下载](https://github.com/perillaroc/zopana/releases) · [安装](#安装) · [使用手册](docs/guide/playback.md)
 
 ## 功能简介
 

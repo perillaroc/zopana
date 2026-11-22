@@ -5,12 +5,13 @@
 English · [简体中文](README.md)
 
 [![Windows CI status](https://github.com/perillaroc/zopana/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/perillaroc/zopana/actions/workflows/ci.yml)
+[![Netlify deploy status](https://api.netlify.com/api/v1/badges/7c9edead-41ad-4d7f-a56a-5513faa03346/deploy-status)](https://app.netlify.com/sites/zopana/deploys)
 [![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4)](#installation)
 [![Apache 2.0 license](https://img.shields.io/github/license/perillaroc/zopana)](LICENSE)
 
 zopana is a local video player for Windows. Zoom in on the area under your pointer and drag the picture to see details.
 
-[Releases](https://github.com/perillaroc/zopana/releases) · [Installation](#installation) · [User guide](docs/en/guide/playback.md)
+[Website](https://zopana.netlify.app/en/) · [Releases](https://github.com/perillaroc/zopana/releases) · [Installation](#installation) · [User guide](docs/en/guide/playback.md)
 
 ## Features
 
