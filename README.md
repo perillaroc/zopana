@@ -4,6 +4,10 @@
 
 English · [简体中文](README.zh-CN.md)
 
+[![Windows CI status](https://github.com/perillaroc/zopana/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/perillaroc/zopana/actions/workflows/ci.yml)
+[![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4)](#download-and-run)
+[![Apache 2.0 license](https://img.shields.io/github/license/perillaroc/zopana)](LICENSE)
+
 zopana is a local video player for Windows. Zoom in on the area under your pointer and drag the picture to see details.
 
 [Releases](https://github.com/perillaroc/zopana/releases) · [Quick start](#download-and-run) · [User guide](docs/en/guide/playback.md)
