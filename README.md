@@ -1,25 +1,48 @@
+<img align="right" src="resources/brand/zopana.svg" alt="zopana logo" width="80" height="80">
+
 # zopana
 
-zopana 是一个 Windows 桌面视频播放器，使用 Qt Widgets 和 libmpv。播放本地视频时，可跟随鼠标指针缩放并拖动画面，也可以切换到常规播放模式，用滚轮调音量、单击播放或暂停。
+English · [简体中文](README.zh-CN.md)
 
-## 项目文档
+zopana is a local video player for Windows. Zoom in on the area under your pointer and drag the picture to see details.
 
-- [快速开始](docs/quick-start.md) · 校验和解压 Windows x64 便携包，打开第一段视频。
-- [使用手册](docs/guide/playback.md) · 播放、全屏和快捷键，以及[缩放拖动](docs/guide/zoom-and-pan.md)、[播放列表](docs/guide/playlist.md)、[音轨和字幕](docs/guide/media.md)、[截图和设置](docs/guide/settings.md)。
-- [开发指南](docs/development/build.md) · 准备 Qt 和 libmpv、构建播放器、[制作和验收便携包](docs/development/packaging.md)。
-- [播放控制集成验收](experiments/playback-controls/stage-6/README.md) · 复现组合播放、全量偏好重启、窗口压力和性能对照。
-- [文档维护与部署](docs/development/docs.md) · 本地预览、构建和发布到 Netlify。
+[Releases](https://github.com/perillaroc/zopana/releases) · [Quick start](#download-and-run) · [User guide](docs/en/guide/playback.md)
 
-## 本地预览文档站
+## Download and run
 
-在安装了 Node.js 22 的 Windows PowerShell 中，从仓库根目录执行下列命令，再打开终端给出的本地地址。
+The portable build runs on **Windows 11 x64** and includes the required runtime libraries.
 
-```powershell
-cd docs
-npm.cmd ci
-npm.cmd run docs:dev
-```
+1. When a release is available, download `zopana-windows-x64.zip` from its **Assets** on GitHub Releases.
+2. Extract the entire ZIP and double-click `zopana-windows-x64\zopana.exe`. Keep the extracted folder together when moving the player.
+3. Click the folder icon in the playback controls to open a local video, or drag a video into the window.
 
-## 许可证
+Download `zopana-windows-x64.zip.sha256` alongside the ZIP to verify the download. [Verification steps](docs/en/quick-start.md)
 
-zopana 自有源码采用 Apache License 2.0（`Apache-2.0`）。第三方组件适用各自的许可。[许可证全文](LICENSE) · [第三方许可与来源](packaging/notices/SOURCES.txt)
+## First playback
+
+On first launch, the mouse wheel zooms in or out around the pointer. Hold the left mouse button and drag to move the picture. Use the fit-to-window button to show the whole frame again.
+
+Use the mouse mode button in the top bar to switch to normal playback. In this mode, the wheel adjusts volume and clicking the video pauses or resumes playback. [Mouse modes](docs/en/guide/zoom-and-pan.md)
+
+## Features
+
+- **Framing and comparison.** Zoom from 1× to 8×, rotate the picture, briefly view the full frame, or pin a reference frame to compare it with the current picture. [Zoom and pan](docs/en/guide/zoom-and-pan.md)
+- **Playback controls.** Seek in three step sizes, step forward or backward one frame at a time, adjust playback speed, loop an A–B segment, and set intro and outro skip durations. [Playback and window controls](docs/en/guide/playback.md) · [Advanced playback](docs/en/guide/media.md)
+- **Local playlists.** Add files in batches or import a folder, search and sort the queue, and use repeat or shuffle. Import and export local `.m3u8` playlists. [Files and playlists](docs/en/guide/playlist.md)
+- **Audio and subtitles.** Switch tracks, load external subtitles or automatically match subtitle files, and adjust subtitle size and audio or subtitle delay. [Audio and subtitles](docs/en/guide/media.md)
+- **Screenshots and clipboard.** Save the full video frame, save the current view with visible subtitles, or copy the current view to the clipboard. [Screenshots and settings](docs/en/guide/settings.md)
+- **Playback history.** Enable playback history in settings to remember recent files and resume from saved positions. [Playback history](docs/en/guide/settings.md)
+
+## Feedback and contributions
+
+Report problems or suggest features on GitHub. For a bug report, include your zopana version, Windows version, and steps to reproduce it. [GitHub Issues](https://github.com/perillaroc/zopana/issues)
+
+Pull requests for code and documentation are welcome.
+
+## Build from source
+
+zopana uses C++20, Qt Widgets, and libmpv. Build it on Windows x64 with Visual Studio 2022, CMake, and Ninja. [Build and run](docs/en/development/build.md) · [Packaging and release](docs/en/development/packaging.md) · [Playback validation (Chinese)](experiments/playback-controls/stage-6/README.md) · [Documentation development](docs/en/development/docs.md)
+
+## License
+
+zopana's own source code is licensed under the Apache License 2.0 (`Apache-2.0`). Third-party components are distributed under their respective licenses. [License](LICENSE) · [Third-party licenses and sources](packaging/notices/SOURCES.txt)
