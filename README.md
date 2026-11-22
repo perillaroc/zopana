@@ -1,52 +1,52 @@
-<img align="right" src="resources/brand/zopana.svg" alt="zopana logo" width="80" height="80">
+<img align="right" src="resources/brand/zopana.svg" alt="zopana 图标" width="80" height="80">
 
 # zopana
 
-English · [简体中文](README.zh-CN.md)
+简体中文 · [English](README.en.md)
 
-[![Windows CI status](https://github.com/perillaroc/zopana/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/perillaroc/zopana/actions/workflows/ci.yml)
-[![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4)](#download-and-run)
-[![Apache 2.0 license](https://img.shields.io/github/license/perillaroc/zopana)](LICENSE)
+[![Windows CI 状态](https://github.com/perillaroc/zopana/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/perillaroc/zopana/actions/workflows/ci.yml)
+[![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4)](#下载与运行)
+[![Apache 2.0 许可证](https://img.shields.io/github/license/perillaroc/zopana)](LICENSE)
 
-zopana is a local video player for Windows. Zoom in on the area under your pointer and drag the picture to see details.
+zopana 是一款 Windows 本地视频播放器，可以放大鼠标指向的区域，拖动画面查看细节。
 
-[Releases](https://github.com/perillaroc/zopana/releases) · [Quick start](#download-and-run) · [User guide](docs/en/guide/playback.md)
+[发布与下载](https://github.com/perillaroc/zopana/releases) · [快速开始](#下载与运行) · [使用手册](docs/guide/playback.md)
 
-## Download and run
+## 下载与运行
 
-The portable build runs on **Windows 11 x64** and includes the required runtime libraries.
+便携版适用于 **Windows 11 x64**，运行库随包提供。
 
-1. When a release is available, download `zopana-windows-x64.zip` from its **Assets** on GitHub Releases.
-2. Extract the entire ZIP and double-click `zopana-windows-x64\zopana.exe`. Keep the extracted folder together when moving the player.
-3. Click the folder icon in the playback controls to open a local video, or drag a video into the window.
+1. 便携包发布后，在 GitHub Releases 的 **Assets** 中下载 `zopana-windows-x64.zip`。
+2. 完整解压 ZIP，再双击 `zopana-windows-x64\zopana.exe`。移动播放器时请保留整个解压目录。
+3. 点击底栏的 **打开文件** 选择本地视频，或把视频拖入窗口。
 
-Download `zopana-windows-x64.zip.sha256` alongside the ZIP to verify the download. [Verification steps](docs/en/quick-start.md)
+可以一并下载 `zopana-windows-x64.zip.sha256`，核对压缩包的完整性。[校验与解压步骤](docs/quick-start.md)
 
-## First playback
+## 第一次使用
 
-On first launch, the mouse wheel zooms in or out around the pointer. Hold the left mouse button and drag to move the picture. Use the fit-to-window button to show the whole frame again.
+首次启动使用 **缩放拖动** 模式。把指针移到想看的细节上，滚轮放大，按住左键移动画面。点击 **恢复适窗** 可以回到完整画面。
 
-Use the mouse mode button in the top bar to switch to normal playback. In this mode, the wheel adjusts volume and clicking the video pauses or resumes playback. [Mouse modes](docs/en/guide/zoom-and-pan.md)
+点击顶栏的模式按钮切到 **常规播放**。在这个模式下，视频区滚轮用于调节音量，左键单击可暂停或继续。[两种鼠标模式](docs/guide/zoom-and-pan.md)
 
-## Features
+## 主要功能
 
-- **Framing and comparison.** Zoom from 1× to 8×, rotate the picture, briefly view the full frame, or pin a reference frame to compare it with the current picture. [Zoom and pan](docs/en/guide/zoom-and-pan.md)
-- **Playback controls.** Seek in three step sizes, step forward or backward one frame at a time, adjust playback speed, loop an A–B segment, and set intro and outro skip durations. [Playback and window controls](docs/en/guide/playback.md) · [Advanced playback](docs/en/guide/media.md)
-- **Local playlists.** Add files in batches or import a folder, search and sort the queue, and use repeat or shuffle. Import and export local `.m3u8` playlists. [Files and playlists](docs/en/guide/playlist.md)
-- **Audio and subtitles.** Switch tracks, load external subtitles or automatically match subtitle files, and adjust subtitle size and audio or subtitle delay. [Audio and subtitles](docs/en/guide/media.md)
-- **Screenshots and clipboard.** Save the full video frame, save the current view with visible subtitles, or copy the current view to the clipboard. [Screenshots and settings](docs/en/guide/settings.md)
-- **Playback history.** Enable playback history in settings to remember recent files and resume from saved positions. [Playback history](docs/en/guide/settings.md)
+- **画面取景与对照** 支持 1×–8× 缩放、旋转、临时查看全图和固定参考帧，可在参考帧与当前画面之间切换。[缩放与取景](docs/guide/zoom-and-pan.md)
+- **播放控制** 支持三档步长定位、前后逐帧、倍速、A–B 循环和按设定秒数跳过片头片尾。[播放与窗口](docs/guide/playback.md) · [进阶播放](docs/guide/media.md)
+- **本地播放列表** 支持批量添加文件和文件夹、搜索与排序、循环与随机播放，以及导入导出本地 `.m3u8` 片单。[文件与播放列表](docs/guide/playlist.md)
+- **音轨与字幕** 可切换音轨和字幕，加载或自动匹配外挂字幕，并调整字幕大小及音频、字幕延迟。[音轨与字幕](docs/guide/media.md)
+- **截图与复制** 可保存完整视频画面或带可见字幕的当前取景，也可将取景复制到剪贴板。[截图与设置](docs/guide/settings.md)
+- **播放历史** 可在设置中开启播放历史，记住最近文件并从保存的断点继续播放。[播放历史](docs/guide/settings.md)
 
-## Feedback and contributions
+## 反馈与贡献
 
-Report problems or suggest features on GitHub. For a bug report, include your zopana version, Windows version, and steps to reproduce it. [GitHub Issues](https://github.com/perillaroc/zopana/issues)
+遇到问题或有功能建议，欢迎提交 Issue。报告问题时请附上 zopana 版本、Windows 版本和复现步骤。[GitHub Issues](https://github.com/perillaroc/zopana/issues)
 
-Pull requests for code and documentation are welcome.
+欢迎通过 Pull Request 改进代码或文档。
 
-## Build from source
+## 从源码构建
 
-zopana uses C++20, Qt Widgets, and libmpv. Build it on Windows x64 with Visual Studio 2022, CMake, and Ninja. [Build and run](docs/en/development/build.md) · [Packaging and release](docs/en/development/packaging.md) · [Playback validation (Chinese)](experiments/playback-controls/stage-6/README.md) · [Documentation development](docs/en/development/docs.md)
+zopana 使用 C++20、Qt Widgets 和 libmpv，在 Windows x64 上用 Visual Studio 2022、CMake 和 Ninja 构建。[构建与启动](docs/development/build.md) · [打包与发布](docs/development/packaging.md) · [播放控制验收](experiments/playback-controls/stage-6/README.md) · [文档维护](docs/development/docs.md)
 
-## License
+## 许可证
 
-zopana's own source code is licensed under the Apache License 2.0 (`Apache-2.0`). Third-party components are distributed under their respective licenses. [License](LICENSE) · [Third-party licenses and sources](packaging/notices/SOURCES.txt)
+zopana 自有源码采用 Apache License 2.0（`Apache-2.0`）。第三方组件适用各自的许可。[许可证全文](LICENSE) · [第三方许可与来源](packaging/notices/SOURCES.txt)
