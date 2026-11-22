@@ -5,28 +5,12 @@
 English · [简体中文](README.md)
 
 [![Windows CI status](https://github.com/perillaroc/zopana/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/perillaroc/zopana/actions/workflows/ci.yml)
-[![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4)](#download-and-run)
+[![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4)](#installation)
 [![Apache 2.0 license](https://img.shields.io/github/license/perillaroc/zopana)](LICENSE)
 
 zopana is a local video player for Windows. Zoom in on the area under your pointer and drag the picture to see details.
 
-[Releases](https://github.com/perillaroc/zopana/releases) · [Quick start](#download-and-run) · [User guide](docs/en/guide/playback.md)
-
-## Download and run
-
-The portable build runs on **Windows 11 x64** and includes the required runtime libraries.
-
-1. When a release is available, download `zopana-windows-x64.zip` from its **Assets** on GitHub Releases.
-2. Extract the entire ZIP and double-click `zopana-windows-x64\zopana.exe`. Keep the extracted folder together when moving the player.
-3. Click the folder icon in the playback controls to open a local video, or drag a video into the window.
-
-Download `zopana-windows-x64.zip.sha256` alongside the ZIP to verify the download. [Verification steps](docs/en/quick-start.md)
-
-## First playback
-
-On first launch, the mouse wheel zooms in or out around the pointer. Hold the left mouse button and drag to move the picture. Use the fit-to-window button to show the whole frame again.
-
-Use the mouse mode button in the top bar to switch to normal playback. In this mode, the wheel adjusts volume and clicking the video pauses or resumes playback. [Mouse modes](docs/en/guide/zoom-and-pan.md)
+[Releases](https://github.com/perillaroc/zopana/releases) · [Installation](#installation) · [User guide](docs/en/guide/playback.md)
 
 ## Features
 
@@ -37,13 +21,24 @@ Use the mouse mode button in the top bar to switch to normal playback. In this m
 - **Screenshots and clipboard.** Save the full video frame, save the current view with visible subtitles, or copy the current view to the clipboard. [Screenshots and settings](docs/en/guide/settings.md)
 - **Playback history.** Enable playback history in settings to remember recent files and resume from saved positions. [Playback history](docs/en/guide/settings.md)
 
-## Feedback and contributions
+## Installation
 
-Report problems or suggest features on GitHub. For a bug report, include your zopana version, Windows version, and steps to reproduce it. [GitHub Issues](https://github.com/perillaroc/zopana/issues)
+The portable build runs on **Windows 11 x64** and includes the required runtime libraries.
 
-Pull requests for code and documentation are welcome.
+1. When a release is available, download `zopana-windows-x64.zip` from its **Assets** on GitHub Releases.
+2. Extract the entire ZIP and double-click `zopana-windows-x64\zopana.exe`. Keep the extracted folder together when moving the player.
 
-## Build from source
+Download `zopana-windows-x64.zip.sha256` alongside the ZIP to verify the download. [Verification steps](docs/en/quick-start.md)
+
+## Usage
+
+Click the folder icon in the playback controls to open a local video, or drag a video into the window.
+
+On first launch, the mouse wheel zooms in or out around the pointer. Hold the left mouse button and drag to move the picture. Use the fit-to-window button to show the whole frame again.
+
+Use the mouse mode button in the top bar to switch to normal playback. In this mode, the wheel adjusts volume and clicking the video pauses or resumes playback. [Mouse modes](docs/en/guide/zoom-and-pan.md)
+
+## Development
 
 zopana uses C++20, Qt Widgets, and libmpv. Build it on Windows x64 with Visual Studio 2022, CMake, and Ninja. [Build and run](docs/en/development/build.md) · [Packaging and release](docs/en/development/packaging.md) · [Playback validation (Chinese)](experiments/playback-controls/stage-6/README.md) · [Documentation development](docs/en/development/docs.md)
 
