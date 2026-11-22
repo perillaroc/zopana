@@ -12,7 +12,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $folder = Join-Path $EvidenceRoot ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
-$null = New-Item -ItemType Directory -Path $folder -Force
+# Match the absolute, long paths returned when enumerating the extracted files.
+$folder = (New-Item -ItemType Directory -Path $folder -Force).FullName
 $record = [ordered]@{ mode = $PSCmdlet.ParameterSetName; started = (Get-Date).ToString('o'); status = 'FAILED'; checks = [ordered]@{} }
 $player = $null
 $sample = $null
